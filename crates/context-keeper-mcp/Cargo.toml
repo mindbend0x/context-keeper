@@ -1,0 +1,22 @@
+[package]
+name = "context-keeper-mcp"
+description = "MCP server binary exposing Context Keeper tools over stdio and SSE transports"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "context-keeper-mcp"
+path = "src/main.rs"
+
+[dependencies]
+context-keeper-core.workspace = true
+context-keeper-rig.workspace = true
+context-keeper-surreal.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+surrealdb.workspace = true
