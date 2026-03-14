@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use context_keeper_core::models::*;
 use serde::{Deserialize, Serialize};
 use surrealdb::engine::local::Db;
-use surrealdb::opt::RecordId;
+use surrealdb::RecordId;
 use surrealdb::Surreal;
 use uuid::Uuid;
 

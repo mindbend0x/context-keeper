@@ -1,4 +1,4 @@
-use crate::repository::{cosine_similarity, Repository};
+use crate::repository::Repository;
 use anyhow::Result;
 use context_keeper_core::models::Entity;
 
