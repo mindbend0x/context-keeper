@@ -58,6 +58,7 @@ struct MemoryRecord {
 
 #[derive(Debug, Deserialize)]
 struct DbRecord<T> {
+    #[allow(dead_code)]
     id: RecordId,
     #[serde(flatten)]
     data: T,
@@ -71,20 +72,25 @@ impl Repository {
     // ── Episodes ─────────────────────────────────────────────────────
 
     pub async fn create_episode(&self, episode: &Episode) -> Result<()> {
-        let record = EpisodeRecord {
-            content: episode.content.clone(),
-            source: episode.source.clone(),
-            session_id: episode.session_id.clone(),
-            created_at: episode.created_at.to_rfc3339(),
-            uuid: episode.id.to_string(),
-        };
-        let _: Option<DbRecord<EpisodeRecord>> = self.db.create(("episode", episode.id.to_string())).content(record).await?;
+        self.db
+            .query("CREATE episode SET content = $content, source = $source, session_id = $session_id, created_at = $created_at, uuid = $uuid")
+            .bind(("content", episode.content.clone()))
+            .bind(("source", episode.source.clone()))
+            .bind(("session_id", episode.session_id.clone()))
+            .bind(("created_at", episode.created_at.to_rfc3339()))
+            .bind(("uuid", episode.id.to_string()))
+            .await?;
         Ok(())
     }
 
     pub async fn get_episode(&self, id: Uuid) -> Result<Option<Episode>> {
-        let record: Option<DbRecord<EpisodeRecord>> = self.db.select(("episode", id.to_string())).await?;
-        Ok(record.map(|r| Episode {
+        let mut response = self
+            .db
+            .query("SELECT * FROM episode WHERE uuid = $uuid LIMIT 1")
+            .bind(("uuid", id.to_string()))
+            .await?;
+        let records: Vec<DbRecord<EpisodeRecord>> = response.take(0)?;
+        Ok(records.into_iter().next().map(|r| Episode {
             id: Uuid::parse_str(&r.data.uuid).unwrap_or(id),
             content: r.data.content,
             source: r.data.source,
@@ -121,22 +127,27 @@ impl Repository {
     // ── Entities ─────────────────────────────────────────────────────
 
     pub async fn upsert_entity(&self, entity: &Entity) -> Result<()> {
-        let record = EntityRecord {
-            name: entity.name.clone(),
-            entity_type: entity.entity_type.clone(),
-            summary: entity.summary.clone(),
-            embedding: entity.embedding.clone(),
-            valid_from: entity.valid_from.to_rfc3339(),
-            valid_until: entity.valid_until.map(|d| d.to_rfc3339()),
-            uuid: entity.id.to_string(),
-        };
-        let _: Option<DbRecord<EntityRecord>> = self.db.update(("entity", entity.id.to_string())).content(record).await?;
+        self.db
+            .query("CREATE entity SET name = $name, entity_type = $entity_type, summary = $summary, embedding = $embedding, valid_from = $valid_from, valid_until = $valid_until, uuid = $uuid")
+            .bind(("name", entity.name.clone()))
+            .bind(("entity_type", entity.entity_type.clone()))
+            .bind(("summary", entity.summary.clone()))
+            .bind(("embedding", entity.embedding.clone()))
+            .bind(("valid_from", entity.valid_from.to_rfc3339()))
+            .bind(("valid_until", entity.valid_until.map(|d| d.to_rfc3339())))
+            .bind(("uuid", entity.id.to_string()))
+            .await?;
         Ok(())
     }
 
     pub async fn get_entity(&self, id: Uuid) -> Result<Option<Entity>> {
-        let record: Option<DbRecord<EntityRecord>> = self.db.select(("entity", id.to_string())).await?;
-        Ok(record.and_then(|r| record_to_entity(r.data)))
+        let mut response = self
+            .db
+            .query("SELECT * FROM entity WHERE uuid = $uuid LIMIT 1")
+            .bind(("uuid", id.to_string()))
+            .await?;
+        let records: Vec<DbRecord<EntityRecord>> = response.take(0)?;
+        Ok(records.into_iter().next().and_then(|r| record_to_entity(r.data)))
     }
 
     pub async fn find_entities_by_name(&self, name: &str) -> Result<Vec<Entity>> {
@@ -161,16 +172,16 @@ impl Repository {
     // ── Relations ────────────────────────────────────────────────────
 
     pub async fn create_relation(&self, relation: &Relation) -> Result<()> {
-        let record = RelationRecord {
-            source_entity: relation.source_entity_id.to_string(),
-            target_entity: relation.target_entity_id.to_string(),
-            rel_type: relation.relation_type.clone(),
-            confidence: relation.confidence,
-            valid_from: relation.valid_from.to_rfc3339(),
-            valid_until: relation.valid_until.map(|d| d.to_rfc3339()),
-            uuid: relation.id.to_string(),
-        };
-        let _: Option<DbRecord<RelationRecord>> = self.db.create(("relation", relation.id.to_string())).content(record).await?;
+        self.db
+            .query("CREATE relation SET source_entity = $source_entity, target_entity = $target_entity, rel_type = $rel_type, confidence = $confidence, valid_from = $valid_from, valid_until = $valid_until, uuid = $uuid")
+            .bind(("source_entity", relation.source_entity_id.to_string()))
+            .bind(("target_entity", relation.target_entity_id.to_string()))
+            .bind(("rel_type", relation.relation_type.clone()))
+            .bind(("confidence", relation.confidence as f64))
+            .bind(("valid_from", relation.valid_from.to_rfc3339()))
+            .bind(("valid_until", relation.valid_until.map(|d| d.to_rfc3339())))
+            .bind(("uuid", relation.id.to_string()))
+            .await?;
         Ok(())
     }
 
@@ -198,15 +209,16 @@ impl Repository {
     // ── Memories ─────────────────────────────────────────────────────
 
     pub async fn create_memory(&self, memory: &Memory) -> Result<()> {
-        let record = MemoryRecord {
-            content: memory.content.clone(),
-            embedding: memory.embedding.clone(),
-            source_episode_uuid: memory.source_episode_id.to_string(),
-            entity_uuids: memory.entity_ids.iter().map(|id| id.to_string()).collect(),
-            created_at: memory.created_at.to_rfc3339(),
-            uuid: memory.id.to_string(),
-        };
-        let _: Option<DbRecord<MemoryRecord>> = self.db.create(("memory", memory.id.to_string())).content(record).await?;
+        let entity_uuids: Vec<String> = memory.entity_ids.iter().map(|id| id.to_string()).collect();
+        self.db
+            .query("CREATE memory SET content = $content, embedding = $embedding, source_episode_uuid = $source_episode_uuid, entity_uuids = $entity_uuids, created_at = $created_at, uuid = $uuid")
+            .bind(("content", memory.content.clone()))
+            .bind(("embedding", memory.embedding.clone()))
+            .bind(("source_episode_uuid", memory.source_episode_id.to_string()))
+            .bind(("entity_uuids", entity_uuids))
+            .bind(("created_at", memory.created_at.to_rfc3339()))
+            .bind(("uuid", memory.id.to_string()))
+            .await?;
         Ok(())
     }
 
