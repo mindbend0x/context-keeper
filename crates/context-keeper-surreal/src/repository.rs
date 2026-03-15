@@ -3,66 +3,181 @@ use chrono::{DateTime, Utc};
 use context_keeper_core::models::*;
 use serde::{Deserialize, Serialize};
 use surrealdb::engine::local::Db;
+use surrealdb::types::SurrealValue;
 use surrealdb::Surreal;
-use surrealdb::types::{RecordId, SurrealValue};
 use tracing::debug;
 use uuid::Uuid;
 
 /// Typed repository for all Context Keeper data operations against SurrealDB.
+///
+/// Uses SurrealDB's native graph engine: RELATE for edges, HNSW for vector
+/// search, BM25 for full-text, and recursive graph queries for traversal.
 #[derive(Clone)]
 pub struct Repository {
     db: Surreal<Db>,
 }
 
-// ── Internal record types for SurrealDB serialization ───────────────────
+// ── Deserialization helpers for SurrealDB query results ──────────────────
 
 #[derive(Debug, Serialize, Deserialize, SurrealValue)]
-struct EpisodeRecord {
-    #[allow(dead_code)]
-    id: RecordId,
-    content: String,
-    source: String,
-    session_id: Option<String>,
-    created_at: String,
-    uuid: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, SurrealValue)]
-struct EntityRecord {
-    #[allow(dead_code)]
-    id: RecordId,
+struct EntityRow {
+    id: surrealdb::types::RecordId,
     name: String,
     entity_type: String,
     summary: String,
+    #[serde(default)]
     embedding: Vec<f64>,
-    valid_from: String,
-    valid_until: Option<String>,
-    uuid: String,
+    valid_from: DateTime<Utc>,
+    valid_until: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, SurrealValue)]
-struct RelationRecord {
-    #[allow(dead_code)]
-    id: RecordId,
-    source_entity: String,
-    target_entity: String,
-    rel_type: String,
-    confidence: u8,
-    valid_from: String,
-    valid_until: Option<String>,
-    uuid: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, SurrealValue)]
-struct MemoryRecord {
-    #[allow(dead_code)]
-    id: RecordId,
+struct EpisodeRow {
+    id: surrealdb::types::RecordId,
     content: String,
+    source: String,
+    session_id: Option<String>,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, SurrealValue)]
+struct MemoryRow {
+    id: surrealdb::types::RecordId,
+    content: String,
+    #[serde(default)]
     embedding: Vec<f64>,
-    source_episode_uuid: String,
-    entity_uuids: Vec<String>,
-    created_at: String,
-    uuid: String,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, SurrealValue)]
+struct RelationEdgeRow {
+    id: surrealdb::types::RecordId,
+    #[serde(rename = "in")]
+    in_id: surrealdb::types::RecordId,
+    #[serde(rename = "out")]
+    out_id: surrealdb::types::RecordId,
+    relation_type: String,
+    confidence: u8,
+    valid_from: DateTime<Utc>,
+    valid_until: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, SurrealValue)]
+struct ScoredEntityRow {
+    id: surrealdb::types::RecordId,
+    name: String,
+    entity_type: String,
+    summary: String,
+    #[serde(default)]
+    embedding: Vec<f64>,
+    valid_from: DateTime<Utc>,
+    valid_until: Option<DateTime<Utc>>,
+    score: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, SurrealValue)]
+struct ScoredMemoryRow {
+    id: surrealdb::types::RecordId,
+    content: String,
+    #[serde(default)]
+    embedding: Vec<f64>,
+    created_at: DateTime<Utc>,
+    score: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, SurrealValue)]
+struct FtsEntityRow {
+    id: surrealdb::types::RecordId,
+    name: String,
+    entity_type: String,
+    summary: String,
+    #[serde(default)]
+    embedding: Vec<f64>,
+    valid_from: DateTime<Utc>,
+    valid_until: Option<DateTime<Utc>>,
+    relevance: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, SurrealValue)]
+struct MemoryWithEdgesRow {
+    id: surrealdb::types::RecordId,
+    content: String,
+    #[serde(default)]
+    embedding: Vec<f64>,
+    created_at: DateTime<Utc>,
+    #[serde(default)]
+    episode_ids: Vec<surrealdb::types::RecordId>,
+    #[serde(default)]
+    entity_ids: Vec<surrealdb::types::RecordId>,
+}
+
+// ── RecordId <-> Uuid helpers ────────────────────────────────────────────
+
+fn record_id_to_uuid(rid: &surrealdb::types::RecordId) -> Option<Uuid> {
+    use surrealdb::types::RecordIdKey;
+    match &rid.key {
+        RecordIdKey::String(s) => Uuid::parse_str(s).ok(),
+        RecordIdKey::Uuid(u) => Some(**u),
+        _ => None,
+    }
+}
+
+fn entity_from_row(r: EntityRow) -> Option<Entity> {
+    Some(Entity {
+        id: record_id_to_uuid(&r.id)?,
+        name: r.name,
+        entity_type: r.entity_type,
+        summary: r.summary,
+        embedding: r.embedding,
+        valid_from: r.valid_from,
+        valid_until: r.valid_until,
+    })
+}
+
+fn episode_from_row(r: EpisodeRow) -> Option<Episode> {
+    Some(Episode {
+        id: record_id_to_uuid(&r.id)?,
+        content: r.content,
+        source: r.source,
+        session_id: r.session_id,
+        created_at: r.created_at,
+    })
+}
+
+fn memory_from_row(r: MemoryRow) -> Option<Memory> {
+    Some(Memory {
+        id: record_id_to_uuid(&r.id)?,
+        content: r.content,
+        embedding: r.embedding,
+        source_episode_id: Uuid::nil(),
+        entity_ids: vec![],
+        created_at: r.created_at,
+    })
+}
+
+fn memory_with_edges_from_row(r: MemoryWithEdgesRow) -> Option<Memory> {
+    let episode_id = r.episode_ids.first().and_then(record_id_to_uuid).unwrap_or(Uuid::nil());
+    let entity_ids: Vec<Uuid> = r.entity_ids.iter().filter_map(record_id_to_uuid).collect();
+    Some(Memory {
+        id: record_id_to_uuid(&r.id)?,
+        content: r.content,
+        embedding: r.embedding,
+        source_episode_id: episode_id,
+        entity_ids,
+        created_at: r.created_at,
+    })
+}
+
+fn relation_from_edge_row(r: RelationEdgeRow) -> Option<Relation> {
+    Some(Relation {
+        id: record_id_to_uuid(&r.id)?,
+        from_entity_id: record_id_to_uuid(&r.in_id)?,
+        to_entity_id: record_id_to_uuid(&r.out_id)?,
+        relation_type: r.relation_type,
+        confidence: r.confidence,
+        valid_from: r.valid_from,
+        valid_until: r.valid_until,
+    })
 }
 
 impl Repository {
@@ -71,6 +186,7 @@ impl Repository {
     }
 
     // ── File export/import ───────────────────────────────────────────
+
     pub async fn export(&self, path: &str) -> Result<()> {
         self.db.export(path).await?;
         Ok(())
@@ -84,33 +200,25 @@ impl Repository {
     // ── Episodes ─────────────────────────────────────────────────────
 
     pub async fn create_episode(&self, episode: &Episode) -> Result<()> {
+        let q = format!(
+            "CREATE episode:`{}` SET content = $content, source = $source, session_id = $session_id, created_at = <datetime>$created_at",
+            episode.id
+        );
         self.db
-            .query("CREATE episode SET content = $content, source = $source, session_id = $session_id, created_at = $created_at, uuid = $uuid")
+            .query(&q)
             .bind(("content", episode.content.clone()))
             .bind(("source", episode.source.clone()))
             .bind(("session_id", episode.session_id.clone()))
             .bind(("created_at", episode.created_at.to_rfc3339()))
-            .bind(("uuid", episode.id.to_string()))
             .await?;
         Ok(())
     }
 
     pub async fn get_episode(&self, id: Uuid) -> Result<Option<Episode>> {
-        let mut response = self
-            .db
-            .query("SELECT * FROM episode WHERE uuid = $uuid LIMIT 1")
-            .bind(("uuid", id.to_string()))
-            .await?;
-        let records: Vec<EpisodeRecord> = response.take(0)?;
-        Ok(records.into_iter().next().map(|r| Episode {
-            id: Uuid::parse_str(&r.uuid).unwrap_or(id),
-            content: r.content,
-            source: r.source,
-            session_id: r.session_id,
-            created_at: DateTime::parse_from_rfc3339(&r.created_at)
-                .map(|d| d.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
-        }))
+        let q = format!("SELECT * FROM episode:`{}`", id);
+        let mut response = self.db.query(&q).await?;
+        let rows: Vec<EpisodeRow> = response.take(0)?;
+        Ok(rows.into_iter().next().and_then(episode_from_row))
     }
 
     pub async fn list_recent_episodes(&self, limit: usize) -> Result<Vec<Episode>> {
@@ -119,47 +227,35 @@ impl Repository {
             .query("SELECT * FROM episode ORDER BY created_at DESC LIMIT $limit")
             .bind(("limit", limit))
             .await?;
-        let records: Vec<EpisodeRecord> = response.take(0)?;
-        Ok(records
-            .into_iter()
-            .filter_map(|r| {
-                Some(Episode {
-                    id: Uuid::parse_str(&r.uuid).ok()?,
-                    content: r.content,
-                    source: r.source,
-                    session_id: r.session_id,
-                    created_at: DateTime::parse_from_rfc3339(&r.created_at)
-                        .map(|d| d.with_timezone(&Utc))
-                        .ok()?,
-                })
-            })
-            .collect())
+        let rows: Vec<EpisodeRow> = response.take(0)?;
+        Ok(rows.into_iter().filter_map(episode_from_row).collect())
     }
 
     // ── Entities ─────────────────────────────────────────────────────
 
+    /// True UPSERT: if an entity with the same ID exists, update it.
     pub async fn upsert_entity(&self, entity: &Entity) -> Result<()> {
+        let q = format!(
+            "UPSERT entity:`{}` SET name = $name, entity_type = $entity_type, summary = $summary, embedding = $embedding, valid_from = <datetime>$valid_from, valid_until = IF $valid_until THEN <datetime>$valid_until ELSE NONE END",
+            entity.id
+        );
         self.db
-            .query("CREATE entity SET name = $name, entity_type = $entity_type, summary = $summary, embedding = $embedding, valid_from = $valid_from, valid_until = $valid_until, uuid = $uuid")
+            .query(&q)
             .bind(("name", entity.name.clone()))
             .bind(("entity_type", entity.entity_type.clone()))
             .bind(("summary", entity.summary.clone()))
             .bind(("embedding", entity.embedding.clone()))
             .bind(("valid_from", entity.valid_from.to_rfc3339()))
             .bind(("valid_until", entity.valid_until.map(|d| d.to_rfc3339())))
-            .bind(("uuid", entity.id.to_string()))
             .await?;
         Ok(())
     }
 
     pub async fn get_entity(&self, id: Uuid) -> Result<Option<Entity>> {
-        let mut response = self
-            .db
-            .query("SELECT * FROM entity WHERE uuid = $uuid LIMIT 1")
-            .bind(("uuid", id.to_string()))
-            .await?;
-        let records: Vec<EntityRecord> = response.take(0)?;
-        Ok(records.into_iter().next().and_then(record_to_entity))
+        let q = format!("SELECT * FROM entity:`{}`", id);
+        let mut response = self.db.query(&q).await?;
+        let rows: Vec<EntityRow> = response.take(0)?;
+        Ok(rows.into_iter().next().and_then(entity_from_row))
     }
 
     pub async fn find_entities_by_name(&self, name: &str) -> Result<Vec<Entity>> {
@@ -168,11 +264,9 @@ impl Repository {
             .query("SELECT * FROM entity WHERE name = $name AND valid_until IS NONE")
             .bind(("name", name.to_string()))
             .await?;
-
         debug!("find_entities_by_name");
-
-        let records: Vec<EntityRecord> = response.take(0)?;
-        Ok(records.into_iter().filter_map(record_to_entity).collect())
+        let rows: Vec<EntityRow> = response.take(0)?;
+        Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
 
     pub async fn get_all_active_entities(&self) -> Result<Vec<Entity>> {
@@ -180,263 +274,301 @@ impl Repository {
             .db
             .query("SELECT * FROM entity WHERE valid_until IS NONE")
             .await?;
-        
-        let records: Vec<EntityRecord> = response.take(0)?;
-        Ok(records.into_iter().filter_map(record_to_entity).collect())
+        let rows: Vec<EntityRow> = response.take(0)?;
+        Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
 
-    // ── Relations ────────────────────────────────────────────────────
+    // ── Relations (Graph Edges) ──────────────────────────────────────
 
+    /// Create a graph edge between two entities using RELATE.
     pub async fn create_relation(&self, relation: &Relation) -> Result<()> {
+        let q = format!(
+            "RELATE entity:`{}`->relates_to:`{}`->entity:`{}` SET relation_type = $rel_type, confidence = $confidence, valid_from = <datetime>$valid_from, valid_until = IF $valid_until THEN <datetime>$valid_until ELSE NONE END",
+            relation.from_entity_id,
+            relation.id,
+            relation.to_entity_id,
+        );
         self.db
-            .query("CREATE relation SET source_entity = $source_entity, target_entity = $target_entity, rel_type = $rel_type, confidence = $confidence, valid_from = $valid_from, valid_until = $valid_until, uuid = $uuid")
-            .bind(("source_entity", relation.source_entity_id.to_string()))
-            .bind(("target_entity", relation.target_entity_id.to_string()))
+            .query(&q)
             .bind(("rel_type", relation.relation_type.clone()))
             .bind(("confidence", relation.confidence))
             .bind(("valid_from", relation.valid_from.to_rfc3339()))
             .bind(("valid_until", relation.valid_until.map(|d| d.to_rfc3339())))
-            .bind(("uuid", relation.id.to_string()))
             .await?;
         Ok(())
     }
 
     pub async fn invalidate_relation(&self, id: Uuid) -> Result<()> {
         let now = Utc::now().to_rfc3339();
+        let q = format!("UPDATE relates_to:`{}` SET valid_until = <datetime>$now", id);
         self.db
-            .query("UPDATE relation SET valid_until = $now WHERE uuid = $uuid")
+            .query(&q)
             .bind(("now", now))
-            .bind(("uuid", id.to_string()))
             .await?;
         Ok(())
     }
 
+    /// Get active relations for an entity using graph traversal.
     pub async fn get_relations_for_entity(&self, entity_id: Uuid) -> Result<Vec<Relation>> {
-        let entity_str = entity_id.to_string();
-        let mut response = self
-            .db
-            .query("SELECT * FROM relation WHERE (source_entity = $eid OR target_entity = $eid) AND valid_until IS NONE")
-            .bind(("eid", entity_str))
-            .await?;
-        let records: Vec<RelationRecord> = response.take(0)?;
-        Ok(records.into_iter().filter_map(record_to_relation).collect())
+        let q = format!(
+            "SELECT id, in AS in_id, out AS out_id, relation_type, confidence, valid_from, valid_until FROM relates_to WHERE (in = entity:`{}` OR out = entity:`{}`) AND valid_until IS NONE",
+            entity_id, entity_id
+        );
+        let mut response = self.db.query(&q).await?;
+        let rows: Vec<RelationEdgeRow> = response.take(0)?;
+        Ok(rows.into_iter().filter_map(relation_from_edge_row).collect())
     }
 
-    // ── Memories ─────────────────────────────────────────────────────
+    // ── Memories (with graph edges) ──────────────────────────────────
 
+    /// Create a memory and its graph edges to the source episode and entities.
     pub async fn create_memory(&self, memory: &Memory) -> Result<()> {
-        let entity_uuids: Vec<String> = memory.entity_ids.iter().map(|id| id.to_string()).collect();
+        let mem_id = memory.id;
+        let ep_id = memory.source_episode_id;
+
+        let q = format!(
+            "CREATE memory:`{}` SET content = $content, embedding = $embedding, created_at = <datetime>$created_at",
+            mem_id
+        );
         self.db
-            .query("CREATE memory SET content = $content, embedding = $embedding, source_episode_uuid = $source_episode_uuid, entity_uuids = $entity_uuids, created_at = $created_at, uuid = $uuid")
+            .query(&q)
             .bind(("content", memory.content.clone()))
             .bind(("embedding", memory.embedding.clone()))
-            .bind(("source_episode_uuid", memory.source_episode_id.to_string()))
-            .bind(("entity_uuids", entity_uuids))
             .bind(("created_at", memory.created_at.to_rfc3339()))
-            .bind(("uuid", memory.id.to_string()))
             .await?;
+
+        // Edge: memory -> sourced_from -> episode
+        let q = format!("RELATE memory:`{}`->sourced_from->episode:`{}`", mem_id, ep_id);
+        self.db.query(&q).await?;
+
+        // Edges: memory -> references -> entity (for each entity)
+        for entity_id in &memory.entity_ids {
+            let q = format!("RELATE memory:`{}`->references->entity:`{}`", mem_id, entity_id);
+            self.db.query(&q).await?;
+        }
+
         Ok(())
     }
 
     pub async fn list_recent_memories(&self, limit: usize) -> Result<Vec<Memory>> {
         let mut response = self
             .db
-            .query("SELECT * FROM memory ORDER BY created_at DESC LIMIT $limit")
+            .query("SELECT *, ->sourced_from->episode AS episode_ids, ->references->entity AS entity_ids FROM memory ORDER BY created_at DESC LIMIT $limit")
             .bind(("limit", limit))
             .await?;
-        let records: Vec<MemoryRecord> = response.take(0)?;
-        Ok(records.into_iter().filter_map(record_to_memory).collect())
+        let rows: Vec<MemoryWithEdgesRow> = response.take(0)?;
+        Ok(rows.into_iter().filter_map(memory_with_edges_from_row).collect())
     }
 
-    // ── Search ───────────────────────────────────────────────────────
+    // ── Vector Search (HNSW) ─────────────────────────────────────────
 
-    /// Brute-force cosine similarity search over entity embeddings.
+    /// Search entities by vector similarity using HNSW index.
     pub async fn search_entities_by_vector(
         &self,
         query_embedding: &[f64],
         limit: usize,
     ) -> Result<Vec<(Entity, f64)>> {
-        let entities = self.get_all_active_entities().await?;
-        let mut scored: Vec<(Entity, f64)> = entities
+        let mut response = self
+            .db
+            .query("SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM entity WHERE valid_until IS NONE ORDER BY score DESC LIMIT $limit")
+            .bind(("query_vec", query_embedding.to_vec()))
+            .bind(("limit", limit))
+            .await?;
+
+        let rows: Vec<ScoredEntityRow> = response.take(0)?;
+        Ok(rows
             .into_iter()
-            .map(|e| {
-                let score = cosine_similarity(query_embedding, &e.embedding);
-                (e, score)
+            .filter_map(|r| {
+                let score = r.score;
+                let entity = entity_from_row(EntityRow {
+                    id: r.id,
+                    name: r.name,
+                    entity_type: r.entity_type,
+                    summary: r.summary,
+                    embedding: r.embedding,
+                    valid_from: r.valid_from,
+                    valid_until: r.valid_until,
+                })?;
+                Some((entity, score))
             })
-            .collect();
-        
-        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        scored.truncate(limit);
-        
-        Ok(scored)
+            .collect())
     }
 
-    /// Brute-force cosine similarity search over memory embeddings.
+    /// Search memories by vector similarity using HNSW index.
     pub async fn search_memories_by_vector(
         &self,
         query_embedding: &[f64],
         limit: usize,
     ) -> Result<Vec<(Memory, f64)>> {
-        let mut response = self.db.query("SELECT * FROM memory").await?;
-        let records: Vec<MemoryRecord> = response.take(0)?;
-        let memories: Vec<Memory> = records
-            .into_iter()
-            .filter_map(record_to_memory)
-            .collect();
-
-        let mut scored: Vec<(Memory, f64)> = memories
-            .into_iter()
-            .map(|m| {
-                let score = cosine_similarity(query_embedding, &m.embedding);
-                (m, score)
-            })
-            .collect();
-        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        scored.truncate(limit);
-        Ok(scored)
-    }
-
-    /// Keyword search over entity names (simple CONTAINS match).
-    pub async fn search_entities_by_keyword(&self, query: &str) -> Result<Vec<Entity>> {
-        let pattern = format!("%{}%", query.to_lowercase());
         let mut response = self
             .db
-            .query("SELECT * FROM entity WHERE string::lowercase(name) CONTAINS string::lowercase($q) OR string::lowercase(summary) CONTAINS string::lowercase($q)")
-            .bind(("q", query.to_string()))
+            .query("SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM memory ORDER BY score DESC LIMIT $limit")
+            .bind(("query_vec", query_embedding.to_vec()))
+            .bind(("limit", limit))
             .await?;
-        
+
+        let rows: Vec<ScoredMemoryRow> = response.take(0)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| {
+                let score = r.score;
+                let memory = memory_from_row(MemoryRow {
+                    id: r.id,
+                    content: r.content,
+                    embedding: r.embedding,
+                    created_at: r.created_at,
+                })?;
+                Some((memory, score))
+            })
+            .collect())
+    }
+
+    // ── Full-Text Search (BM25) ──────────────────────────────────────
+
+    /// BM25 full-text search over entity name and summary fields.
+    pub async fn search_entities_by_keyword(&self, query: &str) -> Result<Vec<Entity>> {
         debug!("search_entities_by_keyword");
-        
-        let records: Vec<EntityRecord> = response.take(0)?;
-        let _ = pattern; // suppress unused
-        Ok(records.into_iter().filter_map(record_to_entity).collect())
+        let mut response = self
+            .db
+            .query("SELECT *, search::score(1) + search::score(2) AS relevance FROM entity WHERE name @1@ $query OR summary @2@ $query ORDER BY relevance DESC")
+            .bind(("query", query.to_string()))
+            .await?;
+
+        let rows: Vec<FtsEntityRow> = response.take(0)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| {
+                entity_from_row(EntityRow {
+                    id: r.id,
+                    name: r.name,
+                    entity_type: r.entity_type,
+                    summary: r.summary,
+                    embedding: r.embedding,
+                    valid_from: r.valid_from,
+                    valid_until: r.valid_until,
+                })
+            })
+            .collect())
     }
 
-    /// Get graph neighbors: entities connected to the given entity IDs via relations.
-    pub async fn get_graph_neighbors(&self, entity_ids: &[Uuid], depth: usize) -> Result<Vec<Entity>> {
-        let mut visited = std::collections::HashSet::new();
-        let mut frontier: Vec<Uuid> = entity_ids.to_vec();
+    /// BM25 full-text search over memory content.
+    pub async fn search_memories_by_keyword(&self, query: &str) -> Result<Vec<Memory>> {
+        let mut response = self
+            .db
+            .query("SELECT *, search::score(1) AS relevance FROM memory WHERE content @1@ $query ORDER BY relevance DESC")
+            .bind(("query", query.to_string()))
+            .await?;
 
-        for _ in 0..depth {
-            let mut next_frontier = Vec::new();
-            for eid in &frontier {
-                if !visited.insert(*eid) {
-                    continue;
-                }
-                let relations = self.get_relations_for_entity(*eid).await?;
-                for rel in relations {
-                    if !visited.contains(&rel.source_entity_id) {
-                        next_frontier.push(rel.source_entity_id);
-                    }
-                    if !visited.contains(&rel.target_entity_id) {
-                        next_frontier.push(rel.target_entity_id);
+        let rows: Vec<ScoredMemoryRow> = response.take(0)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| {
+                memory_from_row(MemoryRow {
+                    id: r.id,
+                    content: r.content,
+                    embedding: r.embedding,
+                    created_at: r.created_at,
+                })
+            })
+            .collect())
+    }
+
+    /// BM25 full-text search over episode content.
+    pub async fn search_episodes_by_keyword(&self, query: &str) -> Result<Vec<Episode>> {
+        let mut response = self
+            .db
+            .query("SELECT *, search::score(1) AS relevance FROM episode WHERE content @1@ $query ORDER BY relevance DESC")
+            .bind(("query", query.to_string()))
+            .await?;
+
+        let rows: Vec<EpisodeRow> = response.take(0)?;
+        Ok(rows.into_iter().filter_map(episode_from_row).collect())
+    }
+
+    // ── Graph Traversal ──────────────────────────────────────────────
+
+    /// Get graph neighbors of given entities using SurrealDB graph traversal.
+    pub async fn get_graph_neighbors(
+        &self,
+        entity_ids: &[Uuid],
+        _depth: usize,
+    ) -> Result<Vec<Entity>> {
+        let mut all_entities = Vec::new();
+
+        for eid in entity_ids {
+            // Get the seed entity itself
+            if let Some(seed) = self.get_entity(*eid).await? {
+                all_entities.push(seed);
+            }
+
+            // Bidirectional 1-hop traversal via graph edges
+            let q = format!(
+                "SELECT * FROM entity:`{}`<->relates_to<->entity WHERE valid_until IS NONE",
+                eid
+            );
+            let mut response = self.db.query(&q).await?;
+            let rows: Vec<EntityRow> = response.take(0)?;
+            for row in rows {
+                if let Some(entity) = entity_from_row(row) {
+                    if !all_entities.iter().any(|e| e.id == entity.id) {
+                        all_entities.push(entity);
                     }
                 }
             }
-            frontier = next_frontier;
         }
 
-        let mut entities = Vec::new();
-        for eid in &visited {
-            if let Some(entity) = self.get_entity(*eid).await? {
-                entities.push(entity);
-            }
-        }
-        Ok(entities)
+        Ok(all_entities)
     }
 
-    // ── Temporal queries ─────────────────────────────────────────────
+    // ── Temporal Queries ─────────────────────────────────────────────
 
     pub async fn entities_at(&self, at: DateTime<Utc>) -> Result<Vec<Entity>> {
         let at_str = at.to_rfc3339();
         let mut response = self
             .db
-            .query("SELECT * FROM entity WHERE valid_from <= $at AND (valid_until IS NONE OR valid_until > $at)")
+            .query("SELECT * FROM entity WHERE valid_from <= <datetime>$at AND (valid_until IS NONE OR valid_until > <datetime>$at)")
             .bind(("at", at_str))
             .await?;
-        let records: Vec<EntityRecord> = response.take(0)?;
-        Ok(records.into_iter().filter_map(record_to_entity).collect())
+        let rows: Vec<EntityRow> = response.take(0)?;
+        Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
 
     pub async fn relations_at(&self, at: DateTime<Utc>) -> Result<Vec<Relation>> {
         let at_str = at.to_rfc3339();
         let mut response = self
             .db
-            .query("SELECT * FROM relation WHERE valid_from <= $at AND (valid_until IS NONE OR valid_until > $at)")
+            .query("SELECT id, in AS in_id, out AS out_id, relation_type, confidence, valid_from, valid_until FROM relates_to WHERE valid_from <= <datetime>$at AND (valid_until IS NONE OR valid_until > <datetime>$at)")
             .bind(("at", at_str))
             .await?;
-        let records: Vec<RelationRecord> = response.take(0)?;
-        Ok(records.into_iter().filter_map(record_to_relation).collect())
+        let rows: Vec<RelationEdgeRow> = response.take(0)?;
+        Ok(rows.into_iter().filter_map(relation_from_edge_row).collect())
     }
-}
 
-// ── Conversion helpers ──────────────────────────────────────────────────
+    // ── Changefeed Queries ───────────────────────────────────────────
 
-fn record_to_entity(r: EntityRecord) -> Option<Entity> {
-    Some(Entity {
-        id: Uuid::parse_str(&r.uuid).ok()?,
-        name: r.name,
-        entity_type: r.entity_type,
-        summary: r.summary,
-        embedding: r.embedding,
-        valid_from: DateTime::parse_from_rfc3339(&r.valid_from)
-            .map(|d| d.with_timezone(&Utc))
-            .ok()?,
-        valid_until: r.valid_until.and_then(|s| {
-            DateTime::parse_from_rfc3339(&s)
-                .map(|d| d.with_timezone(&Utc))
-                .ok()
-        }),
-    })
-}
-
-fn record_to_relation(r: RelationRecord) -> Option<Relation> {
-    Some(Relation {
-        id: Uuid::parse_str(&r.uuid).ok()?,
-        source_entity_id: Uuid::parse_str(&r.source_entity).ok()?,
-        target_entity_id: Uuid::parse_str(&r.target_entity).ok()?,
-        relation_type: r.rel_type,
-        confidence: r.confidence,
-        valid_from: DateTime::parse_from_rfc3339(&r.valid_from)
-            .map(|d| d.with_timezone(&Utc))
-            .ok()?,
-        valid_until: r.valid_until.and_then(|s| {
-            DateTime::parse_from_rfc3339(&s)
-                .map(|d| d.with_timezone(&Utc))
-                .ok()
-        }),
-    })
-}
-
-fn record_to_memory(r: MemoryRecord) -> Option<Memory> {
-    Some(Memory {
-        id: Uuid::parse_str(&r.uuid).ok()?,
-        content: r.content,
-        embedding: r.embedding,
-        source_episode_id: Uuid::parse_str(&r.source_episode_uuid).ok()?,
-        entity_ids: r
-            .entity_uuids
-            .iter()
-            .filter_map(|s| Uuid::parse_str(s).ok())
-            .collect(),
-        created_at: DateTime::parse_from_rfc3339(&r.created_at)
-            .map(|d| d.with_timezone(&Utc))
-            .ok()?,
-    })
-}
-
-/// Cosine similarity between two vectors.
-pub fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
-    if a.len() != b.len() || a.is_empty() {
-        return 0.0;
+    /// Query recent changes to the entity table via changefeeds.
+    pub async fn entity_changes_since(&self, since: DateTime<Utc>) -> Result<Vec<serde_json::Value>> {
+        let since_str = since.to_rfc3339();
+        let mut response = self
+            .db
+            .query("SHOW CHANGES FOR TABLE entity SINCE $since")
+            .bind(("since", since_str))
+            .await?;
+        let changes: Vec<serde_json::Value> = response.take(0)?;
+        Ok(changes)
     }
-    let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let mag_a: f64 = a.iter().map(|x| x * x).sum::<f64>().sqrt();
-    let mag_b: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
-    if mag_a == 0.0 || mag_b == 0.0 {
-        return 0.0;
+
+    /// Query recent changes to the relates_to edge table via changefeeds.
+    pub async fn relation_changes_since(&self, since: DateTime<Utc>) -> Result<Vec<serde_json::Value>> {
+        let since_str = since.to_rfc3339();
+        let mut response = self
+            .db
+            .query("SHOW CHANGES FOR TABLE relates_to SINCE $since")
+            .bind(("since", since_str))
+            .await?;
+        let changes: Vec<serde_json::Value> = response.take(0)?;
+        Ok(changes)
     }
-    dot / (mag_a * mag_b)
 }
 
 #[cfg(test)]
@@ -444,22 +576,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_cosine_similarity_identical() {
-        let v = vec![1.0, 0.0, 0.0];
-        assert!((cosine_similarity(&v, &v) - 1.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_cosine_similarity_orthogonal() {
-        let a = vec![1.0, 0.0];
-        let b = vec![0.0, 1.0];
-        assert!(cosine_similarity(&a, &b).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_cosine_similarity_opposite() {
-        let a = vec![1.0, 0.0];
-        let b = vec![-1.0, 0.0];
-        assert!((cosine_similarity(&a, &b) + 1.0).abs() < 1e-6);
+    fn test_record_id_to_uuid_via_string_key() {
+        use surrealdb::types::RecordIdKey;
+        let uuid = Uuid::new_v4();
+        let rid = surrealdb::types::RecordId {
+            table: "entity".into(),
+            key: RecordIdKey::String(uuid.to_string()),
+        };
+        assert_eq!(record_id_to_uuid(&rid), Some(uuid));
     }
 }

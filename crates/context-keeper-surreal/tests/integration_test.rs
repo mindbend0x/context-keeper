@@ -10,11 +10,14 @@ use context_keeper_core::{
 use context_keeper_surreal::{connect_memory, apply_schema, Repository, SurrealConfig};
 use uuid::Uuid;
 
-/// Helper: create a fresh in-memory DB + repo.
+/// Helper: create a fresh in-memory DB + repo with dim=8 for mock embeddings.
 async fn setup() -> Result<Repository> {
-    let config = SurrealConfig::default();
+    let config = SurrealConfig {
+        embedding_dimensions: 8,
+        ..SurrealConfig::default()
+    };
     let db = connect_memory(&config).await?;
-    apply_schema(&db).await?;
+    apply_schema(&db, &config).await?;
     Ok(Repository::new(db))
 }
 
@@ -75,7 +78,45 @@ async fn test_entity_crud() -> Result<()> {
     Ok(())
 }
 
-// ── Relation CRUD + Invalidation ────────────────────────────────────────
+// ── Entity UPSERT deduplication ─────────────────────────────────────────
+
+#[tokio::test]
+async fn test_entity_upsert_updates_existing() -> Result<()> {
+    let repo = setup().await?;
+    let embedder = MockEmbedder::new(8);
+
+    let id = Uuid::new_v4();
+    let entity_v1 = Entity {
+        id,
+        name: "Alice".to_string(),
+        entity_type: "person".to_string(),
+        summary: "Version 1".to_string(),
+        embedding: embedder.embed("Alice v1").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+    };
+    repo.upsert_entity(&entity_v1).await?;
+
+    let entity_v2 = Entity {
+        id,
+        name: "Alice".to_string(),
+        entity_type: "person".to_string(),
+        summary: "Version 2 - updated".to_string(),
+        embedding: embedder.embed("Alice v2").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+    };
+    repo.upsert_entity(&entity_v2).await?;
+
+    let fetched = repo.get_entity(id).await?;
+    assert!(fetched.is_some());
+    let fetched = fetched.unwrap();
+    assert_eq!(fetched.summary, "Version 2 - updated");
+
+    Ok(())
+}
+
+// ── Relation CRUD + Invalidation (Graph Edges) ─────────────────────────
 
 #[tokio::test]
 async fn test_relation_lifecycle() -> Result<()> {
@@ -105,8 +146,8 @@ async fn test_relation_lifecycle() -> Result<()> {
 
     let relation = Relation {
         id: Uuid::new_v4(),
-        source_entity_id: alice.id,
-        target_entity_id: bob.id,
+        from_entity_id: alice.id,
+        to_entity_id: bob.id,
         relation_type: "knows".to_string(),
         confidence: 90,
         valid_from: Utc::now(),
@@ -153,7 +194,6 @@ async fn test_ingestion_pipeline() -> Result<()> {
     )
     .await?;
 
-    // Should extract: Alice, Acme, Corp, Berlin (capitalized words > 1 char)
     assert!(!result.entities.is_empty());
     assert!(!result.memories.is_empty());
 
@@ -179,14 +219,13 @@ async fn test_ingestion_pipeline() -> Result<()> {
     Ok(())
 }
 
-// ── Vector Search ───────────────────────────────────────────────────────
+// ── Vector Search (HNSW-backed) ─────────────────────────────────────────
 
 #[tokio::test]
 async fn test_vector_search() -> Result<()> {
     let repo = setup().await?;
     let embedder = MockEmbedder::new(8);
 
-    // Insert entities with different embeddings
     for name in &["Rust", "Python", "JavaScript"] {
         let entity = Entity {
             id: Uuid::new_v4(),
@@ -200,12 +239,92 @@ async fn test_vector_search() -> Result<()> {
         repo.upsert_entity(&entity).await?;
     }
 
-    // Search for "Rust" — should return Rust first (identical embedding)
     let query_embedding = embedder.embed("Rust").await?;
     let results = repo.search_entities_by_vector(&query_embedding, 3).await?;
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].0.name, "Rust");
-    assert!((results[0].1 - 1.0).abs() < 0.01); // Cosine similarity ~1.0
+    assert!((results[0].1 - 1.0).abs() < 0.01);
+
+    Ok(())
+}
+
+// ── Memory Vector Search ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_memory_vector_search() -> Result<()> {
+    let repo = setup().await?;
+    let embedder = MockEmbedder::new(8);
+
+    let episode = Episode {
+        id: Uuid::new_v4(),
+        content: "Rust is a systems programming language".to_string(),
+        source: "test".to_string(),
+        session_id: None,
+        created_at: Utc::now(),
+    };
+    repo.create_episode(&episode).await?;
+
+    let memory = Memory {
+        id: Uuid::new_v4(),
+        content: "Rust is fast and memory safe".to_string(),
+        embedding: embedder.embed("Rust fast memory safe").await?,
+        source_episode_id: episode.id,
+        entity_ids: vec![],
+        created_at: Utc::now(),
+    };
+    repo.create_memory(&memory).await?;
+
+    let query_embedding = embedder.embed("Rust fast memory safe").await?;
+    let results = repo.search_memories_by_vector(&query_embedding, 5).await?;
+    assert_eq!(results.len(), 1);
+    assert!((results[0].1 - 1.0).abs() < 0.01);
+
+    Ok(())
+}
+
+// ── BM25 Full-Text Search ───────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_bm25_entity_search() -> Result<()> {
+    let repo = setup().await?;
+    let embedder = MockEmbedder::new(8);
+
+    let entity = Entity {
+        id: Uuid::new_v4(),
+        name: "Kubernetes".to_string(),
+        entity_type: "technology".to_string(),
+        summary: "Container orchestration platform for deploying microservices".to_string(),
+        embedding: embedder.embed("Kubernetes").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+    };
+    repo.upsert_entity(&entity).await?;
+
+    let results = repo.search_entities_by_keyword("Kubernetes").await?;
+    assert!(!results.is_empty());
+    assert_eq!(results[0].name, "Kubernetes");
+
+    let results = repo.search_entities_by_keyword("orchestration").await?;
+    assert!(!results.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bm25_episode_search() -> Result<()> {
+    let repo = setup().await?;
+
+    let episode = Episode {
+        id: Uuid::new_v4(),
+        content: "The distributed database handles millions of transactions".to_string(),
+        source: "test".to_string(),
+        session_id: None,
+        created_at: Utc::now(),
+    };
+    repo.create_episode(&episode).await?;
+
+    let results = repo.search_episodes_by_keyword("database").await?;
+    assert!(!results.is_empty());
 
     Ok(())
 }
@@ -217,7 +336,6 @@ async fn test_rrf_fusion_end_to_end() -> Result<()> {
     let repo = setup().await?;
     let embedder = MockEmbedder::new(8);
 
-    // Insert entities
     let mut entities = Vec::new();
     for name in &["Alice", "Bob", "Charlie"] {
         let entity = Entity {
@@ -233,13 +351,12 @@ async fn test_rrf_fusion_end_to_end() -> Result<()> {
         entities.push(entity);
     }
 
-    // Simulate two ranked lists
-    let vector_ranked = vec![entities[0].clone(), entities[1].clone()]; // Alice, Bob
-    let keyword_ranked = vec![entities[1].clone(), entities[2].clone()]; // Bob, Charlie
+    let vector_ranked = vec![entities[0].clone(), entities[1].clone()];
+    let keyword_ranked = vec![entities[1].clone(), entities[2].clone()];
 
     let fused = fuse_rrf(vec![vector_ranked, keyword_ranked]);
 
-    // Bob appears in both lists → should be ranked first
+    // Bob appears in both lists -> should be ranked first
     assert_eq!(fused[0].entity.as_ref().unwrap().name, "Bob");
 
     Ok(())
@@ -254,7 +371,6 @@ async fn test_temporal_snapshot() -> Result<()> {
     let past = Utc::now() - Duration::hours(1);
     let now = Utc::now();
 
-    // Entity valid since past
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "OldFact".to_string(),
@@ -266,12 +382,10 @@ async fn test_temporal_snapshot() -> Result<()> {
     };
     repo.upsert_entity(&entity).await?;
 
-    // Should appear in current snapshot
     let snapshot = repo.entities_at(now).await?;
     assert_eq!(snapshot.len(), 1);
     assert_eq!(snapshot[0].name, "OldFact");
 
-    // Should also appear in snapshot from 30 min ago
     let half_past = past + Duration::minutes(30);
     let snapshot = repo.entities_at(half_past).await?;
     assert_eq!(snapshot.len(), 1);
@@ -334,21 +448,21 @@ async fn test_graph_neighbors() -> Result<()> {
     repo.upsert_entity(&bob).await?;
     repo.upsert_entity(&charlie).await?;
 
-    // Alice → Bob
+    // Alice -> Bob (graph edge via RELATE)
     let rel1 = Relation {
         id: Uuid::new_v4(),
-        source_entity_id: alice.id,
-        target_entity_id: bob.id,
+        from_entity_id: alice.id,
+        to_entity_id: bob.id,
         relation_type: "knows".to_string(),
         confidence: 90,
         valid_from: Utc::now(),
         valid_until: None,
     };
-    // Bob → Charlie
+    // Bob -> Charlie
     let rel2 = Relation {
         id: Uuid::new_v4(),
-        source_entity_id: bob.id,
-        target_entity_id: charlie.id,
+        from_entity_id: bob.id,
+        to_entity_id: charlie.id,
         relation_type: "knows".to_string(),
         confidence: 90,
         valid_from: Utc::now(),
@@ -357,11 +471,100 @@ async fn test_graph_neighbors() -> Result<()> {
     repo.create_relation(&rel1).await?;
     repo.create_relation(&rel2).await?;
 
-    // 1-hop from Alice should find Alice + Bob
     let neighbors = repo.get_graph_neighbors(&[alice.id], 1).await?;
-    assert!(neighbors.len() >= 1); // At least Alice
+    assert!(neighbors.len() >= 1);
     let names: Vec<&str> = neighbors.iter().map(|e| e.name.as_str()).collect();
     assert!(names.contains(&"Alice"));
+
+    Ok(())
+}
+
+// ── Memory Graph Edges ──────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_memory_graph_edges() -> Result<()> {
+    let repo = setup().await?;
+    let embedder = MockEmbedder::new(8);
+
+    let episode = Episode {
+        id: Uuid::new_v4(),
+        content: "Alice works at Acme".to_string(),
+        source: "test".to_string(),
+        session_id: None,
+        created_at: Utc::now(),
+    };
+    repo.create_episode(&episode).await?;
+
+    let alice = Entity {
+        id: Uuid::new_v4(),
+        name: "AliceWorker".to_string(),
+        entity_type: "person".to_string(),
+        summary: "Works at Acme".to_string(),
+        embedding: embedder.embed("AliceWorker").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+    };
+    repo.upsert_entity(&alice).await?;
+
+    let memory = Memory {
+        id: Uuid::new_v4(),
+        content: "Alice works at Acme".to_string(),
+        embedding: embedder.embed("Alice works at Acme").await?,
+        source_episode_id: episode.id,
+        entity_ids: vec![alice.id],
+        created_at: Utc::now(),
+    };
+    repo.create_memory(&memory).await?;
+
+    let memories = repo.list_recent_memories(10).await?;
+    assert_eq!(memories.len(), 1);
+    assert_eq!(memories[0].content, "Alice works at Acme");
+
+    Ok(())
+}
+
+// ── Temporal Relations Query ────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_relations_at_temporal() -> Result<()> {
+    let repo = setup().await?;
+    let embedder = MockEmbedder::new(8);
+    let now = Utc::now();
+
+    let alice = Entity {
+        id: Uuid::new_v4(),
+        name: "AliceTemporal".to_string(),
+        entity_type: "person".to_string(),
+        summary: "".to_string(),
+        embedding: embedder.embed("AliceTemporal").await?,
+        valid_from: now - Duration::days(10),
+        valid_until: None,
+    };
+    let acme = Entity {
+        id: Uuid::new_v4(),
+        name: "AcmeTemporal".to_string(),
+        entity_type: "company".to_string(),
+        summary: "".to_string(),
+        embedding: embedder.embed("AcmeTemporal").await?,
+        valid_from: now - Duration::days(10),
+        valid_until: None,
+    };
+    repo.upsert_entity(&alice).await?;
+    repo.upsert_entity(&acme).await?;
+
+    let rel = Relation {
+        id: Uuid::new_v4(),
+        from_entity_id: alice.id,
+        to_entity_id: acme.id,
+        relation_type: "works_at".to_string(),
+        confidence: 95,
+        valid_from: now - Duration::days(10),
+        valid_until: None,
+    };
+    repo.create_relation(&rel).await?;
+
+    let rels = repo.relations_at(now).await?;
+    assert!(rels.iter().any(|r| r.relation_type == "works_at"));
 
     Ok(())
 }

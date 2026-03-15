@@ -11,9 +11,12 @@ use uuid::Uuid;
 #[tokio::main]
 async fn main() -> Result<()> {
     // 1. Connect to in-memory SurrealDB
-    let config = SurrealConfig::default();
+    let config = SurrealConfig {
+        embedding_dimensions: 64,
+        ..SurrealConfig::default()
+    };
     let db = connect_memory(&config).await?;
-    apply_schema(&db).await?;
+    apply_schema(&db, &config).await?;
     let repo = Repository::new(db);
 
     // 2. Set up mock LLM services (no API key needed)

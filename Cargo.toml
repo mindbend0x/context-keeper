@@ -46,7 +46,7 @@ thiserror = "2"
 async-trait = "0.1"
 
 # Database
-surrealdb = { version = "3.0.4", features = ["kv-mem"] }
+surrealdb = { version = "3.0.4", features = ["kv-mem", "kv-rocksdb"] }
 
 # CLI
 clap = { version = "4", features = ["derive", "env"] }

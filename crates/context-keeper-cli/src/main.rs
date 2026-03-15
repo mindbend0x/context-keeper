@@ -7,7 +7,7 @@ use context_keeper_rig::{
     embeddings::RigEmbedder,
     extraction::{RigEntityExtractor, RigRelationExtractor},
 };
-use context_keeper_surreal::{apply_schema, connect_memory, Repository, SurrealConfig};
+use context_keeper_surreal::{apply_schema, connect, Repository, StorageBackend, SurrealConfig};
 use dotenv::dotenv;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
@@ -19,7 +19,6 @@ use uuid::Uuid;
     about = "Temporal knowledge graph memory tool"
 )]
 struct Cli {
-    /// Global LLM settings from env
     #[arg(short = 'e', long, env = "EMBEDDING_MODEL", global = true)]
     embedding_model_name: Option<String>,
     #[arg(short = 'd', long, env = "EMBEDDING_DIMS", global = true)]
@@ -33,6 +32,10 @@ struct Cli {
     #[arg(short = 'f', long, env = "DB_FILE_PATH", global = true, default_value = "context.sql")]
     db_file_path: String,
 
+    /// Storage backend: "memory" (default) or "rocksdb:<path>"
+    #[arg(long, env = "STORAGE_BACKEND", global = true, default_value = "memory")]
+    storage: String,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -41,34 +44,36 @@ struct Cli {
 enum Commands {
     /// Add a memory from text input
     Add {
-        /// The text content to ingest
         #[arg(short, long)]
         text: String,
-        /// Source label for the episode
         #[arg(short, long, default_value = "cli")]
         source: String,
     },
     /// Search memories
     Search {
-        /// Search query
         #[arg(short, long)]
         query: String,
-        /// Maximum results
         #[arg(short, long, default_value = "5")]
         limit: usize,
     },
     /// Get entity details
     Entity {
-        /// Entity name to look up
         #[arg(short, long)]
         name: String,
     },
     /// List recent memories
     Recent {
-        /// Number of recent items
         #[arg(short, long, default_value = "10")]
         limit: usize,
     },
+}
+
+fn parse_storage_backend(s: &str) -> StorageBackend {
+    if let Some(path) = s.strip_prefix("rocksdb:") {
+        StorageBackend::RocksDb(path.to_string())
+    } else {
+        StorageBackend::Memory
+    }
 }
 
 #[tokio::main]
@@ -80,35 +85,32 @@ async fn main() -> Result<()> {
     dotenv().expect("Failed to load .env file");
 
     let cli = Cli::parse();
-    let config = SurrealConfig::default();
-    
-    let repo = match &cli.db_file_path {
-        path if Path::new(path).exists() => {
-            let db = connect_memory(&config).await?;
-            apply_schema(&db).await?;
-            let repo = Repository::new(db);
-            repo.import_from_file(path).await?;
-            repo
-        }
-        _ => {
-            let db = connect_memory(&config).await?;
-            apply_schema(&db).await?;
-            Repository::new(db)
-        }
+
+    let embedding_dims = cli.embedding_dims.unwrap_or(1536);
+    let config = SurrealConfig {
+        embedding_dimensions: embedding_dims,
+        storage: parse_storage_backend(&cli.storage),
+        ..SurrealConfig::default()
     };
+
+    let db = connect(&config).await?;
+    apply_schema(&db, &config).await?;
+    let repo = Repository::new(db);
+
+    if Path::new(&cli.db_file_path).exists() && matches!(config.storage, StorageBackend::Memory) {
+        repo.import_from_file(&cli.db_file_path).await?;
+    }
 
     let (embedder, entity_extractor, relation_extractor) = match (
         cli.api_url,
         cli.api_key,
         cli.embedding_model_name,
-        cli.embedding_dims,
         cli.extraction_model_name,
     ) {
         (
             Some(api_url),
             Some(api_key),
             Some(embedding_model_name),
-            Some(embedding_dims),
             Some(extraction_model_name),
         ) => {
             let embedder =
@@ -141,24 +143,15 @@ async fn main() -> Result<()> {
             repo.create_episode(&episode).await?;
             for entity in &result.entities {
                 repo.upsert_entity(entity).await?;
-                debug!(
-                    "Upserted entity: {}",
-                    entity.name
-                );
+                debug!("Upserted entity: {}", entity.name);
             }
             for relation in &result.relations {
                 repo.create_relation(relation).await?;
-                debug!(
-                    "Created relation: {}",
-                    relation.source_entity_id
-                );
+                debug!("Created relation: {}", relation.from_entity_id);
             }
             for memory in &result.memories {
                 repo.create_memory(memory).await?;
-                debug!(
-                    "Created memory: {}",
-                    memory.content
-                );
+                debug!("Created memory: {}", memory.content);
             }
 
             info!(
@@ -186,7 +179,7 @@ async fn main() -> Result<()> {
                 for (i, result) in fused.iter().take(limit).enumerate() {
                     if let Some(ref entity) = result.entity {
                         info!(
-                            "{}. {} ({}) — score: {:.4}",
+                            "{}. {} ({}) -- score: {:.4}",
                             i + 1,
                             entity.name,
                             entity.entity_type,
@@ -225,7 +218,9 @@ async fn main() -> Result<()> {
         }
     }
 
-    repo.export(&cli.db_file_path).await?;
+    if matches!(config.storage, StorageBackend::Memory) {
+        repo.export(&cli.db_file_path).await?;
+    }
 
     Ok(())
 }

@@ -10,9 +10,12 @@ use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config = SurrealConfig::default();
+    let config = SurrealConfig {
+        embedding_dimensions: 64,
+        ..SurrealConfig::default()
+    };
     let db = connect_memory(&config).await?;
-    apply_schema(&db).await?;
+    apply_schema(&db, &config).await?;
     let repo = Repository::new(db);
     let embedder = MockEmbedder::new(64);
 
@@ -44,8 +47,8 @@ async fn main() -> Result<()> {
 
     let works_at = Relation {
         id: Uuid::new_v4(),
-        source_entity_id: alice_v1.id,
-        target_entity_id: acme.id,
+        from_entity_id: alice_v1.id,
+        to_entity_id: acme.id,
         relation_type: "works_at".to_string(),
         confidence: 95,
         valid_from: Utc::now() - Duration::days(30),
@@ -83,8 +86,8 @@ async fn main() -> Result<()> {
 
     let works_at_new = Relation {
         id: Uuid::new_v4(),
-        source_entity_id: alice_v1.id,
-        target_entity_id: newco.id,
+        from_entity_id: alice_v1.id,
+        to_entity_id: newco.id,
         relation_type: "works_at".to_string(),
         confidence: 95,
         valid_from: Utc::now(),
@@ -97,7 +100,7 @@ async fn main() -> Result<()> {
     let active_rels = repo.get_relations_for_entity(alice_v1.id).await?;
     println!("\n--- Active relations for Alice ---");
     for rel in &active_rels {
-        println!("  {} → {}", rel.relation_type, rel.target_entity_id);
+        println!("  {} → {}", rel.relation_type, rel.to_entity_id);
     }
     println!("  (old Acme relation is invalidated, not shown)");
 

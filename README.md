@@ -1,251 +1,184 @@
-Here is a comprehensive project plan for **Context Keeper**, a Rust-native temporal knowledge graph memory tool built as a spiritual successor to Graphiti on a completely different stack.
+# Context Keeper
 
-***
+A high-performance, temporally-aware knowledge graph memory system for AI agents, built entirely in Rust. Context Keeper ingests episodes of text, extracts entities and relationships via LLM calls, and stores them in a SurrealDB-backed graph with full temporal versioning, HNSW vector search, and BM25 full-text search.
 
-# Context Keeper — Full Project Plan
-
-## Overview
-
-Context Keeper is a high-performance, temporally-aware memory and knowledge graph tool for AI agents, built entirely in Rust. It replicates and extends the core capabilities of Graphiti  — real-time memory ingestion, entity/relationship extraction, temporal fact management, and hybrid search — but replaces Python/Neo4j/FalkorDB with Rust, Rig, and SurrealDB. It exposes its capabilities via an MCP server  and a Cursor IDE plugin. [presidio](https://www.presidio.com/technical-blog/graphiti-giving-ai-a-real-memory-a-story-of-temporal-knowledge-graphs/)
-
-***
-
-## Goals & Non-Goals
-
-**Goals:**
-- Store, update, and search episodic memories with full temporal awareness
-- Extract entities and relationships from natural language using Rig-powered LLM calls [docs](https://docs.rs/rig-core)
-- Perform hybrid search (vector + BM25 full-text + graph traversal) on a SurrealDB backend [surrealdb](https://surrealdb.com/docs/surrealdb/models/vector)
-- Expand search queries automatically to improve recall
-- Expose all features via MCP (for Claude, Cursor, etc.)  and as a Cursor plugin [github](https://github.com/conikeec/mcpr)
-
-**Non-Goals:**
-- Replacing a general-purpose database or message broker
-- Supporting Python or non-Rust runtimes natively
-- Providing a GUI dashboard (CLI + API only in v1)
-
-***
+Spiritual successor to [Graphiti](https://www.presidio.com/technical-blog/graphiti-giving-ai-a-real-memory-a-story-of-temporal-knowledge-graphs/), replacing Python/Neo4j with Rust, [Rig](https://rig.rs), and [SurrealDB](https://surrealdb.com).
 
 ## Architecture
 
-The system is split into four logical layers:
+```mermaid
+graph TD
+  subgraph Interfaces Layer
+    CLI["CLI (context-keeper-cli)"]
+    MCP["MCP Server (planned)"]
+  end
 
-```
-┌─────────────────────────────────────────────────────┐
-│               Interfaces Layer                      │
-│    MCP Server (stdio/SSE)  │  Cursor Plugin (LSP)   │
-└─────────────────┬───────────────────────────────────┘
-                  │
-┌─────────────────▼───────────────────────────────────┐
-│             Core Engine (context-keeper-core)        │
-│  Memory Ingestion │ Entity Extraction │ Search       │
-│  Temporal Manager │ Query Expander    │ Graph Linker │
-└─────────────────┬───────────────────────────────────┘
-                  │
-┌─────────────────▼───────────────────────────────────┐
-│              Rig Integration Layer                   │
-│   LLM Completions │ Embeddings │ Tool Definitions   │
-└─────────────────┬───────────────────────────────────┘
-                  │
-┌─────────────────▼───────────────────────────────────┐
-│              SurrealDB Storage Layer                 │
-│  Nodes (Entities) │ Edges (Relations) │ Embeddings  │
-│  Full-text Index  │ HNSW Vector Index │ Timestamps  │
-└─────────────────────────────────────────────────────┘
-```
+  subgraph Core Engine (context-keeper-core)
+    INGESTION["Ingestion Pipeline"]
+    TEMPORAL["Temporal Manager"]
+    SEARCH["Search (RRF)"]
+  end
 
-***
+  subgraph Rig Integration (context-keeper-rig)
+    LLM["LLM Extraction"]
+    EMBED["Embeddings"]
+    TOOL["Tool Definitions"]
+  end
 
-## Data Model (SurrealDB)
+  subgraph SurrealDB Graph Layer (context-keeper-surreal)
+    RELATE["RELATE Edges"]
+    VECTORS["HNSW Vectors"]
+    BM25["BM25 Full-Text"]
+    ROCKSDB["RocksDB"]
+  end
 
-SurrealDB serves as a combined graph, vector, and document database, eliminating the need for separate stores. [reddit](https://www.reddit.com/r/rust/comments/wt3ygg/surrealdb_a_new_scalable_documentgraph_database/)
-
-**Tables:**
-- `episode` — Raw input units (text, source, timestamp, session_id)
-- `entity` — Extracted named entities with embedding vectors and `valid_from` / `valid_until` timestamps
-- `relation` — Graph edges between entities with `relation_type`, confidence score, and temporal range
-- `memory` — Distilled, searchable fact units with BM25 + HNSW vector indexes
-
-**SurrealQL schema excerpt:**
-```sql
-DEFINE TABLE entity SCHEMAFULL;
-DEFINE FIELD name        ON entity TYPE string;
-DEFINE FIELD summary     ON entity TYPE string;
-DEFINE FIELD embedding   ON entity TYPE array<float>;
-DEFINE FIELD valid_from  ON entity TYPE datetime;
-DEFINE FIELD valid_until ON entity TYPE option<datetime>;
-
-DEFINE INDEX idx_entity_vec ON TABLE entity
-  FIELDS embedding HNSW DIMENSION 1536 DIST COSINE;
-
-DEFINE INDEX idx_entity_ft ON TABLE entity
-  FIELDS name, summary FULLTEXT ANALYZER simple BM25;
-
-DEFINE TABLE relation SCHEMAFULL;
-DEFINE FIELD in          ON relation TYPE record<entity>;
-DEFINE FIELD out         ON relation TYPE record<entity>;
-DEFINE FIELD rel_type    ON relation TYPE string;
-DEFINE FIELD valid_from  ON relation TYPE datetime;
-DEFINE FIELD valid_until ON relation TYPE option<datetime>;
+  CLI -->|invokes| INGESTION
+  MCP -->|invokes| INGESTION
+  INGESTION --> TEMPORAL
+  INGESTION --> SEARCH
+  INGESTION --> LLM
+  INGESTION --> EMBED
+  INGESTION --> TOOL
+  LLM --> RELATE
+  EMBED --> VECTORS
+  SEARCH --> BM25
+  TEMPORAL --> RELATE
+  RELATE --> ROCKSDB
+  BM25 --> ROCKSDB
+  VECTORS --> ROCKSDB
 ```
 
-Temporal awareness is achieved natively: every fact carries `valid_from`/`valid_until` fields. When a conflicting fact arrives, the old edge's `valid_until` is set rather than deleted, preserving full history just as Graphiti does. [arxiv](https://arxiv.org/html/2501.13956v1)
+## Features
 
-***
+- **Graph-native storage** — Entities are nodes, relations are `RELATE` edges (`entity->relates_to->entity`), memories link to episodes (`memory->sourced_from->episode`) and entities (`memory->references->entity`) via SurrealDB's native graph engine
+- **HNSW vector search** — Configurable-dimension HNSW indexes on entity and memory embeddings with pluggable distance metrics (Cosine, Euclidean, Manhattan, Chebyshev, Hamming, Minkowski)
+- **BM25 full-text search** — Snowball-stemmed English analyzer across entity names, entity summaries, memory content, and episode content
+- **Hybrid search with RRF** — Reciprocal Rank Fusion combining vector similarity and keyword relevance
+- **Temporal awareness** — Every entity and relation carries `valid_from`/`valid_until` timestamps; point-in-time snapshot queries; 30-day changefeeds for auditing
+- **True UPSERT** — Entities are upserted by ID with summary/embedding merging
+- **Dual storage backends** — In-memory (`kv-mem`) for development and RocksDB (`kv-rocksdb`) for persistent single-node deployments
+- **LLM-powered extraction** — Entity and relation extraction via Rig with OpenAI-compatible endpoints
+- **Mock pipelines** — Deterministic mock embedder, entity extractor, and relation extractor for testing without API keys
 
-## Core Engine Modules
-
-### 1. Ingestion Pipeline (`ingestion/`)
-
-Responsible for processing raw episodes into the graph. Steps:
-
-1. **Chunk & normalize** the input text
-2. **Entity extraction** — call Rig's `agent().prompt()` with a structured JSON schema output to extract `(entity, type)` pairs [docs](https://docs.rs/rig-core)
-3. **Relation extraction** — a second LLM call extracts `(subject, predicate, object, confidence)` triplets
-4. **Deduplication** — query SurrealDB for existing entities by name similarity; merge or create new nodes
-5. **Temporal resolution** — compare new facts to existing edges; invalidate superseded edges by setting `valid_until = now()`
-6. **Embedding** — call Rig's embedding pipeline to generate vectors for each entity and memory node [docs.rig](https://docs.rig.rs/docs/quickstart/embeddings)
-7. **Persist** — write nodes, edges, and embeddings to SurrealDB in a single transaction
-
-### 2. Temporal Manager (`temporal/`)
-
-- Maintains a `valid_from`/`valid_until` timeline per entity and relation
-- Provides a `snapshot(at: DateTime)` query mode — returns the graph state as it existed at a given time [surrealdb](https://surrealdb.com/static/whitepaper.pdf)
-- On conflicting fact ingestion, auto-invalidates the stale edge and chains the new one
-- Exposes a "fact staleness score" based on how long ago a memory was last confirmed
-
-### 3. Search Engine (`search/`)
-
-Implements a three-tier hybrid search — matching Graphiti's dual-path design but with SurrealDB's native `search::rrf()` fusion: [surrealdb](https://surrealdb.com/docs/surrealdb/models/vector)
-
-- **Vector search** — HNSW cosine similarity on `embedding` field
-- **Full-text search** — BM25 keyword match on entity name and summary
-- **Graph traversal** — depth-first or BFS over relation edges from seed entities found in tier 1/2 [youtube](https://www.youtube.com/watch?v=n3SjFz6tFes)
-
-Results are fused using Reciprocal Rank Fusion (RRF) natively in SurrealQL. [surrealdb](https://surrealdb.com/docs/surrealdb/models/vector)
-
-### 4. Query Expander (`search/expander.rs`)
-
-A key feature for ensuring good recall. When a raw query returns few results (below a configurable threshold):
-
-1. LLM call via Rig rewrites the query into 3–5 semantic variants
-2. All variants are embedded and searched in parallel (Tokio async)
-3. Results are merged and re-ranked via RRF
-4. If still insufficient, the expander widens to 2-hop graph neighbors of matched nodes
-
-This mirrors Graphiti's "episode search expansion" but is fully composable via Rust traits.
-
-***
-
-## Rig Integration Layer
-
-Rig  replaces LangChain and provides: [rig](https://rig.rs/index.html)
-
-| Rig Feature | Context Keeper Usage |
-|---|---|
-| `agent().prompt()` with JSON schema | Entity + relation extraction |
-| `EmbeddingsBuilder` | Vectorizing entities and memories  [docs.rig](https://docs.rig.rs/docs/quickstart/embeddings) |
-| `Tool` + `ToolEmbedding` traits | Exposing `add_memory`, `search`, `expand_search` as agent-callable tools  [docs.rig](https://docs.rig.rs/docs/concepts/tools) |
-| `VectorStoreIndex` trait | Wrapping SurrealDB's HNSW index for RAG-style retrieval  [docs](https://docs.rs/rig-core) |
-| Streaming completions | Progressive memory summarization |
-
-The `SurrealVectorStore` struct will implement Rig's `VectorStoreIndex` trait, registering it as a first-class Rig vector backend — similar to how `LanceDbVectorStore` is implemented. [dev](https://dev.to/0thtachi/build-a-fast-and-lightweight-rust-vector-search-app-with-rig-lancedb-57h2)
-
-***
-
-## MCP Server (`context-keeper-mcp/`)
-
-The MCP server exposes Context Keeper's API as tool calls consumable by any MCP client (Claude Desktop, Cursor, etc.). [github](https://github.com/modelcontextprotocol/rust-sdk)
-
-**Transport:** stdio (primary) + SSE (for remote/HTTP use)
-
-**Exposed MCP Tools:**
-
-| Tool Name | Description |
-|---|---|
-| `add_memory` | Ingest a raw text episode into the graph |
-| `search_memory` | Hybrid search over entities and memories |
-| `expand_search` | Run query expansion + widened search |
-| `get_entity` | Fetch an entity with its full timeline |
-| `snapshot` | Query graph state at a specific timestamp |
-| `list_recent` | Return N most recently added memories |
-
-The server is built using the official `modelcontextprotocol/rust-sdk` crate  and exposes a `ServerConfig` with all tools registered via `server.register_tool_handler(...)`. [github](https://github.com/conikeec/mcpr)
-
-**Server startup:**
-```rust
-let transport = StdioTransport::new();
-let mut server = Server::new(
-    ServerConfig::new()
-        .with_name("context-keeper")
-        .with_version("0.1.0")
-        .with_tool(add_memory_tool)
-        .with_tool(search_memory_tool)
-        // ...
-);
-server.start(transport)?;
-```
-
-***
-
-## Cursor Plugin (`context-keeper-cursor/`)
-
-The Cursor plugin wraps the MCP server as a locally running sidecar and adds IDE-specific UX:
-
-- **Auto-capture** — optionally captures opened files, diffs, and inline comments as episodes
-- **Sidebar panel** — shows a searchable list of recent memories in the Cursor sidebar
-- **`@memory` mention** — in Cursor chat, typing `@memory <query>` triggers `search_memory` and injects results as context
-- **Keybinding** — `Ctrl+Shift+M` opens a memory search palette
-
-**Implementation approach:** The plugin is a VS Code extension (TypeScript) that spawns the `context-keeper-mcp` binary as a child process over stdio — no separate server process required. All MCP calls are made via the official MCP TypeScript SDK against the local binary.
-
-***
-
-## Project Structure
+## Workspace Structure
 
 ```
 context-keeper/
 ├── crates/
-│   ├── context-keeper-core/      # Ingestion, temporal, search, expander
-│   ├── context-keeper-rig/       # Rig integration: embeddings, LLM calls, tools
-│   ├── context-keeper-surreal/   # SurrealDB client, schema, VectorStoreIndex impl
-│   ├── context-keeper-mcp/       # MCP server binary (stdio + SSE)
-│   └── context-keeper-cli/       # Optional CLI for local dev/testing
-├── plugins/
-│   └── cursor/                   # VS Code/Cursor extension (TypeScript)
-├── migrations/                   # SurrealDB schema migrations
-├── examples/                     # Usage examples
-├── docs/                         # Architecture docs
-└── Cargo.toml                    # Workspace
+│   ├── context-keeper-core/      # Models, ingestion pipeline, search (RRF), temporal manager
+│   ├── context-keeper-rig/       # Rig integration: embeddings, entity/relation extraction
+│   ├── context-keeper-surreal/   # SurrealDB client, graph schema, repository, vector store
+│   ├── context-keeper-mcp/       # MCP server binary (scaffold)
+│   └── context-keeper-cli/       # CLI binary + quickstart/temporal examples
+├── migrations/                   # Reference SurrealQL schema
+└── Cargo.toml                    # Workspace root
 ```
 
-***
+## Data Model
+
+SurrealDB serves as a combined graph, vector, and document database. The schema is generated dynamically from `SurrealConfig` (embedding dimensions and distance metric).
+
+**Node tables** (SCHEMAFULL):
+
+| Table | Fields | Indexes |
+|-------|--------|---------|
+| `episode` | content, source, session_id, created_at | BM25 on content |
+| `entity` | name, entity_type, summary, embedding, valid_from, valid_until | HNSW on embedding, BM25 on name + summary, UNIQUE on name |
+| `memory` | content, embedding, created_at | HNSW on embedding, BM25 on content |
+
+**Graph edge tables** (TYPE RELATION):
+
+| Edge | Direction | Purpose |
+|------|-----------|---------|
+| `relates_to` | entity -> entity | Typed relationships with confidence and temporal bounds |
+| `sourced_from` | memory -> episode | Links a memory to its source episode |
+| `references` | memory -> entity | Links a memory to entities it mentions |
+
+Changefeeds (30-day retention) are enabled on `entity` and `relates_to` for temporal change tracking.
+
+## Quick Start
+
+### With mock LLM services (no API key)
+
+```bash
+cargo run --example quickstart
+```
+
+### With real LLM extraction
+
+```bash
+# Set environment variables
+export OPENAI_API_URL=https://api.openai.com/v1
+export OPENAI_API_KEY=sk-...
+export EMBEDDING_MODEL=text-embedding-3-small
+export EMBEDDING_DIMS=1536
+export EXTRACTION_MODEL=gpt-4o-mini
+
+# Add a memory
+cargo run -p context-keeper-cli -- add --text "Alice is a software engineer at Acme Corp"
+
+# Search
+cargo run -p context-keeper-cli -- search --query "Acme"
+
+# Look up an entity
+cargo run -p context-keeper-cli -- entity --name "Alice"
+
+# List recent memories
+cargo run -p context-keeper-cli -- recent --limit 5
+```
+
+### Storage backends
+
+```bash
+# In-memory (default, exports to file on exit)
+cargo run -p context-keeper-cli -- --storage memory add --text "..."
+
+# RocksDB persistent storage
+cargo run -p context-keeper-cli -- --storage rocksdb:./my_data add --text "..."
+```
+
+## CLI Reference
+
+```
+context-keeper [OPTIONS] <COMMAND>
+
+Commands:
+  add      Add a memory from text input
+  search   Search memories (hybrid vector + keyword)
+  entity   Get entity details by name
+  recent   List recent memories
+
+Global Options:
+  -e, --embedding-model-name   Embedding model name    [env: EMBEDDING_MODEL]
+  -d, --embedding-dims         Embedding dimensions    [env: EMBEDDING_DIMS]
+  -x, --extraction-model-name  Extraction model name   [env: EXTRACTION_MODEL]
+  -u, --api-url                OpenAI-compatible URL   [env: OPENAI_API_URL]
+  -k, --api-key                API key                 [env: OPENAI_API_KEY]
+  -f, --db-file-path           DB export file path     [env: DB_FILE_PATH]     [default: context.sql]
+      --storage                Storage backend         [env: STORAGE_BACKEND]  [default: memory]
+```
+
+## Running Tests
+
+```bash
+cargo test --workspace
+```
+
+The integration test suite covers episode/entity/memory CRUD, graph edge creation via `RELATE`, HNSW vector search, BM25 full-text search, entity UPSERT deduplication, temporal snapshots, relation invalidation, graph traversal, RRF fusion, and the full ingestion pipeline.
 
 ## Key Dependencies
 
-```toml
-[dependencies]
-rig-core       = "0.x"          # LLM + embeddings (Rig framework)
-surrealdb      = "2.x"          # Database client
-mcp-sdk        = { git = "https://github.com/modelcontextprotocol/rust-sdk" }
-tokio          = { features = ["full"] }
-serde          = { features = ["derive"] }
-serde_json     = "1"
-tracing        = "0.x"          # Structured logging
-tracing-subscriber = "0.x"
-chrono         = "0.x"          # Datetime handling for temporal fields
-uuid           = { features = ["v4"] }
-```
+| Crate | Version | Purpose |
+|-------|---------|---------|
+| `surrealdb` | 3.0.4 | Graph database with HNSW + BM25 (kv-mem, kv-rocksdb) |
+| `rig-core` | 0.32.0 | LLM completions + embeddings via Rig framework |
+| `tokio` | 1.x | Async runtime |
+| `chrono` | 0.4 | Temporal datetime handling |
+| `uuid` | 1.x | Entity/relation/memory identifiers |
+| `clap` | 4.x | CLI argument parsing |
+| `serde` | 1.x | Serialization/deserialization |
+| `tracing` | 0.1 | Structured logging |
 
-***
+## License
 
-## Advantages Over Graphiti
-
-| Dimension | Graphiti (Python) | Context Keeper (Rust) |
-|---|---|---|
-| Runtime | CPython, GIL-constrained | Tokio async, zero-cost concurrency |
-| Graph DB | FalkorDB / Neo4j | SurrealDB (graph + vector + doc in one)  [reddit](https://www.reddit.com/r/rust/comments/wt3ygg/surrealdb_a_new_scalable_documentgraph_database/) |
-| LLM Framework | LangChain | Rig — type-safe, compile-time correctness  [docs](https://docs.rs/rig-core) |
-| Memory Safety | Runtime errors | Rust ownership model, no GC pauses |
-| Deployment | Docker + separate DB | Single binary + embedded SurrealDB option |
-| MCP Support | Via wrapper | Native first-class MCP server  [github](https://github.com/modelcontextprotocol/rust-sdk) |
+MIT

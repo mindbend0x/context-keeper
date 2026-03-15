@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
     // Initialize embedded in-memory SurrealDB
     let config = SurrealConfig::default();
     let db = connect_memory(&config).await?;
-    apply_schema(&db).await?;
+    apply_schema(&db, &config).await?;
     let _repo = Repository::new(db);
 
     tracing::info!("SurrealDB initialized, repository ready");

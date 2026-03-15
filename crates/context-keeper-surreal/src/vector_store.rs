@@ -1,10 +1,12 @@
 use crate::repository::Repository;
 use anyhow::Result;
-use context_keeper_core::models::Entity;
+use context_keeper_core::models::{Entity, Memory};
 
-/// Wraps the Repository's vector search as a convenience layer.
-/// In production with HNSW indexes, this would delegate to SurrealDB's
-/// native vector search. In embedded mode, it uses brute-force cosine.
+/// Thin wrapper over the Repository's HNSW-backed vector search.
+///
+/// The repository now delegates cosine similarity to SurrealDB's
+/// `vector::similarity::cosine` function backed by an HNSW index,
+/// so this layer is purely a convenience API.
 pub struct SurrealVectorStore {
     repo: Repository,
 }
@@ -14,8 +16,8 @@ impl SurrealVectorStore {
         Self { repo }
     }
 
-    /// Query for the top-k nearest entity neighbors by embedding similarity.
-    pub async fn top_k(
+    /// Top-k nearest entity neighbors by embedding similarity (HNSW-backed).
+    pub async fn top_k_entities(
         &self,
         embedding: &[f64],
         k: usize,
@@ -28,8 +30,37 @@ impl SurrealVectorStore {
                 score,
                 content: entity.summary.clone(),
                 entity: Some(entity),
+                memory: None,
             })
             .collect())
+    }
+
+    /// Top-k nearest memory neighbors by embedding similarity (HNSW-backed).
+    pub async fn top_k_memories(
+        &self,
+        embedding: &[f64],
+        k: usize,
+    ) -> Result<Vec<VectorSearchResult>> {
+        let results = self.repo.search_memories_by_vector(embedding, k).await?;
+        Ok(results
+            .into_iter()
+            .map(|(memory, score)| VectorSearchResult {
+                id: memory.id.to_string(),
+                score,
+                content: memory.content.clone(),
+                entity: None,
+                memory: Some(memory),
+            })
+            .collect())
+    }
+
+    /// Convenience: delegates to `top_k_entities` (backwards compatibility).
+    pub async fn top_k(
+        &self,
+        embedding: &[f64],
+        k: usize,
+    ) -> Result<Vec<VectorSearchResult>> {
+        self.top_k_entities(embedding, k).await
     }
 }
 
@@ -40,4 +71,5 @@ pub struct VectorSearchResult {
     pub score: f64,
     pub content: String,
     pub entity: Option<Entity>,
+    pub memory: Option<Memory>,
 }

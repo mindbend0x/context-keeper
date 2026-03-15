@@ -68,8 +68,8 @@ pub async fn ingest(
         if let (Some(src), Some(tgt)) = (source, target) {
             relations.push(Relation {
                 id: Uuid::new_v4(),
-                source_entity_id: src.id,
-                target_entity_id: tgt.id,
+                from_entity_id: src.id,
+                to_entity_id: tgt.id,
                 relation_type: ext_rel.predicate.clone(),
                 confidence: ext_rel.confidence,
                 valid_from: now,
