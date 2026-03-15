@@ -1,0 +1,25 @@
+services:
+  context-keeper-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      # Storage — embedded RocksDB with persistent volume
+      STORAGE_BACKEND: "rocksdb:/data"
+      # MCP transport
+      MCP_TRANSPORT: "http"
+      MCP_HTTP_PORT: "3000"
+      # LLM configuration (set these or use .env file)
+      OPENAI_API_URL: "${OPENAI_API_URL:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
+      EMBEDDING_DIMS: "${EMBEDDING_DIMS:-1536}"
+      EXTRACTION_MODEL: "${EXTRACTION_MODEL:-gpt-4o-mini}"
+    volumes:
+      - surrealdb-data:/data
+    restart: unless-stopped
+
+volumes:
+  surrealdb-data:

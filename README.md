@@ -158,6 +158,61 @@ Global Options:
       --storage                Storage backend         [env: STORAGE_BACKEND]  [default: memory]
 ```
 
+## MCP Server
+
+The MCP server exposes Context Keeper as a set of tools over the [Model Context Protocol](https://modelcontextprotocol.io), allowing AI assistants (Claude Desktop, Cursor, VS Code, etc.) to read and write to the knowledge graph.
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `add_memory` | Ingest text into the graph — extracts entities/relations, generates embeddings |
+| `search_memory` | Hybrid vector + BM25 keyword search with RRF fusion |
+| `expand_search` | LLM-powered query expansion for improved recall |
+| `get_entity` | Fetch entity details with full relationship graph |
+| `snapshot` | Point-in-time snapshot of the knowledge graph |
+| `list_recent` | List the N most recent memories |
+
+### Running locally (stdio)
+
+```bash
+# With real LLM services
+cargo run -p context-keeper-mcp
+
+# With mock services (no API key needed)
+cargo run -p context-keeper-mcp -- --storage memory
+```
+
+### Claude Desktop / Cursor configuration
+
+```json
+{
+  "mcpServers": {
+    "context-keeper": {
+      "command": "cargo",
+      "args": ["run", "-p", "context-keeper-mcp"]
+    }
+  }
+}
+```
+
+### Running with HTTP transport
+
+```bash
+cargo run -p context-keeper-mcp -- --transport http --http-port 3000
+```
+
+### Docker Compose
+
+```bash
+# Set your LLM API key in the environment or .env file
+export OPENAI_API_KEY=sk-...
+
+docker compose up --build
+```
+
+The MCP server will be available on `http://localhost:3000`. Data is persisted via a Docker volume using embedded RocksDB.
+
 ## Running Tests
 
 ```bash
@@ -172,6 +227,7 @@ The integration test suite covers episode/entity/memory CRUD, graph edge creatio
 |-------|---------|---------|
 | `surrealdb` | 3.0.4 | Graph database with HNSW + BM25 (kv-mem, kv-rocksdb) |
 | `rig-core` | 0.32.0 | LLM completions + embeddings via Rig framework |
+| `rmcp` | 0.8.x | Official Rust MCP SDK (stdio + streamable HTTP) |
 | `tokio` | 1.x | Async runtime |
 | `chrono` | 0.4 | Temporal datetime handling |
 | `uuid` | 1.x | Entity/relation/memory identifiers |

@@ -56,3 +56,6 @@ dotenv = "0.15.0"
 
 # LLMs
 rig-core = { version = "0.32.0" }
+
+# MCP
+rmcp = { version = "0.8", features = ["server", "transport-io", "transport-streamable-http-server"] }

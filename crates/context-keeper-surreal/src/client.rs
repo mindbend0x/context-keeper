@@ -8,6 +8,11 @@ use surrealdb::Surreal;
 pub enum StorageBackend {
     Memory,
     RocksDb(String),
+    /// Remote SurrealDB server via WebSocket (e.g. `ws://localhost:8000`).
+    /// Requires the `protocol-ws` feature on the `surrealdb` crate and a
+    /// refactor of Repository to use `Surreal<Any>`. Currently unimplemented;
+    /// use RocksDb with a Docker volume for containerized deployments.
+    Remote(String),
 }
 
 /// Configuration for connecting to SurrealDB.
@@ -42,6 +47,15 @@ pub async fn connect(config: &SurrealConfig) -> Result<Surreal<Db>> {
         StorageBackend::RocksDb(path) => {
             tracing::info!(path = %path, "Connecting to RocksDB SurrealDB");
             Surreal::new::<RocksDb>(path.as_str()).await?
+        }
+        StorageBackend::Remote(url) => {
+            // Remote connections require refactoring Repository to use Surreal<Any>
+            // instead of Surreal<Db>. For now, use RocksDb with a Docker volume.
+            anyhow::bail!(
+                "Remote storage backend ({}) is not yet implemented. \
+                 Use 'rocksdb:<path>' with a Docker volume for containerized deployments.",
+                url
+            );
         }
     };
 
