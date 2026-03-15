@@ -1,16 +1,38 @@
+use std::path::Path;
 use anyhow::Result;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use context_keeper_core::{
-    ingestion, models::Episode, search::fuse_rrf, traits::*,
+use context_keeper_core::{ingestion, models::Episode, search::fuse_rrf, traits::*};
+use context_keeper_rig::{
+    embeddings::RigEmbedder,
+    extraction::{RigEntityExtractor, RigRelationExtractor},
 };
-use context_keeper_surreal::{connect_memory, apply_schema, Repository, SurrealConfig};
+use context_keeper_surreal::{apply_schema, connect_memory, Repository, SurrealConfig};
+use dotenv::dotenv;
+use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 #[derive(Parser)]
-#[command(name = "context-keeper", about = "Temporal knowledge graph memory tool")]
+#[command(
+    name = "context-keeper",
+    about = "Temporal knowledge graph memory tool"
+)]
 struct Cli {
+    /// Global LLM settings from env
+    #[arg(short = 'e', long, env = "EMBEDDING_MODEL", global = true)]
+    embedding_model_name: Option<String>,
+    #[arg(short = 'd', long, env = "EMBEDDING_DIMS", global = true)]
+    embedding_dims: Option<usize>,
+    #[arg(short = 'x', long, env = "EXTRACTION_MODEL", global = true)]
+    extraction_model_name: Option<String>,
+    #[arg(short = 'u', long, env = "OPENAI_API_URL", global = true)]
+    api_url: Option<String>,
+    #[arg(short = 'k', long, env = "OPENAI_API_KEY", global = true)]
+    api_key: Option<String>,
+    #[arg(short = 'f', long, env = "DB_FILE_PATH", global = true, default_value = "context.sql")]
+    db_file_path: String,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -55,15 +77,53 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    dotenv().expect("Failed to load .env file");
+
     let cli = Cli::parse();
     let config = SurrealConfig::default();
-    let db = connect_memory(&config).await?;
-    apply_schema(&db).await?;
-    let repo = Repository::new(db);
+    
+    let repo = match &cli.db_file_path {
+        path if Path::new(path).exists() => {
+            let db = connect_memory(&config).await?;
+            apply_schema(&db).await?;
+            let repo = Repository::new(db);
+            repo.import_from_file(path).await?;
+            repo
+        }
+        _ => {
+            let db = connect_memory(&config).await?;
+            apply_schema(&db).await?;
+            Repository::new(db)
+        }
+    };
 
-    let embedder = MockEmbedder::new(64);
-    let entity_extractor = MockEntityExtractor;
-    let relation_extractor = MockRelationExtractor;
+    let (embedder, entity_extractor, relation_extractor) = match (
+        cli.api_url,
+        cli.api_key,
+        cli.embedding_model_name,
+        cli.embedding_dims,
+        cli.extraction_model_name,
+    ) {
+        (
+            Some(api_url),
+            Some(api_key),
+            Some(embedding_model_name),
+            Some(embedding_dims),
+            Some(extraction_model_name),
+        ) => {
+            let embedder =
+                RigEmbedder::new(&api_url, &api_key, &embedding_model_name, embedding_dims);
+            let entity_extractor =
+                RigEntityExtractor::new(&api_url, &api_key, &extraction_model_name);
+            let relation_extractor =
+                RigRelationExtractor::new(&api_url, &api_key, &extraction_model_name);
+
+            (embedder, entity_extractor, relation_extractor)
+        }
+        _ => {
+            return Err(anyhow::anyhow!("Missing required LLM settings"));
+        }
+    };
 
     match cli.command {
         Commands::Add { text, source } => {
@@ -74,26 +134,34 @@ async fn main() -> Result<()> {
                 session_id: None,
                 created_at: Utc::now(),
             };
-            let result = ingestion::ingest(
-                &episode,
-                &embedder,
-                &entity_extractor,
-                &relation_extractor,
-            )
-            .await?;
+            let result =
+                ingestion::ingest(&episode, &embedder, &entity_extractor, &relation_extractor)
+                    .await?;
 
             repo.create_episode(&episode).await?;
             for entity in &result.entities {
                 repo.upsert_entity(entity).await?;
+                debug!(
+                    "Upserted entity: {}",
+                    entity.name
+                );
             }
             for relation in &result.relations {
                 repo.create_relation(relation).await?;
+                debug!(
+                    "Created relation: {}",
+                    relation.source_entity_id
+                );
             }
             for memory in &result.memories {
                 repo.create_memory(memory).await?;
+                debug!(
+                    "Created memory: {}",
+                    memory.content
+                );
             }
 
-            println!(
+            info!(
                 "Ingested: {} entities, {} relations, {} memories",
                 result.entities.len(),
                 result.relations.len(),
@@ -113,18 +181,18 @@ async fn main() -> Result<()> {
             ]);
 
             if fused.is_empty() {
-                println!("No results found.");
+                info!("No results found.");
             } else {
                 for (i, result) in fused.iter().take(limit).enumerate() {
                     if let Some(ref entity) = result.entity {
-                        println!(
+                        info!(
                             "{}. {} ({}) — score: {:.4}",
                             i + 1,
                             entity.name,
                             entity.entity_type,
                             result.score
                         );
-                        println!("   {}", entity.summary);
+                        debug!("   {}", entity.summary);
                     }
                 }
             }
@@ -132,31 +200,32 @@ async fn main() -> Result<()> {
         Commands::Entity { name } => {
             let entities = repo.find_entities_by_name(&name).await?;
             if entities.is_empty() {
-                println!("No entity found with name '{}'", name);
+                info!("No entity found with name '{}'", name);
             } else {
                 for entity in &entities {
-                    println!("Name: {}", entity.name);
-                    println!("Type: {}", entity.entity_type);
-                    println!("Summary: {}", entity.summary);
-                    println!("Valid from: {}", entity.valid_from);
+                    info!("Name: {}", entity.name);
+                    info!("Type: {}", entity.entity_type);
+                    info!("Summary: {}", entity.summary);
+                    info!("Valid from: {}", entity.valid_from);
                     if let Some(until) = entity.valid_until {
-                        println!("Valid until: {}", until);
+                        info!("Valid until: {}", until);
                     }
-                    println!("---");
                 }
             }
         }
         Commands::Recent { limit } => {
             let memories = repo.list_recent_memories(limit).await?;
             if memories.is_empty() {
-                println!("No memories found.");
+                info!("No memories found.");
             } else {
                 for (i, memory) in memories.iter().enumerate() {
-                    println!("{}. [{}] {}", i + 1, memory.created_at, memory.content);
+                    info!("{}. [{}] {}", i + 1, memory.created_at, memory.content);
                 }
             }
         }
     }
+
+    repo.export(&cli.db_file_path).await?;
 
     Ok(())
 }

@@ -108,7 +108,7 @@ async fn test_relation_lifecycle() -> Result<()> {
         source_entity_id: alice.id,
         target_entity_id: bob.id,
         relation_type: "knows".to_string(),
-        confidence: 0.9,
+        confidence: 90,
         valid_from: Utc::now(),
         valid_until: None,
     };
@@ -340,7 +340,7 @@ async fn test_graph_neighbors() -> Result<()> {
         source_entity_id: alice.id,
         target_entity_id: bob.id,
         relation_type: "knows".to_string(),
-        confidence: 0.9,
+        confidence: 90,
         valid_from: Utc::now(),
         valid_until: None,
     };
@@ -350,7 +350,7 @@ async fn test_graph_neighbors() -> Result<()> {
         source_entity_id: bob.id,
         target_entity_id: charlie.id,
         relation_type: "knows".to_string(),
-        confidence: 0.9,
+        confidence: 90,
         valid_from: Utc::now(),
         valid_until: None,
     };

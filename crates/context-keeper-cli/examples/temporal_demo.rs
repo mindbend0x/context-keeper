@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
         source_entity_id: alice_v1.id,
         target_entity_id: acme.id,
         relation_type: "works_at".to_string(),
-        confidence: 0.95,
+        confidence: 95,
         valid_from: Utc::now() - Duration::days(30),
         valid_until: None,
     };
@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
         source_entity_id: alice_v1.id,
         target_entity_id: newco.id,
         relation_type: "works_at".to_string(),
-        confidence: 0.95,
+        confidence: 95,
         valid_from: Utc::now(),
         valid_until: None,
     };

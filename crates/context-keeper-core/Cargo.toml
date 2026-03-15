@@ -15,3 +15,4 @@ uuid.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
+schemars.workspace = true

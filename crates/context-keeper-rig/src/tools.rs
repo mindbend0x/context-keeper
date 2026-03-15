@@ -2,10 +2,6 @@
 //!
 //! These expose `add_memory`, `search`, and `expand_search` as agent-callable
 //! tools, allowing Rig agents to interact with the knowledge graph.
-//!
-//! Implementation requires `rig-core` Tool trait which needs the actual
-//! rig-core dependency. The trait implementations will wrap the core engine
-//! functions and expose them as callable tools.
 
 use serde::{Deserialize, Serialize};
 

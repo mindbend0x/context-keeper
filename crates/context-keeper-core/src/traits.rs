@@ -1,26 +1,72 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 // ── Extracted types (shared between traits and models) ──────────────────
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub enum ExtractedEntityType {
+    Person,
+    Organization,
+    Location,
+    Event,
+    Product,
+    Service,
+    Concept,
+    File,
+    Other,
+}
+
+impl From<&str> for ExtractedEntityType {
+    fn from(s: &str) -> Self {
+        match s {
+            "person" => Self::Person,
+            "organization" => Self::Organization,
+            "location" => Self::Location,
+            "event" => Self::Event,
+            "product" => Self::Product,
+            "service" => Self::Service,
+            "concept" => Self::Concept,
+            "file" => Self::File,
+            _ => Self::Other,
+        }
+    }
+}
+
+impl From<ExtractedEntityType> for String {
+    fn from(entity_type: ExtractedEntityType) -> Self {
+        match entity_type {
+            ExtractedEntityType::Person => "person".to_string(),
+            ExtractedEntityType::Organization => "organization".to_string(),
+            ExtractedEntityType::Location => "location".to_string(),
+            ExtractedEntityType::Event => "event".to_string(),
+            ExtractedEntityType::Product => "product".to_string(),
+            ExtractedEntityType::Service => "service".to_string(),
+            ExtractedEntityType::Concept => "concept".to_string(),
+            ExtractedEntityType::File => "file".to_string(),
+            ExtractedEntityType::Other => "other".to_string(),
+        }
+    }
+}
+
 /// Raw entity extracted from text by an LLM or mock.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ExtractedEntity {
     pub name: String,
-    pub entity_type: String,
+    pub entity_type: ExtractedEntityType,
     pub summary: String,
 }
 
 /// Raw relation extracted from text by an LLM or mock.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ExtractedRelation {
     pub subject: String,
     pub predicate: String,
     pub object: String,
-    pub confidence: f32,
+    pub confidence: u8,
 }
 
 // ── Trait definitions ───────────────────────────────────────────────────
@@ -28,9 +74,9 @@ pub struct ExtractedRelation {
 /// Generates embedding vectors for text.
 #[async_trait]
 pub trait Embedder: Send + Sync {
-    async fn embed(&self, text: &str) -> Result<Vec<f32>>;
+    async fn embed(&self, text: &str) -> Result<Vec<f64>>;
 
-    async fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    async fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f64>>> {
         let mut results = Vec::with_capacity(texts.len());
         for text in texts {
             results.push(self.embed(text).await?);
@@ -77,7 +123,7 @@ impl MockEmbedder {
 
 #[async_trait]
 impl Embedder for MockEmbedder {
-    async fn embed(&self, text: &str) -> Result<Vec<f32>> {
+    async fn embed(&self, text: &str) -> Result<Vec<f64>> {
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
         let seed = hasher.finish();
@@ -87,12 +133,12 @@ impl Embedder for MockEmbedder {
         for _ in 0..self.dimension {
             // Simple LCG for deterministic pseudo-random floats
             state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            let val = ((state >> 33) as f32) / (u32::MAX as f32);
+            let val = ((state >> 33) as f64) / (u32::MAX as f64);
             vec.push(val * 2.0 - 1.0); // Range [-1, 1]
         }
 
         // Normalize to unit vector
-        let magnitude: f32 = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let magnitude: f64 = vec.iter().map(|x| x * x).sum::<f64>().sqrt();
         if magnitude > 0.0 {
             for v in &mut vec {
                 *v /= magnitude;
@@ -118,7 +164,7 @@ impl EntityExtractor for MockEntityExtractor {
             })
             .map(|w| ExtractedEntity {
                 name: w.to_string(),
-                entity_type: "unknown".to_string(),
+                entity_type: ExtractedEntityType::Other,
                 summary: format!("Entity: {}", w),
             })
             .collect();
@@ -148,7 +194,7 @@ impl RelationExtractor for MockRelationExtractor {
                 subject: pair[0].name.clone(),
                 predicate: "related_to".to_string(),
                 object: pair[1].name.clone(),
-                confidence: 0.8,
+                confidence: 80,
             });
         }
         Ok(relations)
@@ -194,7 +240,7 @@ mod tests {
     async fn test_mock_embedder_unit_vector() {
         let embedder = MockEmbedder::new(64);
         let v = embedder.embed("test").await.unwrap();
-        let magnitude: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let magnitude: f64 = v.iter().map(|x| x * x).sum::<f64>().sqrt();
         assert!((magnitude - 1.0).abs() < 0.01);
     }
 

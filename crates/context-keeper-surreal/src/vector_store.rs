@@ -17,7 +17,7 @@ impl SurrealVectorStore {
     /// Query for the top-k nearest entity neighbors by embedding similarity.
     pub async fn top_k(
         &self,
-        embedding: &[f32],
+        embedding: &[f64],
         k: usize,
     ) -> Result<Vec<VectorSearchResult>> {
         let results = self.repo.search_entities_by_vector(embedding, k).await?;
@@ -37,7 +37,7 @@ impl SurrealVectorStore {
 #[derive(Debug)]
 pub struct VectorSearchResult {
     pub id: String,
-    pub score: f32,
+    pub score: f64,
     pub content: String,
     pub entity: Option<Entity>,
 }

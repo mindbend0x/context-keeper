@@ -46,7 +46,7 @@ pub async fn ingest(
         entities.push(Entity {
             id: Uuid::new_v4(),
             name: ext.name.clone(),
-            entity_type: ext.entity_type.clone(),
+            entity_type: ext.entity_type.clone().into(),
             summary: ext.summary.clone(),
             embedding,
             valid_from: now,

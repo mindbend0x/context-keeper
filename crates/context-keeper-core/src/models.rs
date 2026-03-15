@@ -19,7 +19,7 @@ pub struct Entity {
     pub name: String,
     pub entity_type: String,
     pub summary: String,
-    pub embedding: Vec<f32>,
+    pub embedding: Vec<f64>,
     pub valid_from: DateTime<Utc>,
     pub valid_until: Option<DateTime<Utc>>,
 }
@@ -31,7 +31,7 @@ pub struct Relation {
     pub source_entity_id: Uuid,
     pub target_entity_id: Uuid,
     pub relation_type: String,
-    pub confidence: f32,
+    pub confidence: u8,
     pub valid_from: DateTime<Utc>,
     pub valid_until: Option<DateTime<Utc>>,
 }
@@ -41,7 +41,7 @@ pub struct Relation {
 pub struct Memory {
     pub id: Uuid,
     pub content: String,
-    pub embedding: Vec<f32>,
+    pub embedding: Vec<f64>,
     pub source_episode_id: Uuid,
     pub entity_ids: Vec<Uuid>,
     pub created_at: DateTime<Utc>,
