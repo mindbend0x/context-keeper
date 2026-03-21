@@ -1,35 +1,175 @@
 # Context Keeper
 
-A high-performance, temporally-aware knowledge graph memory system for AI agents, built entirely in Rust. Context Keeper ingests episodes of text, extracts entities and relationships via LLM calls, and stores them in a SurrealDB-backed graph with full temporal versioning, HNSW vector search, and BM25 full-text search.
+Temporal knowledge graph memory for AI agents. Give Claude, Cursor, or any MCP-compatible assistant a persistent memory that tracks entities, relationships, and changes over time — no API key required to get started.
 
-Spiritual successor to [Graphiti](https://www.presidio.com/technical-blog/graphiti-giving-ai-a-real-memory-a-story-of-temporal-knowledge-graphs/), replacing Python/Neo4j with Rust, [Rig](https://rig.rs), and [SurrealDB](https://surrealdb.com).
+## Quickstart: MCP Server (Claude Desktop / Cursor)
+
+**1. Install**
+
+```bash
+cargo install context-keeper-mcp
+```
+
+**2. Configure your client**
+
+<details>
+<summary><b>Claude Desktop</b></summary>
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "context-keeper": {
+      "command": "context-keeper-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><b>Cursor</b></summary>
+
+Add to `.cursor/mcp.json` in your project (or global settings):
+
+```json
+{
+  "mcpServers": {
+    "context-keeper": {
+      "command": "context-keeper-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+</details>
+
+**3. Try it**
+
+Restart your client, then tell your assistant:
+
+> "Remember that Alice is a software engineer at Acme Corp and Bob is her manager."
+
+Then ask:
+
+> "What do you know about Alice?"
+
+That's it. The MCP server uses mock extraction by default (no API key needed). Entities are extracted from capitalized words, and memories are stored in an in-memory graph. To upgrade to real LLM-powered extraction, see [Using Real LLM Extraction](#using-real-llm-extraction) below.
+
+## Quickstart: CLI
+
+```bash
+cargo install context-keeper-cli
+```
+
+```bash
+# Add a memory (works immediately, no config needed)
+context-keeper add --text "Alice is a software engineer at Acme Corp"
+
+# Search
+context-keeper search --query "Acme"
+
+# Look up an entity
+context-keeper entity --name "Alice"
+
+# List recent memories
+context-keeper recent --limit 5
+```
+
+Without LLM config, the CLI uses the same mock extraction as the MCP server.
+
+## MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `add_memory` | Ingest text into the graph — extracts entities/relations, generates embeddings |
+| `search_memory` | Hybrid vector + BM25 keyword search with RRF fusion |
+| `expand_search` | Query expansion for improved recall |
+| `get_entity` | Fetch entity details with full relationship graph |
+| `snapshot` | Point-in-time snapshot of the knowledge graph |
+| `list_recent` | List the N most recent memories |
+
+## Using Real LLM Extraction
+
+Set these environment variables (or create a `.env` file — see [`.env.example`](.env.example)):
+
+```bash
+export OPENAI_API_URL=https://api.openai.com/v1
+export OPENAI_API_KEY=sk-...
+export EMBEDDING_MODEL=text-embedding-3-small
+export EXTRACTION_MODEL=gpt-4o-mini
+```
+
+Any OpenAI-compatible endpoint works. When all four variables are set, both the CLI and MCP server switch from mock extraction to real LLM-powered entity/relation extraction with vector embeddings.
+
+For the MCP server, you can pass these as environment variables in your client config:
+
+```json
+{
+  "mcpServers": {
+    "context-keeper": {
+      "command": "context-keeper-mcp",
+      "env": {
+        "OPENAI_API_URL": "https://api.openai.com/v1",
+        "OPENAI_API_KEY": "sk-...",
+        "EMBEDDING_MODEL": "text-embedding-3-small",
+        "EXTRACTION_MODEL": "gpt-4o-mini"
+      }
+    }
+  }
+}
+```
+
+## Storage Backends
+
+```bash
+# In-memory (default — exports to context.sql on exit, reimports on start)
+context-keeper add --text "..."
+
+# RocksDB for persistent storage
+context-keeper --storage rocksdb:./my_data add --text "..."
+```
+
+## How It Works
+
+Context Keeper is a Rust implementation inspired by [Graphiti](https://www.presidio.com/technical-blog/graphiti-giving-ai-a-real-memory-a-story-of-temporal-knowledge-graphs/), replacing Python/Neo4j with Rust, [Rig](https://rig.rs), and [SurrealDB](https://surrealdb.com).
+
+It ingests text episodes, extracts entities and relationships (via LLM or mock heuristics), and stores them in a SurrealDB-backed graph with:
+
+- **HNSW vector search** on entity and memory embeddings
+- **BM25 full-text search** across entities, memories, and episodes
+- **Hybrid RRF fusion** combining vector similarity and keyword relevance
+- **Temporal versioning** — every entity and relation carries `valid_from`/`valid_until` timestamps with point-in-time snapshot queries
+- **True UPSERT** — entities are deduplicated by name with summary/embedding merging
 
 ## Architecture
 
 ```mermaid
 graph TD
-  subgraph Interfaces Layer
+  subgraph interfaces [Interfaces]
     CLI["CLI (context-keeper-cli)"]
-    MCP["MCP Server (planned)"]
+    MCP["MCP Server (context-keeper-mcp)"]
   end
 
-  subgraph Core Engine (context-keeper-core)
+  subgraph core [Core Engine]
     INGESTION["Ingestion Pipeline"]
     TEMPORAL["Temporal Manager"]
-    SEARCH["Search (RRF)"]
+    SEARCH["Search with RRF"]
   end
 
-  subgraph Rig Integration (context-keeper-rig)
+  subgraph rig [Rig Integration]
     LLM["LLM Extraction"]
     EMBED["Embeddings"]
-    TOOL["Tool Definitions"]
   end
 
-  subgraph SurrealDB Graph Layer (context-keeper-surreal)
+  subgraph surreal [SurrealDB Graph Layer]
     RELATE["RELATE Edges"]
     VECTORS["HNSW Vectors"]
     BM25["BM25 Full-Text"]
-    ROCKSDB["RocksDB"]
   end
 
   CLI -->|invokes| INGESTION
@@ -38,104 +178,36 @@ graph TD
   INGESTION --> SEARCH
   INGESTION --> LLM
   INGESTION --> EMBED
-  INGESTION --> TOOL
   LLM --> RELATE
   EMBED --> VECTORS
   SEARCH --> BM25
   TEMPORAL --> RELATE
-  RELATE --> ROCKSDB
-  BM25 --> ROCKSDB
-  VECTORS --> ROCKSDB
 ```
 
-## Features
-
-- **Graph-native storage** — Entities are nodes, relations are `RELATE` edges (`entity->relates_to->entity`), memories link to episodes (`memory->sourced_from->episode`) and entities (`memory->references->entity`) via SurrealDB's native graph engine
-- **HNSW vector search** — Configurable-dimension HNSW indexes on entity and memory embeddings with pluggable distance metrics (Cosine, Euclidean, Manhattan, Chebyshev, Hamming, Minkowski)
-- **BM25 full-text search** — Snowball-stemmed English analyzer across entity names, entity summaries, memory content, and episode content
-- **Hybrid search with RRF** — Reciprocal Rank Fusion combining vector similarity and keyword relevance
-- **Temporal awareness** — Every entity and relation carries `valid_from`/`valid_until` timestamps; point-in-time snapshot queries; 30-day changefeeds for auditing
-- **True UPSERT** — Entities are upserted by ID with summary/embedding merging
-- **Dual storage backends** — In-memory (`kv-mem`) for development and RocksDB (`kv-rocksdb`) for persistent single-node deployments
-- **LLM-powered extraction** — Entity and relation extraction via Rig with OpenAI-compatible endpoints
-- **Mock pipelines** — Deterministic mock embedder, entity extractor, and relation extractor for testing without API keys
-
-## Workspace Structure
+### Workspace Structure
 
 ```
 context-keeper/
 ├── crates/
-│   ├── context-keeper-core/      # Models, ingestion pipeline, search (RRF), temporal manager
+│   ├── context-keeper-core/      # Models, ingestion pipeline, search, temporal manager
 │   ├── context-keeper-rig/       # Rig integration: embeddings, entity/relation extraction
-│   ├── context-keeper-surreal/   # SurrealDB client, graph schema, repository, vector store
-│   ├── context-keeper-mcp/       # MCP server binary (scaffold)
-│   └── context-keeper-cli/       # CLI binary + quickstart/temporal examples
+│   ├── context-keeper-surreal/   # SurrealDB client, schema, repository, vector store
+│   ├── context-keeper-mcp/       # MCP server binary (stdio transport)
+│   └── context-keeper-cli/       # CLI binary + examples
 ├── migrations/                   # Reference SurrealQL schema
 └── Cargo.toml                    # Workspace root
 ```
 
-## Data Model
+### Data Model
 
-SurrealDB serves as a combined graph, vector, and document database. The schema is generated dynamically from `SurrealConfig` (embedding dimensions and distance metric).
-
-**Node tables** (SCHEMAFULL):
-
-| Table | Fields | Indexes |
-|-------|--------|---------|
-| `episode` | content, source, session_id, created_at | BM25 on content |
-| `entity` | name, entity_type, summary, embedding, valid_from, valid_until | HNSW on embedding, BM25 on name + summary, UNIQUE on name |
-| `memory` | content, embedding, created_at | HNSW on embedding, BM25 on content |
-
-**Graph edge tables** (TYPE RELATION):
-
-| Edge | Direction | Purpose |
-|------|-----------|---------|
-| `relates_to` | entity -> entity | Typed relationships with confidence and temporal bounds |
-| `sourced_from` | memory -> episode | Links a memory to its source episode |
-| `references` | memory -> entity | Links a memory to entities it mentions |
-
-Changefeeds (30-day retention) are enabled on `entity` and `relates_to` for temporal change tracking.
-
-## Quick Start
-
-### With mock LLM services (no API key)
-
-```bash
-cargo run --example quickstart
-```
-
-### With real LLM extraction
-
-```bash
-# Set environment variables
-export OPENAI_API_URL=https://api.openai.com/v1
-export OPENAI_API_KEY=sk-...
-export EMBEDDING_MODEL=text-embedding-3-small
-export EMBEDDING_DIMS=1536
-export EXTRACTION_MODEL=gpt-4o-mini
-
-# Add a memory
-cargo run -p context-keeper-cli -- add --text "Alice is a software engineer at Acme Corp"
-
-# Search
-cargo run -p context-keeper-cli -- search --query "Acme"
-
-# Look up an entity
-cargo run -p context-keeper-cli -- entity --name "Alice"
-
-# List recent memories
-cargo run -p context-keeper-cli -- recent --limit 5
-```
-
-### Storage backends
-
-```bash
-# In-memory (default, exports to file on exit)
-cargo run -p context-keeper-cli -- --storage memory add --text "..."
-
-# RocksDB persistent storage
-cargo run -p context-keeper-cli -- --storage rocksdb:./my_data add --text "..."
-```
+| Table | Type | Purpose |
+|-------|------|---------|
+| `episode` | Node | Raw text input with source and timestamp |
+| `entity` | Node | Extracted entities with embeddings and temporal bounds |
+| `memory` | Node | Searchable memory chunks with embeddings |
+| `relates_to` | Edge (entity -> entity) | Typed relationships with confidence scores |
+| `sourced_from` | Edge (memory -> episode) | Links memories to source episodes |
+| `references` | Edge (memory -> entity) | Links memories to mentioned entities |
 
 ## CLI Reference
 
@@ -158,60 +230,14 @@ Global Options:
       --storage                Storage backend         [env: STORAGE_BACKEND]  [default: memory]
 ```
 
-## MCP Server
-
-The MCP server exposes Context Keeper as a set of tools over the [Model Context Protocol](https://modelcontextprotocol.io), allowing AI assistants (Claude Desktop, Cursor, VS Code, etc.) to read and write to the knowledge graph.
-
-### MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `add_memory` | Ingest text into the graph — extracts entities/relations, generates embeddings |
-| `search_memory` | Hybrid vector + BM25 keyword search with RRF fusion |
-| `expand_search` | LLM-powered query expansion for improved recall |
-| `get_entity` | Fetch entity details with full relationship graph |
-| `snapshot` | Point-in-time snapshot of the knowledge graph |
-| `list_recent` | List the N most recent memories |
-
-### Running locally (stdio)
+## Docker
 
 ```bash
-# With real LLM services
-cargo run -p context-keeper-mcp
-
-# With mock services (no API key needed)
-cargo run -p context-keeper-mcp -- --storage memory
-```
-
-### Claude Desktop / Cursor configuration
-
-```json
-{
-  "mcpServers": {
-    "context-keeper": {
-      "command": "cargo",
-      "args": ["run", "-p", "context-keeper-mcp"]
-    }
-  }
-}
-```
-
-### Running with HTTP transport
-
-```bash
-cargo run -p context-keeper-mcp -- --transport http --http-port 3000
-```
-
-### Docker Compose
-
-```bash
-# Set your LLM API key in the environment or .env file
 export OPENAI_API_KEY=sk-...
-
 docker compose up --build
 ```
 
-The MCP server will be available on `http://localhost:3000`. Data is persisted via a Docker volume using embedded RocksDB.
+The MCP server will be available on `http://localhost:3000` with RocksDB persistence via a Docker volume.
 
 ## Running Tests
 
@@ -219,21 +245,15 @@ The MCP server will be available on `http://localhost:3000`. Data is persisted v
 cargo test --workspace
 ```
 
-The integration test suite covers episode/entity/memory CRUD, graph edge creation via `RELATE`, HNSW vector search, BM25 full-text search, entity UPSERT deduplication, temporal snapshots, relation invalidation, graph traversal, RRF fusion, and the full ingestion pipeline.
-
 ## Key Dependencies
 
-| Crate | Version | Purpose |
-|-------|---------|---------|
-| `surrealdb` | 3.0.4 | Graph database with HNSW + BM25 (kv-mem, kv-rocksdb) |
-| `rig-core` | 0.32.0 | LLM completions + embeddings via Rig framework |
-| `rmcp` | 0.8.x | Official Rust MCP SDK (stdio + streamable HTTP) |
-| `tokio` | 1.x | Async runtime |
-| `chrono` | 0.4 | Temporal datetime handling |
-| `uuid` | 1.x | Entity/relation/memory identifiers |
-| `clap` | 4.x | CLI argument parsing |
-| `serde` | 1.x | Serialization/deserialization |
-| `tracing` | 0.1 | Structured logging |
+| Crate | Purpose |
+|-------|---------|
+| `surrealdb` | Graph database with HNSW + BM25 |
+| `rig-core` | LLM completions + embeddings |
+| `rmcp` | Rust MCP SDK (stdio transport) |
+| `tokio` | Async runtime |
+| `clap` | CLI argument parsing |
 
 ## License
 

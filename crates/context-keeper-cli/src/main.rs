@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 use anyhow::Result;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
@@ -9,7 +10,7 @@ use context_keeper_rig::{
 };
 use context_keeper_surreal::{apply_schema, connect, Repository, StorageBackend, SurrealConfig};
 use dotenv::dotenv;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
@@ -82,7 +83,7 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
-    dotenv().expect("Failed to load .env file");
+    let _ = dotenv();
 
     let cli = Cli::parse();
 
@@ -101,29 +102,45 @@ async fn main() -> Result<()> {
         repo.import_from_file(&cli.db_file_path).await?;
     }
 
-    let (embedder, entity_extractor, relation_extractor) = match (
-        cli.api_url,
-        cli.api_key,
-        cli.embedding_model_name,
-        cli.extraction_model_name,
-    ) {
-        (
-            Some(api_url),
-            Some(api_key),
-            Some(embedding_model_name),
-            Some(extraction_model_name),
-        ) => {
-            let embedder =
-                RigEmbedder::new(&api_url, &api_key, &embedding_model_name, embedding_dims);
-            let entity_extractor =
-                RigEntityExtractor::new(&api_url, &api_key, &extraction_model_name);
-            let relation_extractor =
-                RigRelationExtractor::new(&api_url, &api_key, &extraction_model_name);
+    let llm_fields = [
+        ("OPENAI_API_URL", cli.api_url.as_deref()),
+        ("OPENAI_API_KEY", cli.api_key.as_deref()),
+        ("EMBEDDING_MODEL", cli.embedding_model_name.as_deref()),
+        ("EXTRACTION_MODEL", cli.extraction_model_name.as_deref()),
+    ];
 
-            (embedder, entity_extractor, relation_extractor)
+    let (embedder, entity_extractor, relation_extractor): (
+        Arc<dyn Embedder>,
+        Arc<dyn EntityExtractor>,
+        Arc<dyn RelationExtractor>,
+    ) = match (
+        cli.api_url.as_deref(),
+        cli.api_key.as_deref(),
+        cli.embedding_model_name.as_deref(),
+        cli.extraction_model_name.as_deref(),
+    ) {
+        (Some(api_url), Some(api_key), Some(emb_model), Some(ext_model)) => {
+            info!("Using LLM-powered extraction");
+            (
+                Arc::new(RigEmbedder::new(api_url, api_key, emb_model, embedding_dims)),
+                Arc::new(RigEntityExtractor::new(api_url, api_key, ext_model)),
+                Arc::new(RigRelationExtractor::new(api_url, api_key, ext_model)),
+            )
         }
         _ => {
-            return Err(anyhow::anyhow!("Missing required LLM settings"));
+            let set: Vec<_> = llm_fields.iter().filter(|(_, v)| v.is_some()).map(|(k, _)| *k).collect();
+            if !set.is_empty() {
+                let missing: Vec<_> = llm_fields.iter().filter(|(_, v)| v.is_none()).map(|(k, _)| *k).collect();
+                warn!("Partial LLM config (have {}, missing {}) — falling back to mock extraction",
+                    set.join(", "), missing.join(", "));
+            } else {
+                info!("No LLM config — using mock extraction (set OPENAI_API_URL, OPENAI_API_KEY, EMBEDDING_MODEL, EXTRACTION_MODEL for real LLM)");
+            }
+            (
+                Arc::new(MockEmbedder::new(embedding_dims)),
+                Arc::new(MockEntityExtractor),
+                Arc::new(MockRelationExtractor),
+            )
         }
     };
 
@@ -136,9 +153,13 @@ async fn main() -> Result<()> {
                 session_id: None,
                 created_at: Utc::now(),
             };
-            let result =
-                ingestion::ingest(&episode, &embedder, &entity_extractor, &relation_extractor)
-                    .await?;
+            let result = ingestion::ingest(
+                &episode,
+                embedder.as_ref(),
+                entity_extractor.as_ref(),
+                relation_extractor.as_ref(),
+            )
+            .await?;
 
             repo.create_episode(&episode).await?;
             for entity in &result.entities {
