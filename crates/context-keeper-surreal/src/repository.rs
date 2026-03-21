@@ -280,8 +280,36 @@ impl Repository {
 
     // ── Relations (Graph Edges) ──────────────────────────────────────
 
-    /// Create a graph edge between two entities using RELATE.
+    /// Create or deduplicate a graph edge between two entities.
+    ///
+    /// If an active relation with the same (from, to, relation_type) already exists,
+    /// updates its confidence score. Otherwise creates a new edge.
     pub async fn create_relation(&self, relation: &Relation) -> Result<()> {
+        // Check for existing active relation with same (from, to, type)
+        let check_q = format!(
+            "SELECT * FROM relates_to WHERE in = entity:`{}` AND out = entity:`{}` AND relation_type = $rel_type AND valid_until IS NONE LIMIT 1",
+            relation.from_entity_id, relation.to_entity_id
+        );
+        let mut check_resp = self
+            .db
+            .query(&check_q)
+            .bind(("rel_type", relation.relation_type.clone()))
+            .await?;
+        let existing: Vec<RelationEdgeRow> = check_resp.take(0)?;
+
+        if let Some(existing_row) = existing.into_iter().next() {
+            // Update confidence on existing relation
+            let update_q = format!(
+                "UPDATE relates_to:`{}` SET confidence = $confidence",
+                record_id_to_uuid(&existing_row.id).unwrap_or(relation.id)
+            );
+            self.db
+                .query(&update_q)
+                .bind(("confidence", relation.confidence))
+                .await?;
+            return Ok(());
+        }
+
         let q = format!(
             "RELATE entity:`{}`->relates_to:`{}`->entity:`{}` SET relation_type = $rel_type, confidence = $confidence, valid_from = <datetime>$valid_from, valid_until = IF $valid_until THEN <datetime>$valid_until ELSE NONE END",
             relation.from_entity_id,

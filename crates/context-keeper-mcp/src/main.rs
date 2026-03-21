@@ -11,10 +11,20 @@ use context_keeper_rig::{
 use context_keeper_surreal::{apply_schema, connect, Repository, StorageBackend, SurrealConfig};
 use dotenv::dotenv;
 use rmcp::ServiceExt;
+use rmcp::transport::{StreamableHttpService, streamable_http_server::session::local::LocalSessionManager};
 use tracing_subscriber::EnvFilter;
 
 mod tools;
 use tools::ContextKeeperServer;
+
+/// Returns the default storage backend string: `rocksdb:~/.context-keeper/data`
+/// with `~` expanded to the actual home directory.
+fn default_storage() -> String {
+    match dirs::home_dir() {
+        Some(home) => format!("rocksdb:{}", home.join(".context-keeper").join("data").display()),
+        None => "memory".to_string(),
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -43,8 +53,8 @@ struct Cli {
     #[arg(short = 'f', long, env = "DB_FILE_PATH", global = true, default_value = "context.sql")]
     db_file_path: String,
 
-    /// Storage backend: "memory" (default), "rocksdb:<path>", or "remote:<ws_url>"
-    #[arg(long, env = "STORAGE_BACKEND", default_value = "memory")]
+    /// Storage backend: "rocksdb:<path>" (default: ~/.context-keeper/data), "memory", or "remote:<ws_url>"
+    #[arg(long, env = "STORAGE_BACKEND", default_value_t = default_storage())]
     storage: String,
 }
 
@@ -76,6 +86,14 @@ async fn main() -> Result<()> {
         storage: parse_storage_backend(&cli.storage),
         ..SurrealConfig::default()
     };
+
+    // Ensure the data directory exists for RocksDB
+    if let StorageBackend::RocksDb(ref path) = config.storage {
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        std::fs::create_dir_all(path).ok();
+    }
 
     let db = connect(&config).await?;
     apply_schema(&db, &config).await?;
@@ -138,13 +156,25 @@ async fn main() -> Result<()> {
             service.waiting().await?;
         }
         "http" => {
-            tracing::info!(port = cli.http_port, "Serving MCP over streamable HTTP");
-            // StreamableHttpService is a Tower service for axum/hyper.
-            // For a simple standalone HTTP server, we use stdio for now
-            // and recommend using an MCP proxy (rmcp-proxy) for HTTP access.
-            tracing::warn!("HTTP transport requires an external HTTP framework integration. \
-                           Use 'stdio' transport with rmcp-proxy for HTTP access, or run via Docker.");
-            anyhow::bail!("Standalone HTTP transport not yet implemented. Use 'stdio' transport.");
+            let bind_addr = format!("0.0.0.0:{}", cli.http_port);
+            tracing::info!(addr = %bind_addr, "Serving MCP over streamable HTTP");
+
+            let http_service = StreamableHttpService::new(
+                move || Ok(server.clone()),
+                LocalSessionManager::default().into(),
+                Default::default(),
+            );
+
+            let router = axum::Router::new().nest_service("/mcp", http_service);
+            let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
+
+            tracing::info!("MCP HTTP server ready at http://{}/mcp", bind_addr);
+
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    tokio::signal::ctrl_c().await.ok();
+                })
+                .await?;
         }
         other => {
             anyhow::bail!("Unknown transport: '{}'. Use 'stdio' or 'http'.", other);

@@ -19,7 +19,8 @@ use rmcp::{
         wrapper::Parameters,
     },
     model::*, schemars, tool, tool_handler, tool_router,
-    ErrorData as McpError, ServerHandler,
+    ErrorData as McpError, RoleServer, ServerHandler,
+    service::RequestContext,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -446,7 +447,11 @@ impl ServerHandler for ContextKeeperServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             protocol_version: ProtocolVersion::V_2024_11_05,
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            capabilities: ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_prompts()
+                .build(),
             server_info: Implementation {
                 name: "context-keeper".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
@@ -461,6 +466,267 @@ impl ServerHandler for ContextKeeperServer {
                  point-in-time queries, and list_recent for recent memories."
                     .into(),
             ),
+        }
+    }
+
+    // ── MCP Resources ────────────────────────────────────────────────
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParam>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, McpError> {
+        let mut resources: Vec<Resource> = vec![
+            RawResource {
+                uri: "memory://recent".into(),
+                name: "recent-memories".into(),
+                title: None,
+                description: Some("The 20 most recently added memories".into()),
+                mime_type: Some("application/json".into()),
+                size: None,
+                icons: None,
+            }.no_annotation(),
+        ];
+
+        // List all active entities as browsable resources
+        let entities = self
+            .repo
+            .get_all_active_entities()
+            .await
+            .map_err(|e| McpError::internal_error(format!("Failed to list entities: {e}"), None))?;
+
+        for entity in &entities {
+            resources.push(
+                RawResource {
+                    uri: format!("memory://entity/{}", entity.name),
+                    name: entity.name.clone(),
+                    title: None,
+                    description: Some(format!("{} ({})", entity.summary, entity.entity_type)),
+                    mime_type: Some("application/json".into()),
+                    size: None,
+                    icons: None,
+                }.no_annotation(),
+            );
+        }
+
+        Ok(ListResourcesResult {
+            resources,
+            next_cursor: None,
+        })
+    }
+
+    async fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParam>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, McpError> {
+        Ok(ListResourceTemplatesResult {
+            resource_templates: vec![
+                ResourceTemplate {
+                    raw: RawResourceTemplate {
+                        uri_template: "memory://entity/{name}".into(),
+                        name: "entity-detail".into(),
+                        title: Some("Entity Detail".into()),
+                        description: Some("Get detailed information about a named entity including relationships".into()),
+                        mime_type: Some("application/json".into()),
+                    },
+                    annotations: None,
+                },
+            ],
+            next_cursor: None,
+        })
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParam,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, McpError> {
+        let uri = &request.uri;
+
+        if uri == "memory://recent" {
+            let memories = self
+                .repo
+                .list_recent_memories(20)
+                .await
+                .map_err(|e| McpError::internal_error(format!("Query failed: {e}"), None))?;
+
+            let items: Vec<MemoryItem> = memories
+                .iter()
+                .map(|m| MemoryItem {
+                    content: m.content.clone(),
+                    created_at: m.created_at.to_rfc3339(),
+                })
+                .collect();
+
+            let text = serde_json::to_string_pretty(&items)
+                .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))?;
+
+            return Ok(ReadResourceResult {
+                contents: vec![ResourceContents::text(text, uri)],
+            });
+        }
+
+        if let Some(name) = uri.strip_prefix("memory://entity/") {
+            let entities = self
+                .repo
+                .find_entities_by_name(name)
+                .await
+                .map_err(|e| McpError::internal_error(format!("Entity lookup failed: {e}"), None))?;
+
+            if entities.is_empty() {
+                return Err(McpError::resource_not_found(
+                    format!("No entity found with name '{}'", name),
+                    None,
+                ));
+            }
+
+            let mut details = Vec::new();
+            for entity in &entities {
+                let relations = self
+                    .repo
+                    .get_relations_for_entity(entity.id)
+                    .await
+                    .map_err(|e| McpError::internal_error(format!("Relation lookup failed: {e}"), None))?;
+
+                details.push(EntityDetail {
+                    name: entity.name.clone(),
+                    entity_type: entity.entity_type.clone(),
+                    summary: entity.summary.clone(),
+                    valid_from: entity.valid_from.to_rfc3339(),
+                    valid_until: entity.valid_until.map(|d| d.to_rfc3339()),
+                    relations: relations
+                        .iter()
+                        .map(|r| RelationDetail {
+                            relation_type: r.relation_type.clone(),
+                            from_entity_id: r.from_entity_id.to_string(),
+                            to_entity_id: r.to_entity_id.to_string(),
+                            confidence: r.confidence,
+                        })
+                        .collect(),
+                });
+            }
+
+            let text = serde_json::to_string_pretty(&details)
+                .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))?;
+
+            return Ok(ReadResourceResult {
+                contents: vec![ResourceContents::text(text, uri)],
+            });
+        }
+
+        Err(McpError::resource_not_found(
+            format!("Unknown resource URI: {uri}"),
+            None,
+        ))
+    }
+
+    // ── MCP Prompts ──────────────────────────────────────────────────
+
+    async fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParam>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, McpError> {
+        Ok(ListPromptsResult {
+            prompts: vec![
+                Prompt::new(
+                    "summarize-topic",
+                    Some("Summarize everything known about a topic from the knowledge graph"),
+                    Some(vec![PromptArgument {
+                        name: "topic".into(),
+                        title: None,
+                        description: Some("The topic to summarize".into()),
+                        required: Some(true),
+                    }]),
+                ),
+                Prompt::new(
+                    "what-changed",
+                    Some("Describe what changed in the knowledge graph since a given date"),
+                    Some(vec![PromptArgument {
+                        name: "since".into(),
+                        title: None,
+                        description: Some("ISO 8601 date/time to look back from (e.g. '2025-01-15T00:00:00Z')".into()),
+                        required: Some(true),
+                    }]),
+                ),
+                Prompt::new(
+                    "add-context",
+                    Some("Ingest context from the current conversation into the knowledge graph"),
+                    Some(vec![PromptArgument {
+                        name: "context".into(),
+                        title: None,
+                        description: Some("The conversation context or notes to remember".into()),
+                        required: Some(true),
+                    }]),
+                ),
+            ],
+            next_cursor: None,
+        })
+    }
+
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParam,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResult, McpError> {
+        let args = request.arguments.unwrap_or_default();
+        let get_str = |key: &str| -> String {
+            args.get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
+
+        match request.name.as_str() {
+            "summarize-topic" => {
+                let topic = get_str("topic");
+                Ok(GetPromptResult {
+                    description: Some(format!("Summarize what is known about '{}'", topic)),
+                    messages: vec![PromptMessage::new_text(
+                        PromptMessageRole::User,
+                        format!(
+                            "Search the knowledge graph for everything related to '{}' using search_memory and expand_search, \
+                             then provide a comprehensive summary of all entities, relationships, and memories found. \
+                             Include temporal information about when things were recorded.",
+                            topic
+                        ),
+                    )],
+                })
+            }
+            "what-changed" => {
+                let since = get_str("since");
+                Ok(GetPromptResult {
+                    description: Some(format!("Changes since {}", since)),
+                    messages: vec![PromptMessage::new_text(
+                        PromptMessageRole::User,
+                        format!(
+                            "Use list_recent to get recent memories, then use snapshot with timestamp '{}' \
+                             to see the graph state at that point. Compare with the current state and describe \
+                             what entities, relationships, or memories have been added or changed since then.",
+                            since
+                        ),
+                    )],
+                })
+            }
+            "add-context" => {
+                let context = get_str("context");
+                Ok(GetPromptResult {
+                    description: Some("Add context to the knowledge graph".into()),
+                    messages: vec![PromptMessage::new_text(
+                        PromptMessageRole::User,
+                        format!(
+                            "Use add_memory to ingest the following context into the knowledge graph. \
+                             After ingestion, briefly confirm what entities and relations were extracted:\n\n{}",
+                            context
+                        ),
+                    )],
+                })
+            }
+            other => Err(McpError::invalid_params(
+                format!("Unknown prompt: '{}'", other),
+                None,
+            )),
         }
     }
 }

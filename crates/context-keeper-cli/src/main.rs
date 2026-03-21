@@ -14,6 +14,15 @@ use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
+/// Returns the default storage backend string: `rocksdb:~/.context-keeper/data`
+/// with `~` expanded to the actual home directory.
+fn default_storage() -> String {
+    match dirs::home_dir() {
+        Some(home) => format!("rocksdb:{}", home.join(".context-keeper").join("data").display()),
+        None => "memory".to_string(),
+    }
+}
+
 #[derive(Parser)]
 #[command(
     name = "context-keeper",
@@ -33,8 +42,8 @@ struct Cli {
     #[arg(short = 'f', long, env = "DB_FILE_PATH", global = true, default_value = "context.sql")]
     db_file_path: String,
 
-    /// Storage backend: "memory" (default) or "rocksdb:<path>"
-    #[arg(long, env = "STORAGE_BACKEND", global = true, default_value = "memory")]
+    /// Storage backend: "rocksdb:<path>" (default: ~/.context-keeper/data) or "memory"
+    #[arg(long, env = "STORAGE_BACKEND", global = true, default_value_t = default_storage())]
     storage: String,
 
     #[command(subcommand)]
@@ -93,6 +102,14 @@ async fn main() -> Result<()> {
         storage: parse_storage_backend(&cli.storage),
         ..SurrealConfig::default()
     };
+
+    // Ensure the data directory exists for RocksDB
+    if let StorageBackend::RocksDb(ref path) = config.storage {
+        if let Some(parent) = Path::new(path).parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        std::fs::create_dir_all(path).ok();
+    }
 
     let db = connect(&config).await?;
     apply_schema(&db, &config).await?;

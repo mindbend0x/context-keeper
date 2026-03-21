@@ -126,12 +126,17 @@ For the MCP server, you can pass these as environment variables in your client c
 
 ## Storage Backends
 
+By default, all Context Keeper binaries use **RocksDB at `~/.context-keeper/data`**. This means every tool (Claude Desktop, Cursor, CLI) shares the same knowledge graph automatically.
+
 ```bash
-# In-memory (default — exports to context.sql on exit, reimports on start)
+# Default — RocksDB at ~/.context-keeper/data (shared across all tools)
 context-keeper add --text "..."
 
-# RocksDB for persistent storage
+# Custom RocksDB path
 context-keeper --storage rocksdb:./my_data add --text "..."
+
+# In-memory (ephemeral — exports to context.sql on exit, reimports on start)
+context-keeper --storage memory add --text "..."
 ```
 
 ## How It Works
@@ -227,7 +232,7 @@ Global Options:
   -u, --api-url                OpenAI-compatible URL   [env: OPENAI_API_URL]
   -k, --api-key                API key                 [env: OPENAI_API_KEY]
   -f, --db-file-path           DB export file path     [env: DB_FILE_PATH]     [default: context.sql]
-      --storage                Storage backend         [env: STORAGE_BACKEND]  [default: memory]
+      --storage                Storage backend         [env: STORAGE_BACKEND]  [default: rocksdb:~/.context-keeper/data]
 ```
 
 ## Docker
