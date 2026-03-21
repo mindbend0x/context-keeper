@@ -835,6 +835,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "context-keeper-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "context-keeper-core",
+ "context-keeper-surreal",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
