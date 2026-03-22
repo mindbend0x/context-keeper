@@ -93,6 +93,52 @@ Without LLM config, the CLI uses the same mock extraction as the MCP server.
 | `snapshot` | Point-in-time snapshot of the knowledge graph |
 | `list_recent` | List the N most recent memories |
 
+## MCP Resources
+
+The server also exposes **browsable resources** that MCP clients can read directly:
+
+| Resource URI | Description |
+|---|---|
+| `memory://recent` | The 20 most recently added memories (JSON) |
+| `memory://entity/{name}` | Detailed entity info including relationships |
+
+All active entities are listed as individual resources, so clients with resource support (e.g. Claude Desktop) can browse the knowledge graph without calling tools.
+
+## MCP Prompts
+
+Pre-built prompt templates that guide the assistant through multi-step workflows:
+
+| Prompt | Arguments | What it does |
+|---|---|---|
+| `summarize-topic` | `topic` | Searches the graph and produces a comprehensive summary of a topic |
+| `what-changed` | `since` (ISO 8601) | Compares a point-in-time snapshot with current state to describe changes |
+| `add-context` | `context` | Ingests conversation context and confirms extracted entities/relations |
+
+## Transports
+
+The MCP server supports two transport modes:
+
+| | stdio | Streamable HTTP |
+|---|---|---|
+| Command | `context-keeper-mcp` (default) | `context-keeper-mcp --transport http` |
+| Best for | Local, single-client (Claude Desktop, Cursor) | Multi-client, remote, Docker |
+| Latency | Lowest (direct pipe) | Slightly higher (HTTP overhead) |
+| Process lifecycle | Managed by the MCP client | Self-managed (systemd, Docker, etc.) |
+
+HTTP mode serves at `http://localhost:3000/mcp` by default (configurable via `--http-port` or `MCP_HTTP_PORT`).
+
+## Integrations
+
+Ready-made setup for popular MCP clients:
+
+- **Claude Desktop** — One-command installer with stdio/HTTP support. See [`plugins/claude-desktop/`](plugins/claude-desktop/).
+- **Cursor / VS Code** — Extension with sidebar panel, search command, and add-from-selection. See [`plugins/cursor/`](plugins/cursor/).
+- **Obsidian** — Config template at [`configs/obsidian-mcp.json`](configs/obsidian-mcp.json).
+
+All integrations share the same `~/.context-keeper/data` RocksDB store by default, so memories are available across every client.
+
+Example config templates for quick manual setup live in [`configs/`](configs/).
+
 ## Using Real LLM Extraction
 
 Set these environment variables (or create a `.env` file — see [`.env.example`](.env.example)):
@@ -153,6 +199,8 @@ It ingests text episodes, extracts entities and relationships (via LLM or mock h
 
 ## Architecture
 
+See [`docs/architecture.md`](docs/architecture.md) for the full crate dependency graph and MCP server internals.
+
 ```mermaid
 graph TD
   subgraph interfaces [Interfaces]
@@ -164,6 +212,7 @@ graph TD
     INGESTION["Ingestion Pipeline"]
     TEMPORAL["Temporal Manager"]
     SEARCH["Search with RRF"]
+    REWRITE["Query Rewriting"]
   end
 
   subgraph rig [Rig Integration]
@@ -178,11 +227,12 @@ graph TD
   end
 
   CLI -->|invokes| INGESTION
-  MCP -->|invokes| INGESTION
+  MCP -->|tools, resources, prompts| INGESTION
   INGESTION --> TEMPORAL
   INGESTION --> SEARCH
   INGESTION --> LLM
   INGESTION --> EMBED
+  SEARCH --> REWRITE
   LLM --> RELATE
   EMBED --> VECTORS
   SEARCH --> BM25
@@ -250,15 +300,20 @@ The MCP server will be available on `http://localhost:3000` with RocksDB persist
 cargo test --workspace
 ```
 
+## MCP Reference
+
+For the full MCP tool/resource/prompt reference with parameters and examples, see [`docs/mcp.md`](docs/mcp.md).
+
 ## Key Dependencies
 
 | Crate | Purpose |
 |-------|---------|
 | `surrealdb` | Graph database with HNSW + BM25 |
 | `rig-core` | LLM completions + embeddings |
-| `rmcp` | Rust MCP SDK (stdio transport) |
+| `rmcp` | Rust MCP SDK (stdio + streamable HTTP transports) |
 | `tokio` | Async runtime |
 | `clap` | CLI argument parsing |
+| `axum` | HTTP server for streamable HTTP transport |
 
 ## License
 
