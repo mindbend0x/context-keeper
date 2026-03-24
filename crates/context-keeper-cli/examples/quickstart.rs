@@ -10,7 +10,6 @@ use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 1. Connect to in-memory SurrealDB
     let config = SurrealConfig {
         embedding_dimensions: 64,
         ..SurrealConfig::default()
@@ -19,12 +18,10 @@ async fn main() -> Result<()> {
     apply_schema(&db, &config).await?;
     let repo = Repository::new(db);
 
-    // 2. Set up mock LLM services (no API key needed)
     let embedder = MockEmbedder::new(64);
     let entity_extractor = MockEntityExtractor;
     let relation_extractor = MockRelationExtractor;
 
-    // 3. Ingest some episodes
     let episodes = vec![
         "Alice is a software engineer at Acme Corp in Berlin",
         "Bob manages the Machine Learning team at Acme Corp",
@@ -40,10 +37,10 @@ async fn main() -> Result<()> {
             created_at: Utc::now(),
         };
 
+        let resolver: &dyn EntityResolver = &repo;
         let result =
-            ingestion::ingest(&episode, &embedder, &entity_extractor, &relation_extractor).await?;
+            ingestion::ingest(&episode, &embedder, &entity_extractor, &relation_extractor, Some(resolver), None).await?;
 
-        // Persist everything
         repo.create_episode(&episode).await?;
         for entity in &result.entities {
             repo.upsert_entity(entity).await?;
@@ -56,20 +53,19 @@ async fn main() -> Result<()> {
         }
 
         println!(
-            "✓ Ingested: {} entities, {} relations from: \"{}\"",
+            "Ingested: {} entities, {} relations from: \"{}\"",
             result.entities.len(),
             result.relations.len(),
             &text[..40.min(text.len())]
         );
     }
 
-    // 4. Search
     println!("\n--- Hybrid Search for 'Acme' ---");
     let query = "Acme";
     let query_embedding = embedder.embed(query).await?;
 
-    let vector_results = repo.search_entities_by_vector(&query_embedding, 5).await?;
-    let keyword_results = repo.search_entities_by_keyword(query).await?;
+    let vector_results = repo.search_entities_by_vector(&query_embedding, 5, None).await?;
+    let keyword_results = repo.search_entities_by_keyword(query, None).await?;
 
     let fused = fuse_rrf(vec![
         vector_results.into_iter().map(|(e, _)| e).collect(),
@@ -79,7 +75,7 @@ async fn main() -> Result<()> {
     for (i, result) in fused.iter().take(5).enumerate() {
         if let Some(ref entity) = result.entity {
             println!(
-                "  {}. {} ({}) — score: {:.4}",
+                "  {}. {} ({}) -- score: {:.4}",
                 i + 1,
                 entity.name,
                 entity.entity_type,
@@ -88,7 +84,6 @@ async fn main() -> Result<()> {
         }
     }
 
-    // 5. List recent memories
     println!("\n--- Recent Memories ---");
     let memories = repo.list_recent_memories(5).await?;
     for (i, memory) in memories.iter().enumerate() {

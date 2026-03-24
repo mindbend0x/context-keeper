@@ -49,7 +49,7 @@ mod tests {
         Entity {
             id: Uuid::new_v4(),
             name: name.to_string(),
-            entity_type: "test".to_string(),
+            entity_type: crate::models::EntityType::Other,
             summary: name.to_string(),
             embedding: vec![],
             valid_from: Utc::now(),

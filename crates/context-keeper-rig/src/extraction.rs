@@ -9,15 +9,24 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use context_keeper_core::traits::{
-    EntityExtractor, ExtractedEntity, 
+    EntityExtractor, ExtractedEntity,
     ExtractedRelation, RelationExtractor
 };
 use rig::providers::openai;
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
-const ENTITY_EXTRACTION_PROMPT: &str = "Extract named entities from the text. Return JSON array of {name, entity_type, summary}.";
-const RELATION_EXTRACTION_PROMPT: &str = "Extract relations between entities. Return JSON array of {subject, predicate, object, confidence}.";
+const ENTITY_EXTRACTION_PROMPT: &str = "\
+Extract named entities from the text. Classify each entity as one of: \
+person, organization, location, event, product, service, concept, file, other. \
+Return JSON array of {name, entity_type, summary}.";
+
+const RELATION_EXTRACTION_PROMPT: &str = "\
+Extract relations between the given entities. \
+The predicate MUST be one of: works_at, located_in, part_of, uses, \
+created_by, knows, depends_on, related_to. \
+Assign a confidence score from 0 to 100. \
+Return JSON array of {subject, predicate, object, confidence}.";
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct RigExtractedEntities {
@@ -45,7 +54,7 @@ impl RigEntityExtractor {
             .api_key(api_key)
             .build()
             .expect("Failed to create OpenAI client");
-        
+
         Self {
             system_prompt: prompt,
             model: model_name.to_string(),
@@ -60,7 +69,7 @@ impl EntityExtractor for RigEntityExtractor {
         let builder = self
             .client
             .extractor::<RigExtractedEntities>(&self.model);
-        
+
         let values: RigExtractedEntities = builder
             .preamble(&self.system_prompt)
             .build()
@@ -87,7 +96,7 @@ impl RigRelationExtractor {
             .api_key(api_key)
             .build()
             .expect("Failed to create OpenAI client");
-        
+
         Self {
             system_prompt: prompt,
             model: model_name.to_string(),
@@ -111,7 +120,7 @@ impl RelationExtractor for RigRelationExtractor {
             self.system_prompt.clone(),
             format!("Entities: {}", entities.iter().map(|e| e.name.clone()).collect::<Vec<String>>().join(", ")),
         ].join("\n");
-        
+
         let values: RigExtractedRelations = builder
             .preamble(&preamble)
             .build()

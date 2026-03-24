@@ -10,7 +10,7 @@ use context_keeper_core::{
     ingestion,
     models::Episode,
     search::{fuse_rrf, QueryExpander},
-    traits::{Embedder, EntityExtractor, QueryRewriter, RelationExtractor},
+    traits::{Embedder, EntityExtractor, EntityResolver, QueryRewriter, RelationExtractor},
 };
 use context_keeper_surreal::Repository;
 use rmcp::{
@@ -41,6 +41,8 @@ pub struct SearchMemoryInput {
     pub query: String,
     #[schemars(description = "Maximum number of results to return (default: 5)")]
     pub limit: Option<usize>,
+    #[schemars(description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other")]
+    pub entity_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -49,6 +51,8 @@ pub struct ExpandSearchInput {
     pub query: String,
     #[schemars(description = "Maximum number of results to return (default: 10)")]
     pub limit: Option<usize>,
+    #[schemars(description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other")]
+    pub entity_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -74,9 +78,30 @@ pub struct ListRecentInput {
 #[derive(Debug, Serialize)]
 struct AddMemoryResponse {
     entities_created: usize,
+    entities_updated: usize,
+    entities_invalidated: usize,
     relations_created: usize,
+    relations_merged: usize,
+    relations_pruned: usize,
     memories_created: usize,
     entity_names: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    updates: Vec<UpdateSummary>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    invalidations: Vec<InvalidationSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct UpdateSummary {
+    name: String,
+    old_summary: String,
+    new_summary: String,
+}
+
+#[derive(Debug, Serialize)]
+struct InvalidationSummary {
+    name: String,
+    reason: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -162,7 +187,7 @@ impl ContextKeeperServer {
     /// Ingest a piece of text into the knowledge graph. Extracts entities and
     /// relations via LLM, generates embeddings, and stores everything in the
     /// graph database.
-    #[tool(description = "Add a memory to the knowledge graph. Ingests text, extracts entities and relations, and stores everything with embeddings for later retrieval.")]
+    #[tool(description = "Add a memory to the knowledge graph. Ingests text, extracts entities and relations, and stores everything with embeddings for later retrieval. Returns a diff of what was created, updated, or invalidated.")]
     async fn add_memory(
         &self,
         Parameters(input): Parameters<AddMemoryInput>,
@@ -176,14 +201,37 @@ impl ContextKeeperServer {
             created_at: Utc::now(),
         };
 
+        let resolver: &dyn EntityResolver = &self.repo;
         let result = ingestion::ingest(
             &episode,
             self.embedder.as_ref(),
             self.entity_extractor.as_ref(),
             self.relation_extractor.as_ref(),
+            Some(resolver),
+            None,
         )
         .await
         .map_err(|e| McpError::internal_error(format!("Ingestion failed: {e}"), None))?;
+
+        // Invalidate entities that had contradictions
+        for inv in &result.diff.entities_invalidated {
+            let existing = self
+                .repo
+                .find_entities_by_name(&inv.name)
+                .await
+                .map_err(|e| McpError::internal_error(format!("Entity lookup failed: {e}"), None))?;
+            for entity in existing {
+                self.repo
+                    .invalidate_entity(entity.id)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("Failed to invalidate entity: {e}"),
+                            None,
+                        )
+                    })?;
+            }
+        }
 
         // Persist everything
         self.repo
@@ -197,11 +245,17 @@ impl ContextKeeperServer {
                 .await
                 .map_err(|e| McpError::internal_error(format!("Failed to upsert entity: {e}"), None))?;
         }
+
+        let mut relations_merged = 0usize;
         for relation in &result.relations {
-            self.repo
+            let created = self
+                .repo
                 .create_relation(relation)
                 .await
                 .map_err(|e| McpError::internal_error(format!("Failed to create relation: {e}"), None))?;
+            if !created {
+                relations_merged += 1;
+            }
         }
         for memory in &result.memories {
             self.repo
@@ -211,10 +265,33 @@ impl ContextKeeperServer {
         }
 
         let response = AddMemoryResponse {
-            entities_created: result.entities.len(),
-            relations_created: result.relations.len(),
+            entities_created: result.diff.entities_created.len(),
+            entities_updated: result.diff.entities_updated.len(),
+            entities_invalidated: result.diff.entities_invalidated.len(),
+            relations_created: result.diff.relations_created,
+            relations_merged,
+            relations_pruned: result.diff.relations_pruned,
             memories_created: result.memories.len(),
             entity_names: result.entities.iter().map(|e| e.name.clone()).collect(),
+            updates: result
+                .diff
+                .entities_updated
+                .iter()
+                .map(|u| UpdateSummary {
+                    name: u.name.clone(),
+                    old_summary: u.old_summary.clone(),
+                    new_summary: u.new_summary.clone(),
+                })
+                .collect(),
+            invalidations: result
+                .diff
+                .entities_invalidated
+                .iter()
+                .map(|i| InvalidationSummary {
+                    name: i.name.clone(),
+                    reason: i.reason.clone(),
+                })
+                .collect(),
         };
 
         serde_json::to_string_pretty(&response)
@@ -223,12 +300,13 @@ impl ContextKeeperServer {
 
     /// Search the knowledge graph using hybrid vector + keyword search with
     /// Reciprocal Rank Fusion.
-    #[tool(description = "Search memories and entities in the knowledge graph using hybrid vector similarity and BM25 keyword search, fused with Reciprocal Rank Fusion.")]
+    #[tool(description = "Search memories and entities in the knowledge graph using hybrid vector similarity and BM25 keyword search, fused with Reciprocal Rank Fusion. Optionally filter by entity_type.")]
     async fn search_memory(
         &self,
         Parameters(input): Parameters<SearchMemoryInput>,
     ) -> Result<String, McpError> {
         let limit = input.limit.unwrap_or(5);
+        let type_filter = input.entity_type.as_deref();
 
         let query_embedding = self
             .embedder
@@ -238,13 +316,13 @@ impl ContextKeeperServer {
 
         let vector_results = self
             .repo
-            .search_entities_by_vector(&query_embedding, limit)
+            .search_entities_by_vector(&query_embedding, limit, type_filter)
             .await
             .map_err(|e| McpError::internal_error(format!("Vector search failed: {e}"), None))?;
 
         let keyword_results = self
             .repo
-            .search_entities_by_keyword(&input.query)
+            .search_entities_by_keyword(&input.query, type_filter)
             .await
             .map_err(|e| McpError::internal_error(format!("Keyword search failed: {e}"), None))?;
 
@@ -259,7 +337,7 @@ impl ContextKeeperServer {
             .filter_map(|r| {
                 r.entity.as_ref().map(|e| SearchResultItem {
                     name: e.name.clone(),
-                    entity_type: e.entity_type.clone(),
+                    entity_type: e.entity_type.to_string(),
                     summary: e.summary.clone(),
                     score: r.score,
                 })
@@ -272,12 +350,13 @@ impl ContextKeeperServer {
 
     /// Run query expansion to improve recall when initial search results are
     /// sparse. Generates semantic variants of the query and searches each.
-    #[tool(description = "Expand a search query into semantic variants using LLM rewriting, then search each variant and merge results with RRF for improved recall.")]
+    #[tool(description = "Expand a search query into semantic variants using LLM rewriting, then search each variant and merge results with RRF for improved recall. Optionally filter by entity_type.")]
     async fn expand_search(
         &self,
         Parameters(input): Parameters<ExpandSearchInput>,
     ) -> Result<String, McpError> {
         let limit = input.limit.unwrap_or(10);
+        let type_filter = input.entity_type.as_deref();
         let expander = QueryExpander::new(3);
 
         let variants = expander
@@ -295,13 +374,13 @@ impl ContextKeeperServer {
 
             let vector_results = self
                 .repo
-                .search_entities_by_vector(&query_embedding, limit)
+                .search_entities_by_vector(&query_embedding, limit, type_filter)
                 .await
                 .map_err(|e| McpError::internal_error(format!("Vector search failed: {e}"), None))?;
 
             let keyword_results = self
                 .repo
-                .search_entities_by_keyword(variant)
+                .search_entities_by_keyword(variant, type_filter)
                 .await
                 .map_err(|e| McpError::internal_error(format!("Keyword search failed: {e}"), None))?;
 
@@ -317,7 +396,7 @@ impl ContextKeeperServer {
             .filter_map(|r| {
                 r.entity.as_ref().map(|e| SearchResultItem {
                     name: e.name.clone(),
-                    entity_type: e.entity_type.clone(),
+                    entity_type: e.entity_type.to_string(),
                     summary: e.summary.clone(),
                     score: r.score,
                 })
@@ -354,14 +433,14 @@ impl ContextKeeperServer {
 
             details.push(EntityDetail {
                 name: entity.name.clone(),
-                entity_type: entity.entity_type.clone(),
+                entity_type: entity.entity_type.to_string(),
                 summary: entity.summary.clone(),
                 valid_from: entity.valid_from.to_rfc3339(),
                 valid_until: entity.valid_until.map(|d| d.to_rfc3339()),
                 relations: relations
                     .iter()
                     .map(|r| RelationDetail {
-                        relation_type: r.relation_type.clone(),
+                        relation_type: r.relation_type.to_string(),
                         from_entity_id: r.from_entity_id.to_string(),
                         to_entity_id: r.to_entity_id.to_string(),
                         confidence: r.confidence,
@@ -405,7 +484,7 @@ impl ContextKeeperServer {
                 .iter()
                 .map(|e| SnapshotEntity {
                     name: e.name.clone(),
-                    entity_type: e.entity_type.clone(),
+                    entity_type: e.entity_type.to_string(),
                     summary: e.summary.clone(),
                 })
                 .collect(),
@@ -488,7 +567,6 @@ impl ServerHandler for ContextKeeperServer {
             }.no_annotation(),
         ];
 
-        // List all active entities as browsable resources
         let entities = self
             .repo
             .get_all_active_entities()
@@ -591,14 +669,14 @@ impl ServerHandler for ContextKeeperServer {
 
                 details.push(EntityDetail {
                     name: entity.name.clone(),
-                    entity_type: entity.entity_type.clone(),
+                    entity_type: entity.entity_type.to_string(),
                     summary: entity.summary.clone(),
                     valid_from: entity.valid_from.to_rfc3339(),
                     valid_until: entity.valid_until.map(|d| d.to_rfc3339()),
                     relations: relations
                         .iter()
                         .map(|r| RelationDetail {
-                            relation_type: r.relation_type.clone(),
+                            relation_type: r.relation_type.to_string(),
                             from_entity_id: r.from_entity_id.to_string(),
                             to_entity_id: r.to_entity_id.to_string(),
                             confidence: r.confidence,

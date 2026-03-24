@@ -1,6 +1,8 @@
 use anyhow::Result;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use context_keeper_core::models::*;
+use context_keeper_core::traits::EntityResolver;
 use serde::{Deserialize, Serialize};
 use surrealdb::engine::local::Db;
 use surrealdb::types::SurrealValue;
@@ -126,7 +128,7 @@ fn entity_from_row(r: EntityRow) -> Option<Entity> {
     Some(Entity {
         id: record_id_to_uuid(&r.id)?,
         name: r.name,
-        entity_type: r.entity_type,
+        entity_type: EntityType::from(r.entity_type.as_str()),
         summary: r.summary,
         embedding: r.embedding,
         valid_from: r.valid_from,
@@ -173,11 +175,38 @@ fn relation_from_edge_row(r: RelationEdgeRow) -> Option<Relation> {
         id: record_id_to_uuid(&r.id)?,
         from_entity_id: record_id_to_uuid(&r.in_id)?,
         to_entity_id: record_id_to_uuid(&r.out_id)?,
-        relation_type: r.relation_type,
+        relation_type: RelationType::from(r.relation_type.as_str()),
         confidence: r.confidence,
         valid_from: r.valid_from,
         valid_until: r.valid_until,
     })
+}
+
+// ── EntityResolver implementation ────────────────────────────────────────
+
+#[async_trait]
+impl EntityResolver for Repository {
+    async fn find_existing(&self, name: &str) -> Result<Option<Entity>> {
+        let results = self.find_entities_by_name(name).await?;
+        Ok(results.into_iter().next())
+    }
+
+    async fn find_similar(
+        &self,
+        _name: &str,
+        embedding: &[f64],
+        threshold: f64,
+    ) -> Result<Vec<Entity>> {
+        let candidates = self
+            .search_entities_by_vector(embedding, 3, None)
+            .await?;
+
+        Ok(candidates
+            .into_iter()
+            .filter(|(_, score)| *score >= threshold)
+            .map(|(e, _)| e)
+            .collect())
+    }
 }
 
 impl Repository {
@@ -242,7 +271,7 @@ impl Repository {
         self.db
             .query(&q)
             .bind(("name", entity.name.clone()))
-            .bind(("entity_type", entity.entity_type.clone()))
+            .bind(("entity_type", entity.entity_type.to_string()))
             .bind(("summary", entity.summary.clone()))
             .bind(("embedding", entity.embedding.clone()))
             .bind(("valid_from", entity.valid_from.to_rfc3339()))
@@ -278,36 +307,89 @@ impl Repository {
         Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
 
+    /// Invalidate an entity by setting its `valid_until` to now.
+    pub async fn invalidate_entity(&self, id: Uuid) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        let q = format!(
+            "UPDATE entity:`{}` SET valid_until = <datetime>$now",
+            id
+        );
+        self.db.query(&q).bind(("now", now)).await?;
+        Ok(())
+    }
+
+    /// Get active entities filtered by type.
+    pub async fn get_entities_by_type(&self, entity_type: &str) -> Result<Vec<Entity>> {
+        let mut response = self
+            .db
+            .query("SELECT * FROM entity WHERE entity_type = $etype AND valid_until IS NONE")
+            .bind(("etype", entity_type.to_string()))
+            .await?;
+        let rows: Vec<EntityRow> = response.take(0)?;
+        Ok(rows.into_iter().filter_map(entity_from_row).collect())
+    }
+
     // ── Relations (Graph Edges) ──────────────────────────────────────
 
     /// Create or deduplicate a graph edge between two entities.
     ///
-    /// If an active relation with the same (from, to, relation_type) already exists,
-    /// updates its confidence score. Otherwise creates a new edge.
-    pub async fn create_relation(&self, relation: &Relation) -> Result<()> {
+    /// Checks for existing active relations with the same (from, to, type).
+    /// For symmetric relation types (Knows, RelatedTo), also checks the
+    /// reverse direction. Averages confidence on merge.
+    pub async fn create_relation(&self, relation: &Relation) -> Result<bool> {
+        let rel_type_str = relation.relation_type.to_string();
+
         // Check for existing active relation with same (from, to, type)
         let check_q = format!(
-            "SELECT * FROM relates_to WHERE in = entity:`{}` AND out = entity:`{}` AND relation_type = $rel_type AND valid_until IS NONE LIMIT 1",
+            "SELECT id, in AS in_id, out AS out_id, relation_type, confidence, valid_from, valid_until FROM relates_to WHERE in = entity:`{}` AND out = entity:`{}` AND relation_type = $rel_type AND valid_until IS NONE LIMIT 1",
             relation.from_entity_id, relation.to_entity_id
         );
         let mut check_resp = self
             .db
             .query(&check_q)
-            .bind(("rel_type", relation.relation_type.clone()))
+            .bind(("rel_type", rel_type_str.clone()))
             .await?;
         let existing: Vec<RelationEdgeRow> = check_resp.take(0)?;
 
         if let Some(existing_row) = existing.into_iter().next() {
-            // Update confidence on existing relation
+            let avg_conf = ((existing_row.confidence as u16 + relation.confidence as u16) / 2) as u8;
             let update_q = format!(
                 "UPDATE relates_to:`{}` SET confidence = $confidence",
                 record_id_to_uuid(&existing_row.id).unwrap_or(relation.id)
             );
             self.db
                 .query(&update_q)
-                .bind(("confidence", relation.confidence))
+                .bind(("confidence", avg_conf))
                 .await?;
-            return Ok(());
+            return Ok(false); // merged, not created
+        }
+
+        // For symmetric types, also check the reverse direction
+        if relation.relation_type.is_symmetric() {
+            let rev_q = format!(
+                "SELECT id, in AS in_id, out AS out_id, relation_type, confidence, valid_from, valid_until FROM relates_to WHERE in = entity:`{}` AND out = entity:`{}` AND relation_type = $rel_type AND valid_until IS NONE LIMIT 1",
+                relation.to_entity_id, relation.from_entity_id
+            );
+            let mut rev_resp = self
+                .db
+                .query(&rev_q)
+                .bind(("rel_type", rel_type_str.clone()))
+                .await?;
+            let rev_existing: Vec<RelationEdgeRow> = rev_resp.take(0)?;
+
+            if let Some(rev_row) = rev_existing.into_iter().next() {
+                let avg_conf =
+                    ((rev_row.confidence as u16 + relation.confidence as u16) / 2) as u8;
+                let update_q = format!(
+                    "UPDATE relates_to:`{}` SET confidence = $confidence",
+                    record_id_to_uuid(&rev_row.id).unwrap_or(relation.id)
+                );
+                self.db
+                    .query(&update_q)
+                    .bind(("confidence", avg_conf))
+                    .await?;
+                return Ok(false); // merged, not created
+            }
         }
 
         let q = format!(
@@ -318,12 +400,12 @@ impl Repository {
         );
         self.db
             .query(&q)
-            .bind(("rel_type", relation.relation_type.clone()))
+            .bind(("rel_type", rel_type_str))
             .bind(("confidence", relation.confidence))
             .bind(("valid_from", relation.valid_from.to_rfc3339()))
             .bind(("valid_until", relation.valid_until.map(|d| d.to_rfc3339())))
             .await?;
-        Ok(())
+        Ok(true) // newly created
     }
 
     pub async fn invalidate_relation(&self, id: Uuid) -> Result<()> {
@@ -347,6 +429,19 @@ impl Repository {
         Ok(rows.into_iter().filter_map(relation_from_edge_row).collect())
     }
 
+    /// Batch-prune relations below a confidence threshold.
+    pub async fn prune_low_confidence_relations(&self, threshold: u8) -> Result<usize> {
+        let now = Utc::now().to_rfc3339();
+        let mut response = self
+            .db
+            .query("UPDATE relates_to SET valid_until = <datetime>$now WHERE confidence < $threshold AND valid_until IS NONE")
+            .bind(("now", now))
+            .bind(("threshold", threshold))
+            .await?;
+        let affected: Vec<RelationEdgeRow> = response.take(0)?;
+        Ok(affected.len())
+    }
+
     // ── Memories (with graph edges) ──────────────────────────────────
 
     /// Create a memory and its graph edges to the source episode and entities.
@@ -365,11 +460,9 @@ impl Repository {
             .bind(("created_at", memory.created_at.to_rfc3339()))
             .await?;
 
-        // Edge: memory -> sourced_from -> episode
         let q = format!("RELATE memory:`{}`->sourced_from->episode:`{}`", mem_id, ep_id);
         self.db.query(&q).await?;
 
-        // Edges: memory -> references -> entity (for each entity)
         for entity_id in &memory.entity_ids {
             let q = format!("RELATE memory:`{}`->references->entity:`{}`", mem_id, entity_id);
             self.db.query(&q).await?;
@@ -391,17 +484,27 @@ impl Repository {
     // ── Vector Search (HNSW) ─────────────────────────────────────────
 
     /// Search entities by vector similarity using HNSW index.
+    /// Optionally filter by entity_type.
     pub async fn search_entities_by_vector(
         &self,
         query_embedding: &[f64],
         limit: usize,
+        entity_type_filter: Option<&str>,
     ) -> Result<Vec<(Entity, f64)>> {
-        let mut response = self
-            .db
-            .query("SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM entity WHERE valid_until IS NONE ORDER BY score DESC LIMIT $limit")
+        let q = match entity_type_filter {
+            Some(_) => "SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM entity WHERE valid_until IS NONE AND entity_type = $etype ORDER BY score DESC LIMIT $limit".to_string(),
+            None => "SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM entity WHERE valid_until IS NONE ORDER BY score DESC LIMIT $limit".to_string(),
+        };
+
+        let mut query = self.db.query(&q)
             .bind(("query_vec", query_embedding.to_vec()))
-            .bind(("limit", limit))
-            .await?;
+            .bind(("limit", limit));
+
+        if let Some(etype) = entity_type_filter {
+            query = query.bind(("etype", etype.to_string()));
+        }
+
+        let mut response = query.await?;
 
         let rows: Vec<ScoredEntityRow> = response.take(0)?;
         Ok(rows
@@ -454,13 +557,26 @@ impl Repository {
     // ── Full-Text Search (BM25) ──────────────────────────────────────
 
     /// BM25 full-text search over entity name and summary fields.
-    pub async fn search_entities_by_keyword(&self, query: &str) -> Result<Vec<Entity>> {
+    /// Optionally filter by entity_type.
+    pub async fn search_entities_by_keyword(
+        &self,
+        query: &str,
+        entity_type_filter: Option<&str>,
+    ) -> Result<Vec<Entity>> {
         debug!("search_entities_by_keyword");
-        let mut response = self
-            .db
-            .query("SELECT *, search::score(1) + search::score(2) AS relevance FROM entity WHERE name @1@ $query OR summary @2@ $query ORDER BY relevance DESC")
-            .bind(("query", query.to_string()))
-            .await?;
+
+        let q = match entity_type_filter {
+            Some(_) => "SELECT *, search::score(1) + search::score(2) AS relevance FROM entity WHERE (name @1@ $query OR summary @2@ $query) AND entity_type = $etype ORDER BY relevance DESC",
+            None => "SELECT *, search::score(1) + search::score(2) AS relevance FROM entity WHERE name @1@ $query OR summary @2@ $query ORDER BY relevance DESC",
+        };
+
+        let mut db_query = self.db.query(q).bind(("query", query.to_string()));
+
+        if let Some(etype) = entity_type_filter {
+            db_query = db_query.bind(("etype", etype.to_string()));
+        }
+
+        let mut response = db_query.await?;
 
         let rows: Vec<FtsEntityRow> = response.take(0)?;
         Ok(rows
@@ -524,12 +640,10 @@ impl Repository {
         let mut all_entities = Vec::new();
 
         for eid in entity_ids {
-            // Get the seed entity itself
             if let Some(seed) = self.get_entity(*eid).await? {
                 all_entities.push(seed);
             }
 
-            // Bidirectional 1-hop traversal via graph edges
             let q = format!(
                 "SELECT * FROM entity:`{}`<->relates_to<->entity WHERE valid_until IS NONE",
                 eid
@@ -588,11 +702,10 @@ impl Repository {
 
     /// Query recent changes to the relates_to edge table via changefeeds.
     pub async fn relation_changes_since(&self, since: DateTime<Utc>) -> Result<Vec<serde_json::Value>> {
-        let since_str = since.to_rfc3339();
         let mut response = self
             .db
             .query("SHOW CHANGES FOR TABLE relates_to SINCE $since")
-            .bind(("since", since_str))
+            .bind(("since", since.to_rfc3339()))
             .await?;
         let changes: Vec<serde_json::Value> = response.take(0)?;
         Ok(changes)

@@ -5,58 +5,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+use crate::models::{Entity, EntityType, RelationType};
+
 // ── Extracted types (shared between traits and models) ──────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub enum ExtractedEntityType {
-    Person,
-    Organization,
-    Location,
-    Event,
-    Product,
-    Service,
-    Concept,
-    File,
-    Other,
-}
-
-impl From<&str> for ExtractedEntityType {
-    fn from(s: &str) -> Self {
-        match s {
-            "person" => Self::Person,
-            "organization" => Self::Organization,
-            "location" => Self::Location,
-            "event" => Self::Event,
-            "product" => Self::Product,
-            "service" => Self::Service,
-            "concept" => Self::Concept,
-            "file" => Self::File,
-            _ => Self::Other,
-        }
-    }
-}
-
-impl From<ExtractedEntityType> for String {
-    fn from(entity_type: ExtractedEntityType) -> Self {
-        match entity_type {
-            ExtractedEntityType::Person => "person".to_string(),
-            ExtractedEntityType::Organization => "organization".to_string(),
-            ExtractedEntityType::Location => "location".to_string(),
-            ExtractedEntityType::Event => "event".to_string(),
-            ExtractedEntityType::Product => "product".to_string(),
-            ExtractedEntityType::Service => "service".to_string(),
-            ExtractedEntityType::Concept => "concept".to_string(),
-            ExtractedEntityType::File => "file".to_string(),
-            ExtractedEntityType::Other => "other".to_string(),
-        }
-    }
-}
 
 /// Raw entity extracted from text by an LLM or mock.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ExtractedEntity {
     pub name: String,
-    pub entity_type: ExtractedEntityType,
+    pub entity_type: EntityType,
     pub summary: String,
 }
 
@@ -67,6 +24,12 @@ pub struct ExtractedRelation {
     pub predicate: String,
     pub object: String,
     pub confidence: u8,
+}
+
+impl ExtractedRelation {
+    pub fn canonical_type(&self) -> RelationType {
+        RelationType::canonicalize(&self.predicate)
+    }
 }
 
 // ── Trait definitions ───────────────────────────────────────────────────
@@ -107,6 +70,21 @@ pub trait QueryRewriter: Send + Sync {
     async fn rewrite(&self, query: &str) -> Result<Vec<String>>;
 }
 
+/// Resolves newly extracted entities against existing graph nodes.
+#[async_trait]
+pub trait EntityResolver: Send + Sync {
+    /// Exact name match against active entities.
+    async fn find_existing(&self, name: &str) -> Result<Option<Entity>>;
+
+    /// Vector + string similarity match for alias resolution.
+    async fn find_similar(
+        &self,
+        name: &str,
+        embedding: &[f64],
+        threshold: f64,
+    ) -> Result<Vec<Entity>>;
+}
+
 // ── Mock implementations for testing ────────────────────────────────────
 
 /// Deterministic embedder that produces vectors from text hashes.
@@ -131,13 +109,13 @@ impl Embedder for MockEmbedder {
         let mut vec = Vec::with_capacity(self.dimension);
         let mut state = seed;
         for _ in 0..self.dimension {
-            // Simple LCG for deterministic pseudo-random floats
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let val = ((state >> 33) as f64) / (u32::MAX as f64);
-            vec.push(val * 2.0 - 1.0); // Range [-1, 1]
+            vec.push(val * 2.0 - 1.0);
         }
 
-        // Normalize to unit vector
         let magnitude: f64 = vec.iter().map(|x| x * x).sum::<f64>().sqrt();
         if magnitude > 0.0 {
             for v in &mut vec {
@@ -149,7 +127,8 @@ impl Embedder for MockEmbedder {
     }
 }
 
-/// Mock entity extractor that finds capitalized words as entities.
+/// Mock entity extractor that finds capitalized words as entities
+/// and infers basic types from heuristics.
 pub struct MockEntityExtractor;
 
 #[async_trait]
@@ -162,20 +141,36 @@ impl EntityExtractor for MockEntityExtractor {
                     && w.chars().next().map_or(false, |c| c.is_uppercase())
                     && w.chars().all(|c| c.is_alphanumeric())
             })
-            .map(|w| ExtractedEntity {
-                name: w.to_string(),
-                entity_type: ExtractedEntityType::Other,
-                summary: format!("Entity: {}", w),
+            .map(|w| {
+                let entity_type = infer_entity_type(w);
+                ExtractedEntity {
+                    name: w.to_string(),
+                    entity_type,
+                    summary: format!("Entity: {}", w),
+                }
             })
             .collect();
 
-        // Deduplicate by name
         let mut seen = std::collections::HashSet::new();
         Ok(entities
             .into_iter()
             .filter(|e| seen.insert(e.name.clone()))
             .collect())
     }
+}
+
+/// Simple heuristic type inference for mock extraction.
+fn infer_entity_type(word: &str) -> EntityType {
+    if word.contains('.') || word.ends_with("rs") || word.ends_with("py") || word.ends_with("js") {
+        return EntityType::File;
+    }
+    if word.chars().all(|c| c.is_uppercase() || c.is_ascii_digit()) && word.len() <= 5 {
+        return EntityType::Organization;
+    }
+    if word.ends_with("Corp") || word.ends_with("Inc") || word.ends_with("Co") {
+        return EntityType::Organization;
+    }
+    EntityType::Other
 }
 
 /// Mock relation extractor that creates relations between consecutive entities.
@@ -262,12 +257,12 @@ mod tests {
         let entities = vec![
             ExtractedEntity {
                 name: "Alice".into(),
-                entity_type: "person".into(),
+                entity_type: EntityType::Person,
                 summary: "".into(),
             },
             ExtractedEntity {
                 name: "Bob".into(),
-                entity_type: "person".into(),
+                entity_type: EntityType::Person,
                 summary: "".into(),
             },
         ];
@@ -284,5 +279,35 @@ mod tests {
         let variants = rewriter.rewrite("rust programming").await.unwrap();
         assert_eq!(variants.len(), 3);
         assert!(variants[0].contains("rust programming"));
+    }
+
+    #[test]
+    fn test_relation_type_canonicalize() {
+        assert_eq!(RelationType::canonicalize("works_at"), RelationType::WorksAt);
+        assert_eq!(
+            RelationType::canonicalize("employed_at"),
+            RelationType::WorksAt
+        );
+        assert_eq!(
+            RelationType::canonicalize("works_for"),
+            RelationType::WorksAt
+        );
+        assert_eq!(
+            RelationType::canonicalize("located_in"),
+            RelationType::LocatedIn
+        );
+        assert_eq!(RelationType::canonicalize("knows"), RelationType::Knows);
+        assert_eq!(
+            RelationType::canonicalize("random_thing"),
+            RelationType::RelatedTo
+        );
+    }
+
+    #[test]
+    fn test_entity_type_from_str() {
+        assert_eq!(EntityType::from("person"), EntityType::Person);
+        assert_eq!(EntityType::from("organization"), EntityType::Organization);
+        assert_eq!(EntityType::from("company"), EntityType::Organization);
+        assert_eq!(EntityType::from("unknown"), EntityType::Other);
     }
 }

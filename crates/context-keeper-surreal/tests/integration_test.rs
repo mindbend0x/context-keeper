@@ -59,7 +59,7 @@ async fn test_entity_crud() -> Result<()> {
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "Alice".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "A protagonist".to_string(),
         embedding: embedder.embed("Alice").await?,
         valid_from: Utc::now(),
@@ -89,7 +89,7 @@ async fn test_entity_upsert_updates_existing() -> Result<()> {
     let entity_v1 = Entity {
         id,
         name: "Alice".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "Version 1".to_string(),
         embedding: embedder.embed("Alice v1").await?,
         valid_from: Utc::now(),
@@ -100,7 +100,7 @@ async fn test_entity_upsert_updates_existing() -> Result<()> {
     let entity_v2 = Entity {
         id,
         name: "Alice".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "Version 2 - updated".to_string(),
         embedding: embedder.embed("Alice v2").await?,
         valid_from: Utc::now(),
@@ -126,7 +126,7 @@ async fn test_relation_lifecycle() -> Result<()> {
     let alice = Entity {
         id: Uuid::new_v4(),
         name: "Alice".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "".to_string(),
         embedding: embedder.embed("Alice").await?,
         valid_from: Utc::now(),
@@ -135,7 +135,7 @@ async fn test_relation_lifecycle() -> Result<()> {
     let bob = Entity {
         id: Uuid::new_v4(),
         name: "Bob".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "".to_string(),
         embedding: embedder.embed("Bob").await?,
         valid_from: Utc::now(),
@@ -148,7 +148,7 @@ async fn test_relation_lifecycle() -> Result<()> {
         id: Uuid::new_v4(),
         from_entity_id: alice.id,
         to_entity_id: bob.id,
-        relation_type: "knows".to_string(),
+        relation_type: RelationType::Knows,
         confidence: 90,
         valid_from: Utc::now(),
         valid_until: None,
@@ -157,7 +157,7 @@ async fn test_relation_lifecycle() -> Result<()> {
 
     let rels = repo.get_relations_for_entity(alice.id).await?;
     assert_eq!(rels.len(), 1);
-    assert_eq!(rels[0].relation_type, "knows");
+    assert_eq!(rels[0].relation_type, RelationType::Knows);
 
     // Invalidate
     repo.invalidate_relation(relation.id).await?;
@@ -191,6 +191,8 @@ async fn test_ingestion_pipeline() -> Result<()> {
         &embedder,
         &entity_extractor,
         &relation_extractor,
+        None,
+        None,
     )
     .await?;
 
@@ -230,7 +232,7 @@ async fn test_vector_search() -> Result<()> {
         let entity = Entity {
             id: Uuid::new_v4(),
             name: name.to_string(),
-            entity_type: "language".to_string(),
+            entity_type: EntityType::Concept,
             summary: format!("{} programming language", name),
             embedding: embedder.embed(name).await?,
             valid_from: Utc::now(),
@@ -240,7 +242,7 @@ async fn test_vector_search() -> Result<()> {
     }
 
     let query_embedding = embedder.embed("Rust").await?;
-    let results = repo.search_entities_by_vector(&query_embedding, 3).await?;
+    let results = repo.search_entities_by_vector(&query_embedding, 3, None).await?;
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].0.name, "Rust");
     assert!((results[0].1 - 1.0).abs() < 0.01);
@@ -292,7 +294,7 @@ async fn test_bm25_entity_search() -> Result<()> {
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "Kubernetes".to_string(),
-        entity_type: "technology".to_string(),
+        entity_type: EntityType::Concept,
         summary: "Container orchestration platform for deploying microservices".to_string(),
         embedding: embedder.embed("Kubernetes").await?,
         valid_from: Utc::now(),
@@ -300,11 +302,11 @@ async fn test_bm25_entity_search() -> Result<()> {
     };
     repo.upsert_entity(&entity).await?;
 
-    let results = repo.search_entities_by_keyword("Kubernetes").await?;
+    let results = repo.search_entities_by_keyword("Kubernetes", None).await?;
     assert!(!results.is_empty());
     assert_eq!(results[0].name, "Kubernetes");
 
-    let results = repo.search_entities_by_keyword("orchestration").await?;
+    let results = repo.search_entities_by_keyword("orchestration", None).await?;
     assert!(!results.is_empty());
 
     Ok(())
@@ -341,7 +343,7 @@ async fn test_rrf_fusion_end_to_end() -> Result<()> {
         let entity = Entity {
             id: Uuid::new_v4(),
             name: name.to_string(),
-            entity_type: "person".to_string(),
+            entity_type: EntityType::Person,
             summary: format!("Person named {}", name),
             embedding: embedder.embed(name).await?,
             valid_from: Utc::now(),
@@ -356,7 +358,6 @@ async fn test_rrf_fusion_end_to_end() -> Result<()> {
 
     let fused = fuse_rrf(vec![vector_ranked, keyword_ranked]);
 
-    // Bob appears in both lists -> should be ranked first
     assert_eq!(fused[0].entity.as_ref().unwrap().name, "Bob");
 
     Ok(())
@@ -374,7 +375,7 @@ async fn test_temporal_snapshot() -> Result<()> {
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "OldFact".to_string(),
-        entity_type: "fact".to_string(),
+        entity_type: EntityType::Concept,
         summary: "An old fact".to_string(),
         embedding: embedder.embed("OldFact").await?,
         valid_from: past,
@@ -400,7 +401,7 @@ fn test_staleness_computation() {
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "test".to_string(),
-        entity_type: "test".to_string(),
+        entity_type: EntityType::Other,
         summary: "test".to_string(),
         embedding: vec![],
         valid_from: Utc::now() - Duration::days(5),
@@ -420,7 +421,7 @@ async fn test_graph_neighbors() -> Result<()> {
     let alice = Entity {
         id: Uuid::new_v4(),
         name: "Alice".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "".to_string(),
         embedding: embedder.embed("Alice").await?,
         valid_from: Utc::now(),
@@ -429,7 +430,7 @@ async fn test_graph_neighbors() -> Result<()> {
     let bob = Entity {
         id: Uuid::new_v4(),
         name: "Bob".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "".to_string(),
         embedding: embedder.embed("Bob").await?,
         valid_from: Utc::now(),
@@ -438,7 +439,7 @@ async fn test_graph_neighbors() -> Result<()> {
     let charlie = Entity {
         id: Uuid::new_v4(),
         name: "Charlie".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "".to_string(),
         embedding: embedder.embed("Charlie").await?,
         valid_from: Utc::now(),
@@ -448,22 +449,20 @@ async fn test_graph_neighbors() -> Result<()> {
     repo.upsert_entity(&bob).await?;
     repo.upsert_entity(&charlie).await?;
 
-    // Alice -> Bob (graph edge via RELATE)
     let rel1 = Relation {
         id: Uuid::new_v4(),
         from_entity_id: alice.id,
         to_entity_id: bob.id,
-        relation_type: "knows".to_string(),
+        relation_type: RelationType::Knows,
         confidence: 90,
         valid_from: Utc::now(),
         valid_until: None,
     };
-    // Bob -> Charlie
     let rel2 = Relation {
         id: Uuid::new_v4(),
         from_entity_id: bob.id,
         to_entity_id: charlie.id,
-        relation_type: "knows".to_string(),
+        relation_type: RelationType::Knows,
         confidence: 90,
         valid_from: Utc::now(),
         valid_until: None,
@@ -498,7 +497,7 @@ async fn test_memory_graph_edges() -> Result<()> {
     let alice = Entity {
         id: Uuid::new_v4(),
         name: "AliceWorker".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "Works at Acme".to_string(),
         embedding: embedder.embed("AliceWorker").await?,
         valid_from: Utc::now(),
@@ -534,7 +533,7 @@ async fn test_relations_at_temporal() -> Result<()> {
     let alice = Entity {
         id: Uuid::new_v4(),
         name: "AliceTemporal".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "".to_string(),
         embedding: embedder.embed("AliceTemporal").await?,
         valid_from: now - Duration::days(10),
@@ -543,7 +542,7 @@ async fn test_relations_at_temporal() -> Result<()> {
     let acme = Entity {
         id: Uuid::new_v4(),
         name: "AcmeTemporal".to_string(),
-        entity_type: "company".to_string(),
+        entity_type: EntityType::Organization,
         summary: "".to_string(),
         embedding: embedder.embed("AcmeTemporal").await?,
         valid_from: now - Duration::days(10),
@@ -556,7 +555,7 @@ async fn test_relations_at_temporal() -> Result<()> {
         id: Uuid::new_v4(),
         from_entity_id: alice.id,
         to_entity_id: acme.id,
-        relation_type: "works_at".to_string(),
+        relation_type: RelationType::WorksAt,
         confidence: 95,
         valid_from: now - Duration::days(10),
         valid_until: None,
@@ -564,7 +563,106 @@ async fn test_relations_at_temporal() -> Result<()> {
     repo.create_relation(&rel).await?;
 
     let rels = repo.relations_at(now).await?;
-    assert!(rels.iter().any(|r| r.relation_type == "works_at"));
+    assert!(rels.iter().any(|r| r.relation_type == RelationType::WorksAt));
+
+    Ok(())
+}
+
+// ── Entity type filter ──────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_entity_type_filter() -> Result<()> {
+    let repo = setup().await?;
+    let embedder = MockEmbedder::new(8);
+
+    let alice = Entity {
+        id: Uuid::new_v4(),
+        name: "AliceFilter".to_string(),
+        entity_type: EntityType::Person,
+        summary: "A person".to_string(),
+        embedding: embedder.embed("AliceFilter").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+    };
+    let acme = Entity {
+        id: Uuid::new_v4(),
+        name: "AcmeFilter".to_string(),
+        entity_type: EntityType::Organization,
+        summary: "A company".to_string(),
+        embedding: embedder.embed("AcmeFilter").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+    };
+    repo.upsert_entity(&alice).await?;
+    repo.upsert_entity(&acme).await?;
+
+    let by_type = repo.get_entities_by_type("person").await?;
+    assert_eq!(by_type.len(), 1);
+    assert_eq!(by_type[0].name, "AliceFilter");
+
+    let by_type_org = repo.get_entities_by_type("organization").await?;
+    assert_eq!(by_type_org.len(), 1);
+    assert_eq!(by_type_org[0].name, "AcmeFilter");
+
+    Ok(())
+}
+
+// ── Symmetric relation dedup ────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_symmetric_relation_dedup() -> Result<()> {
+    let repo = setup().await?;
+    let embedder = MockEmbedder::new(8);
+
+    let alice = Entity {
+        id: Uuid::new_v4(),
+        name: "AliceSym".to_string(),
+        entity_type: EntityType::Person,
+        summary: "".to_string(),
+        embedding: embedder.embed("AliceSym").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+    };
+    let bob = Entity {
+        id: Uuid::new_v4(),
+        name: "BobSym".to_string(),
+        entity_type: EntityType::Person,
+        summary: "".to_string(),
+        embedding: embedder.embed("BobSym").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+    };
+    repo.upsert_entity(&alice).await?;
+    repo.upsert_entity(&bob).await?;
+
+    let rel1 = Relation {
+        id: Uuid::new_v4(),
+        from_entity_id: alice.id,
+        to_entity_id: bob.id,
+        relation_type: RelationType::Knows,
+        confidence: 80,
+        valid_from: Utc::now(),
+        valid_until: None,
+    };
+    let created = repo.create_relation(&rel1).await?;
+    assert!(created, "First relation should be newly created");
+
+    // Reverse direction of a symmetric type should merge
+    let rel2 = Relation {
+        id: Uuid::new_v4(),
+        from_entity_id: bob.id,
+        to_entity_id: alice.id,
+        relation_type: RelationType::Knows,
+        confidence: 90,
+        valid_from: Utc::now(),
+        valid_until: None,
+    };
+    let created = repo.create_relation(&rel2).await?;
+    assert!(!created, "Reverse symmetric relation should be merged");
+
+    let rels = repo.get_relations_for_entity(alice.id).await?;
+    assert_eq!(rels.len(), 1, "Should have exactly one relation after dedup");
+    assert_eq!(rels[0].confidence, 85, "Confidence should be averaged");
 
     Ok(())
 }

@@ -14,7 +14,7 @@ async fn test_snapshot_before_creation() -> Result<()> {
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "FutureEntity".to_string(),
-        entity_type: "test".to_string(),
+        entity_type: EntityType::Other,
         summary: "Created after the snapshot time".to_string(),
         embedding: env.embedder.embed("FutureEntity").await?,
         valid_from: Utc::now(),
@@ -42,7 +42,7 @@ async fn test_snapshot_at_creation() -> Result<()> {
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "PastEntity".to_string(),
-        entity_type: "test".to_string(),
+        entity_type: EntityType::Other,
         summary: "Created in the past".to_string(),
         embedding: env.embedder.embed("PastEntity").await?,
         valid_from: created,
@@ -69,7 +69,7 @@ async fn test_snapshot_after_invalidation() -> Result<()> {
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "Expired".to_string(),
-        entity_type: "test".to_string(),
+        entity_type: EntityType::Other,
         summary: "This entity has expired".to_string(),
         embedding: env.embedder.embed("Expired").await?,
         valid_from: Utc::now() - Duration::days(10),
@@ -95,10 +95,6 @@ async fn test_snapshot_after_invalidation() -> Result<()> {
 }
 
 // ── Temporal entity evolution ────────────────────────────────────────────
-//
-// Models evolution via upsert: same ID, summary updated, valid_from moved forward.
-// The old state is lost (overwritten), but we verify that a single entity
-// correctly transitions through time with upsert semantics.
 
 #[tokio::test]
 async fn test_temporal_entity_evolution() -> Result<()> {
@@ -110,7 +106,7 @@ async fn test_temporal_entity_evolution() -> Result<()> {
     let v1 = Entity {
         id,
         name: "Alice".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "Engineer at Acme".to_string(),
         embedding: env.embedder.embed("Alice").await?,
         valid_from: t0,
@@ -127,7 +123,7 @@ async fn test_temporal_entity_evolution() -> Result<()> {
     let v2 = Entity {
         id,
         name: "Alice".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "Director at Acme".to_string(),
         embedding: env.embedder.embed("Alice").await?,
         valid_from: t1,
@@ -158,7 +154,7 @@ async fn test_temporal_relation_lifecycle() -> Result<()> {
     let alice = Entity {
         id: Uuid::new_v4(),
         name: "Alice".to_string(),
-        entity_type: "person".to_string(),
+        entity_type: EntityType::Person,
         summary: "".to_string(),
         embedding: env.embedder.embed("Alice").await?,
         valid_from: Utc::now() - Duration::days(30),
@@ -167,7 +163,7 @@ async fn test_temporal_relation_lifecycle() -> Result<()> {
     let acme = Entity {
         id: Uuid::new_v4(),
         name: "Acme".to_string(),
-        entity_type: "company".to_string(),
+        entity_type: EntityType::Organization,
         summary: "".to_string(),
         embedding: env.embedder.embed("Acme").await?,
         valid_from: Utc::now() - Duration::days(30),
@@ -180,7 +176,7 @@ async fn test_temporal_relation_lifecycle() -> Result<()> {
         id: Uuid::new_v4(),
         from_entity_id: alice.id,
         to_entity_id: acme.id,
-        relation_type: "works_at".to_string(),
+        relation_type: RelationType::WorksAt,
         confidence: 95,
         valid_from: Utc::now() - Duration::days(30),
         valid_until: None,
@@ -189,7 +185,7 @@ async fn test_temporal_relation_lifecycle() -> Result<()> {
 
     let before_invalidation = env.repo.relations_at(Utc::now()).await?;
     assert!(
-        before_invalidation.iter().any(|r| r.relation_type == "works_at"),
+        before_invalidation.iter().any(|r| r.relation_type == RelationType::WorksAt),
         "Relation should exist before invalidation"
     );
 
@@ -212,7 +208,7 @@ async fn test_staleness_ordering() -> Result<()> {
         Entity {
             id: Uuid::new_v4(),
             name: "Ancient".to_string(),
-            entity_type: "test".to_string(),
+            entity_type: EntityType::Other,
             summary: "".to_string(),
             embedding: vec![],
             valid_from: Utc::now() - Duration::days(100),
@@ -221,7 +217,7 @@ async fn test_staleness_ordering() -> Result<()> {
         Entity {
             id: Uuid::new_v4(),
             name: "Old".to_string(),
-            entity_type: "test".to_string(),
+            entity_type: EntityType::Other,
             summary: "".to_string(),
             embedding: vec![],
             valid_from: Utc::now() - Duration::days(30),
@@ -230,7 +226,7 @@ async fn test_staleness_ordering() -> Result<()> {
         Entity {
             id: Uuid::new_v4(),
             name: "Recent".to_string(),
-            entity_type: "test".to_string(),
+            entity_type: EntityType::Other,
             summary: "".to_string(),
             embedding: vec![],
             valid_from: Utc::now() - Duration::days(1),
@@ -263,7 +259,7 @@ async fn test_staleness_fresh_entity() -> Result<()> {
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "Fresh".to_string(),
-        entity_type: "test".to_string(),
+        entity_type: EntityType::Other,
         summary: "".to_string(),
         embedding: vec![],
         valid_from: Utc::now(),

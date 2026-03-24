@@ -59,10 +59,6 @@ async fn main() -> Result<()> {
 
     banner("CONTEXT KEEPER  —  Feature Showcase");
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 1. Database Setup
-    // ─────────────────────────────────────────────────────────────────────
-
     section("1 · In-Memory SurrealDB Setup");
 
     let config = SurrealConfig {
@@ -91,10 +87,6 @@ async fn main() -> Result<()> {
 
     end_section();
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 2. Mock LLM Services
-    // ─────────────────────────────────────────────────────────────────────
-
     section("2 · Mock LLM Services (no API key needed)");
 
     let embedder = MockEmbedder::new(64);
@@ -108,10 +100,6 @@ async fn main() -> Result<()> {
     item("MockQueryRewriter    → generates semantic query variants");
 
     end_section();
-
-    // ─────────────────────────────────────────────────────────────────────
-    // 3. Ingestion Pipeline
-    // ─────────────────────────────────────────────────────────────────────
 
     section("3 · Ingestion Pipeline");
 
@@ -136,8 +124,9 @@ async fn main() -> Result<()> {
         };
 
         tracing::info!(session = session, "Ingesting episode");
+        let resolver: &dyn EntityResolver = &repo;
         let result =
-            ingestion::ingest(&episode, &embedder, &entity_extractor, &relation_extractor)
+            ingestion::ingest(&episode, &embedder, &entity_extractor, &relation_extractor, Some(resolver), None)
                 .await?;
 
         repo.create_episode(&episode).await?;
@@ -178,10 +167,6 @@ async fn main() -> Result<()> {
 
     end_section();
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 4. HNSW Vector Search
-    // ─────────────────────────────────────────────────────────────────────
-
     section("4 · HNSW Vector Search (semantic similarity)");
 
     let query = "Machine Learning engineer";
@@ -189,7 +174,7 @@ async fn main() -> Result<()> {
 
     tracing::info!(query, "Running HNSW vector search on entities");
     let vector_results = repo
-        .search_entities_by_vector(&query_embedding, 5)
+        .search_entities_by_vector(&query_embedding, 5, None)
         .await?;
 
     item(&format!("Query: \"{query}\""));
@@ -225,16 +210,12 @@ async fn main() -> Result<()> {
 
     end_section();
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 5. BM25 Full-Text Search
-    // ─────────────────────────────────────────────────────────────────────
-
     section("5 · BM25 Full-Text Search (keyword matching)");
 
     let keyword = "Acme";
     tracing::info!(keyword, "Running BM25 keyword search");
 
-    let kw_entities = repo.search_entities_by_keyword(keyword).await?;
+    let kw_entities = repo.search_entities_by_keyword(keyword, None).await?;
     let kw_episodes = repo.search_episodes_by_keyword(keyword).await?;
 
     item(&format!("Keyword: \"{keyword}\""));
@@ -251,10 +232,6 @@ async fn main() -> Result<()> {
 
     end_section();
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 6. Hybrid Search with RRF Fusion
-    // ─────────────────────────────────────────────────────────────────────
-
     section("6 · Hybrid Search — RRF Fusion (vector + keyword)");
 
     let hybrid_query = "DataFlow";
@@ -263,9 +240,9 @@ async fn main() -> Result<()> {
     tracing::info!(query = hybrid_query, "Running hybrid search with RRF fusion");
 
     let vec_hits = repo
-        .search_entities_by_vector(&hybrid_embedding, 5)
+        .search_entities_by_vector(&hybrid_embedding, 5, None)
         .await?;
-    let kw_hits = repo.search_entities_by_keyword(hybrid_query).await?;
+    let kw_hits = repo.search_entities_by_keyword(hybrid_query, None).await?;
 
     item(&format!("Query: \"{hybrid_query}\""));
     item(&format!(
@@ -295,10 +272,6 @@ async fn main() -> Result<()> {
 
     end_section();
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 7. Query Expansion
-    // ─────────────────────────────────────────────────────────────────────
-
     section("7 · Query Expansion (sparse-result fallback)");
 
     let expander = QueryExpander::new(3);
@@ -308,7 +281,7 @@ async fn main() -> Result<()> {
 
     let sparse_embedding = embedder.embed(sparse_query).await?;
     let initial_results = repo
-        .search_entities_by_vector(&sparse_embedding, 5)
+        .search_entities_by_vector(&sparse_embedding, 5, None)
         .await?;
 
     item(&format!("Query: \"{sparse_query}\""));
@@ -338,7 +311,7 @@ async fn main() -> Result<()> {
 
     for variant in &variants[1..] {
         let emb = embedder.embed(variant).await?;
-        let hits = repo.search_entities_by_vector(&emb, 5).await?;
+        let hits = repo.search_entities_by_vector(&emb, 5, None).await?;
         expanded_lists.push(hits.into_iter().map(|(e, _)| e).collect());
     }
 
@@ -360,17 +333,13 @@ async fn main() -> Result<()> {
 
     end_section();
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 8. Temporal Versioning
-    // ─────────────────────────────────────────────────────────────────────
-
     section("8 · Temporal Versioning (time-travel queries)");
 
     let old_date = Utc::now() - Duration::days(60);
     let alice_v1 = Entity {
         id: Uuid::new_v4(),
         name: "Alice_Temporal".into(),
-        entity_type: "person".into(),
+        entity_type: EntityType::Person,
         summary: "Junior engineer at StartupX".into(),
         embedding: embedder.embed("Alice_Temporal StartupX").await?,
         valid_from: old_date,
@@ -381,7 +350,7 @@ async fn main() -> Result<()> {
     let alice_v2 = Entity {
         id: Uuid::new_v4(),
         name: "Alice_Temporal".into(),
-        entity_type: "person".into(),
+        entity_type: EntityType::Person,
         summary: "Senior engineer at MegaCorp".into(),
         embedding: embedder.embed("Alice_Temporal MegaCorp").await?,
         valid_from: Utc::now() - Duration::days(10),
@@ -437,10 +406,6 @@ async fn main() -> Result<()> {
 
     end_section();
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 9. Staleness Scoring
-    // ─────────────────────────────────────────────────────────────────────
-
     section("9 · Staleness Scoring");
 
     tracing::info!("Computing staleness scores for all active entities");
@@ -465,10 +430,6 @@ async fn main() -> Result<()> {
     }
 
     end_section();
-
-    // ─────────────────────────────────────────────────────────────────────
-    // 10. Graph Traversal
-    // ─────────────────────────────────────────────────────────────────────
 
     section("10 · Graph Traversal (entity neighbors)");
 
@@ -509,10 +470,6 @@ async fn main() -> Result<()> {
 
     end_section();
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 11. Vector Store (convenience API)
-    // ─────────────────────────────────────────────────────────────────────
-
     section("11 · SurrealVectorStore (convenience top-k API)");
 
     let db2 = connect_memory(&config).await?;
@@ -545,10 +502,6 @@ async fn main() -> Result<()> {
 
     end_section();
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 12. Recent Memories
-    // ─────────────────────────────────────────────────────────────────────
-
     section("12 · Recent Memories");
 
     let memories = repo.list_recent_memories(5).await?;
@@ -568,10 +521,6 @@ async fn main() -> Result<()> {
     }
 
     end_section();
-
-    // ─────────────────────────────────────────────────────────────────────
-    // 13. Temporal Snapshot (combined)
-    // ─────────────────────────────────────────────────────────────────────
 
     section("13 · Temporal Snapshot (entities + relations at a point in time)");
 
@@ -600,10 +549,6 @@ async fn main() -> Result<()> {
     item(&format!("  Relations : {}", snapshot.relations.len()));
 
     end_section();
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Fin
-    // ─────────────────────────────────────────────────────────────────────
 
     banner("Demo Complete — All Features Showcased");
 

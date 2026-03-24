@@ -1,3 +1,5 @@
 mod pipeline;
 
-pub use pipeline::{ingest, IngestionResult};
+pub use pipeline::{
+    ingest, EntityInvalidation, EntityUpdate, IngestionDiff, IngestionResult,
+};

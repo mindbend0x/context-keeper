@@ -25,7 +25,7 @@ async fn test_vector_search_self_similarity() -> Result<()> {
         let entity = Entity {
             id: Uuid::new_v4(),
             name: name.to_string(),
-            entity_type: "language".to_string(),
+            entity_type: EntityType::Concept,
             summary: format!("{name} programming language"),
             embedding: env.embedder.embed(name).await?,
             valid_from: Utc::now(),
@@ -36,7 +36,7 @@ async fn test_vector_search_self_similarity() -> Result<()> {
 
     for name in &names {
         let query_vec = env.embedder.embed(name).await?;
-        let results = env.repo.search_entities_by_vector(&query_vec, 4).await?;
+        let results = env.repo.search_entities_by_vector(&query_vec, 4, None).await?;
         assert!(
             !results.is_empty(),
             "Vector search for {name} should return results"
@@ -70,7 +70,7 @@ async fn test_vector_search_ranking() -> Result<()> {
         let entity = Entity {
             id: Uuid::new_v4(),
             name: name.to_string(),
-            entity_type: "callsign".to_string(),
+            entity_type: EntityType::Other,
             summary: format!("NATO phonetic: {name}"),
             embedding: env.embedder.embed(name).await?,
             valid_from: Utc::now(),
@@ -80,7 +80,7 @@ async fn test_vector_search_ranking() -> Result<()> {
     }
 
     let query_vec = env.embedder.embed("Alpha").await?;
-    let results = env.repo.search_entities_by_vector(&query_vec, 10).await?;
+    let results = env.repo.search_entities_by_vector(&query_vec, 10, None).await?;
     assert_eq!(results[0].0.name, "Alpha");
 
     for i in 1..results.len() {
@@ -102,7 +102,7 @@ async fn test_bm25_exact_match() -> Result<()> {
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "Kubernetes".to_string(),
-        entity_type: "technology".to_string(),
+        entity_type: EntityType::Concept,
         summary: "Container orchestration platform".to_string(),
         embedding: env.embedder.embed("Kubernetes").await?,
         valid_from: Utc::now(),
@@ -110,7 +110,7 @@ async fn test_bm25_exact_match() -> Result<()> {
     };
     env.repo.upsert_entity(&entity).await?;
 
-    let results = env.repo.search_entities_by_keyword("Kubernetes").await?;
+    let results = env.repo.search_entities_by_keyword("Kubernetes", None).await?;
     assert!(!results.is_empty(), "BM25 should find exact name match");
     assert_eq!(results[0].name, "Kubernetes");
 
@@ -126,7 +126,7 @@ async fn test_bm25_summary_match() -> Result<()> {
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "Kubernetes".to_string(),
-        entity_type: "technology".to_string(),
+        entity_type: EntityType::Concept,
         summary: "Container orchestration platform for deploying microservices".to_string(),
         embedding: env.embedder.embed("Kubernetes").await?,
         valid_from: Utc::now(),
@@ -134,7 +134,7 @@ async fn test_bm25_summary_match() -> Result<()> {
     };
     env.repo.upsert_entity(&entity).await?;
 
-    let results = env.repo.search_entities_by_keyword("orchestration").await?;
+    let results = env.repo.search_entities_by_keyword("orchestration", None).await?;
     assert!(!results.is_empty(), "BM25 should match words in summary");
     assert_eq!(results[0].name, "Kubernetes");
 
@@ -148,7 +148,7 @@ async fn test_rrf_fusion_boost() -> Result<()> {
     let make = |name: &str| Entity {
         id: Uuid::new_v4(),
         name: name.to_string(),
-        entity_type: "test".to_string(),
+        entity_type: EntityType::Other,
         summary: name.to_string(),
         embedding: vec![],
         valid_from: Utc::now(),
@@ -180,7 +180,7 @@ async fn test_rrf_diverse_results() -> Result<()> {
     let make = |name: &str| Entity {
         id: Uuid::new_v4(),
         name: name.to_string(),
-        entity_type: "test".to_string(),
+        entity_type: EntityType::Other,
         summary: name.to_string(),
         embedding: vec![],
         valid_from: Utc::now(),
@@ -276,8 +276,6 @@ async fn test_memory_keyword_search() -> Result<()> {
     env.ingest_text("Rust is a systems programming language", "test").await?;
     env.ingest_text("Python is popular for data science", "test").await?;
 
-    // Test episode BM25 search as a proxy for memory keyword retrieval,
-    // since episodes and memories share content after ingestion.
     let results = env.repo.search_episodes_by_keyword("Rust").await?;
     assert!(!results.is_empty(), "BM25 should find episode by keyword");
     assert!(
@@ -304,19 +302,19 @@ async fn test_query_expansion_increases_recall() -> Result<()> {
     let mut all_entity_names: HashSet<String> = HashSet::new();
     for variant in &variants {
         let query_vec = env.embedder.embed(variant).await?;
-        let vec_results = env.repo.search_entities_by_vector(&query_vec, 5).await?;
+        let vec_results = env.repo.search_entities_by_vector(&query_vec, 5, None).await?;
         for (entity, _) in vec_results {
             all_entity_names.insert(entity.name);
         }
 
-        let kw_results = env.repo.search_entities_by_keyword(variant).await?;
+        let kw_results = env.repo.search_entities_by_keyword(variant, None).await?;
         for entity in kw_results {
             all_entity_names.insert(entity.name);
         }
     }
 
     let base_vec = env.embedder.embed("Acme leadership").await?;
-    let base_results = env.repo.search_entities_by_vector(&base_vec, 5).await?;
+    let base_results = env.repo.search_entities_by_vector(&base_vec, 5, None).await?;
     let base_names: HashSet<String> = base_results.into_iter().map(|(e, _)| e.name).collect();
 
     assert!(
@@ -377,7 +375,7 @@ async fn test_search_excludes_invalidated() -> Result<()> {
     let active = Entity {
         id: Uuid::new_v4(),
         name: "ActiveEntity".to_string(),
-        entity_type: "test".to_string(),
+        entity_type: EntityType::Other,
         summary: "This entity is active".to_string(),
         embedding: env.embedder.embed("ActiveEntity").await?,
         valid_from: Utc::now(),
@@ -387,7 +385,7 @@ async fn test_search_excludes_invalidated() -> Result<()> {
     let invalidated = Entity {
         id: Uuid::new_v4(),
         name: "GoneEntity".to_string(),
-        entity_type: "test".to_string(),
+        entity_type: EntityType::Other,
         summary: "This entity is invalidated".to_string(),
         embedding: env.embedder.embed("GoneEntity").await?,
         valid_from: Utc::now() - chrono::Duration::days(10),
@@ -398,7 +396,7 @@ async fn test_search_excludes_invalidated() -> Result<()> {
     env.repo.upsert_entity(&invalidated).await?;
 
     let query_vec = env.embedder.embed("GoneEntity").await?;
-    let vec_results = env.repo.search_entities_by_vector(&query_vec, 10).await?;
+    let vec_results = env.repo.search_entities_by_vector(&query_vec, 10, None).await?;
     let vec_names: Vec<String> = vec_results.into_iter().map(|(e, _)| e.name).collect();
     assert!(
         !vec_names.contains(&"GoneEntity".to_string()),

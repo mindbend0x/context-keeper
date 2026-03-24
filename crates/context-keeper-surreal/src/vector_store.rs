@@ -22,7 +22,7 @@ impl SurrealVectorStore {
         embedding: &[f64],
         k: usize,
     ) -> Result<Vec<VectorSearchResult>> {
-        let results = self.repo.search_entities_by_vector(embedding, k).await?;
+        let results = self.repo.search_entities_by_vector(embedding, k, None).await?;
         Ok(results
             .into_iter()
             .map(|(entity, score)| VectorSearchResult {

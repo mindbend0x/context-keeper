@@ -38,6 +38,15 @@ impl TestEnv {
     }
 
     pub async fn ingest_text(&self, text: &str, source: &str) -> Result<IngestionResult> {
+        self.ingest_text_with_resolver(text, source, false).await
+    }
+
+    pub async fn ingest_text_with_resolver(
+        &self,
+        text: &str,
+        source: &str,
+        use_resolver: bool,
+    ) -> Result<IngestionResult> {
         let episode = Episode {
             id: Uuid::new_v4(),
             content: text.to_string(),
@@ -46,13 +55,23 @@ impl TestEnv {
             created_at: Utc::now(),
         };
 
+        let resolver: &dyn EntityResolver = &self.repo;
         let result = ingestion::ingest(
             &episode,
             &self.embedder,
             &self.entity_extractor,
             &self.relation_extractor,
+            if use_resolver { Some(resolver) } else { None },
+            None,
         )
         .await?;
+
+        for inv in &result.diff.entities_invalidated {
+            let existing = self.repo.find_entities_by_name(&inv.name).await?;
+            for entity in existing {
+                self.repo.invalidate_entity(entity.id).await?;
+            }
+        }
 
         self.repo.create_episode(&episode).await?;
         for entity in &result.entities {
@@ -81,12 +100,12 @@ impl TestEnv {
 
         let vector_results = self
             .repo
-            .search_entities_by_vector(&query_embedding, limit)
+            .search_entities_by_vector(&query_embedding, limit, None)
             .await?;
 
         let keyword_results = self
             .repo
-            .search_entities_by_keyword(query)
+            .search_entities_by_keyword(query, None)
             .await?;
 
         let fused = fuse_rrf(vec![

@@ -20,6 +20,7 @@ pub struct TemporalSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::EntityType;
     use chrono::Duration;
     use uuid::Uuid;
 
@@ -28,14 +29,14 @@ mod tests {
         let entity = Entity {
             id: Uuid::new_v4(),
             name: "test".into(),
-            entity_type: "test".into(),
+            entity_type: EntityType::Other,
             summary: "test".into(),
             embedding: vec![],
             valid_from: Utc::now() - Duration::days(10),
             valid_until: None,
         };
         let score = staleness_score(&entity);
-        assert!((score - 10.0).abs() <= 1.0); // Allow 1-day tolerance
+        assert!((score - 10.0).abs() <= 1.0);
     }
 
     #[test]
@@ -43,7 +44,7 @@ mod tests {
         let entity = Entity {
             id: Uuid::new_v4(),
             name: "test".into(),
-            entity_type: "test".into(),
+            entity_type: EntityType::Other,
             summary: "test".into(),
             embedding: vec![],
             valid_from: Utc::now(),

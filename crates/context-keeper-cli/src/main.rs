@@ -103,7 +103,6 @@ async fn main() -> Result<()> {
         ..SurrealConfig::default()
     };
 
-    // Ensure the data directory exists for RocksDB
     if let StorageBackend::RocksDb(ref path) = config.storage {
         if let Some(parent) = Path::new(path).parent() {
             std::fs::create_dir_all(parent).ok();
@@ -170,13 +169,24 @@ async fn main() -> Result<()> {
                 session_id: None,
                 created_at: Utc::now(),
             };
+
+            let resolver: &dyn EntityResolver = &repo;
             let result = ingestion::ingest(
                 &episode,
                 embedder.as_ref(),
                 entity_extractor.as_ref(),
                 relation_extractor.as_ref(),
+                Some(resolver),
+                None,
             )
             .await?;
+
+            for inv in &result.diff.entities_invalidated {
+                let existing = repo.find_entities_by_name(&inv.name).await?;
+                for entity in existing {
+                    repo.invalidate_entity(entity.id).await?;
+                }
+            }
 
             repo.create_episode(&episode).await?;
             for entity in &result.entities {
@@ -193,8 +203,11 @@ async fn main() -> Result<()> {
             }
 
             info!(
-                "Ingested: {} entities, {} relations, {} memories",
+                "Ingested: {} entities ({} new, {} updated, {} invalidated), {} relations, {} memories",
                 result.entities.len(),
+                result.diff.entities_created.len(),
+                result.diff.entities_updated.len(),
+                result.diff.entities_invalidated.len(),
                 result.relations.len(),
                 result.memories.len()
             );
@@ -202,9 +215,9 @@ async fn main() -> Result<()> {
         Commands::Search { query, limit } => {
             let query_embedding = embedder.embed(&query).await?;
             let vector_results = repo
-                .search_entities_by_vector(&query_embedding, limit)
+                .search_entities_by_vector(&query_embedding, limit, None)
                 .await?;
-            let keyword_results = repo.search_entities_by_keyword(&query).await?;
+            let keyword_results = repo.search_entities_by_keyword(&query, None).await?;
 
             let fused = fuse_rrf(vec![
                 vector_results.into_iter().map(|(e, _)| e).collect(),

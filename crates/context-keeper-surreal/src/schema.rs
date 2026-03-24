@@ -67,6 +67,10 @@ DEFINE INDEX IF NOT EXISTS episode_content_ft ON episode FIELDS content
 -- ── Unique index for entity upsert by name ───────────────────────────
 
 DEFINE INDEX IF NOT EXISTS entity_name_unique ON entity FIELDS name UNIQUE;
+
+-- ── Entity type index for type-filtered queries ──────────────────────
+
+DEFINE INDEX IF NOT EXISTS entity_type_idx ON entity FIELDS entity_type;
 "#
     )
 }

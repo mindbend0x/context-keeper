@@ -15,7 +15,7 @@ async fn test_entity_roundtrip_fidelity() -> Result<()> {
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "TestEntity".to_string(),
-        entity_type: "concept".to_string(),
+        entity_type: EntityType::Concept,
         summary: "A concept for testing roundtrip fidelity".to_string(),
         embedding: embedding.clone(),
         valid_from: now,
@@ -43,7 +43,7 @@ async fn test_embedding_preservation() -> Result<()> {
     let entity = Entity {
         id: Uuid::new_v4(),
         name: "EmbeddingTest".to_string(),
-        entity_type: "test".to_string(),
+        entity_type: EntityType::Other,
         summary: "test".to_string(),
         embedding: embedding.clone(),
         valid_from: Utc::now(),
@@ -175,7 +175,7 @@ async fn test_upsert_idempotency() -> Result<()> {
         let entity = Entity {
             id,
             name: "StableEntity".to_string(),
-            entity_type: "test".to_string(),
+            entity_type: EntityType::Other,
             summary: format!("Version {version}"),
             embedding: env.embedder.embed("StableEntity").await?,
             valid_from: Utc::now(),

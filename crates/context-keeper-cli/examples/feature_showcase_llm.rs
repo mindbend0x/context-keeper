@@ -302,6 +302,8 @@ async fn main() -> Result<()> {
             &embedder,
             &entity_extractor,
             &relation_extractor,
+            None,
+            None,
         )
         .await?;
 
@@ -381,7 +383,7 @@ async fn main() -> Result<()> {
     for (query, limit) in &queries {
         tracing::info!(query, "Running HNSW vector search on entities");
         let emb = embedder.embed(query).await?;
-        let results = repo.search_entities_by_vector(&emb, *limit).await?;
+        let results = repo.search_entities_by_vector(&emb, *limit, None).await?;
 
         item(&format!("Query: \"{query}\""));
         blank();
@@ -422,7 +424,7 @@ async fn main() -> Result<()> {
 
     for keyword in &keywords {
         tracing::info!(keyword, "Running BM25 keyword search");
-        let kw_entities = repo.search_entities_by_keyword(keyword).await?;
+        let kw_entities = repo.search_entities_by_keyword(keyword, None).await?;
         let kw_episodes = repo.search_episodes_by_keyword(keyword).await?;
 
         item(&format!(
@@ -458,8 +460,8 @@ async fn main() -> Result<()> {
 
     tracing::info!(query = hybrid_query, "Running hybrid search with RRF fusion");
 
-    let vec_hits = repo.search_entities_by_vector(&hybrid_emb, 5).await?;
-    let kw_hits = repo.search_entities_by_keyword("Munich").await?;
+    let vec_hits = repo.search_entities_by_vector(&hybrid_emb, 5, None).await?;
+    let kw_hits = repo.search_entities_by_keyword("Munich", None).await?;
 
     item(&format!("Query: \"{hybrid_query}\""));
     item(&format!(
@@ -500,7 +502,7 @@ async fn main() -> Result<()> {
     let sparse_query = "simulation physics engine";
 
     let sparse_emb = embedder.embed(sparse_query).await?;
-    let initial = repo.search_entities_by_vector(&sparse_emb, 5).await?;
+    let initial = repo.search_entities_by_vector(&sparse_emb, 5, None).await?;
 
     tracing::info!(
         query = sparse_query,
@@ -530,7 +532,7 @@ async fn main() -> Result<()> {
 
     for variant in &variants[1..] {
         let emb = embedder.embed(variant).await?;
-        let hits = repo.search_entities_by_vector(&emb, 5).await?;
+        let hits = repo.search_entities_by_vector(&emb, 5, None).await?;
         expanded_lists.push(hits.into_iter().map(|(e, _)| e).collect());
     }
 
@@ -563,7 +565,7 @@ async fn main() -> Result<()> {
     let nextera_v1 = Entity {
         id: Uuid::new_v4(),
         name: "Nextera Robotics".into(),
-        entity_type: "organization".into(),
+        entity_type: EntityType::Organization,
         summary: "Small robotics startup with 30 employees, pre-Series A".into(),
         embedding: embedder.embed("Nextera Robotics small startup pre-Series A").await?,
         valid_from: old_date,
@@ -574,7 +576,7 @@ async fn main() -> Result<()> {
     let nextera_v2 = Entity {
         id: Uuid::new_v4(),
         name: "Nextera Robotics".into(),
-        entity_type: "organization".into(),
+        entity_type: EntityType::Organization,
         summary: "Growing AI robotics company, 120 employees, Series B funded, partnering with TU Munich".into(),
         embedding: embedder
             .embed("Nextera Robotics growing company Series B TU Munich partner")
