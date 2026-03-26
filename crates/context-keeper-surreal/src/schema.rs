@@ -72,12 +72,13 @@ DEFINE INDEX IF NOT EXISTS memory_content_ft ON memory FIELDS content
 DEFINE INDEX IF NOT EXISTS episode_content_ft ON episode FIELDS content
   FULLTEXT ANALYZER context_analyzer BM25;
 
--- ── Composite unique index for entity identity ───────────────────────
--- Entities are uniquely identified by (name, entity_type, namespace).
--- This allows the same name to exist in different namespaces or with
--- different types without collision.
+-- ── Composite lookup index for entity resolution ─────────────────────
+-- Used by EntityResolver for fast (name, entity_type, namespace) lookups.
+-- Uniqueness is enforced at the application level by the EntityResolver
+-- to allow the same name in different namespaces.
 
-DEFINE INDEX IF NOT EXISTS entity_composite_unique ON entity FIELDS name, entity_type, namespace UNIQUE;
+DEFINE INDEX IF NOT EXISTS entity_name_idx ON entity FIELDS name;
+DEFINE INDEX IF NOT EXISTS entity_composite_idx ON entity FIELDS name, entity_type, namespace;
 
 -- ── Entity type index for type-filtered queries ──────────────────────
 

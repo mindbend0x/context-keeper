@@ -62,8 +62,8 @@ async fn test_entity_extraction_recall() -> Result<()> {
 async fn test_entity_deduplication() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    env.ingest_text("Alice works at Acme Corp in Berlin", "test").await?;
-    env.ingest_text("Alice met Bob at Acme headquarters in Berlin", "test").await?;
+    env.ingest_text_with_resolver("Alice works at Acme Corp in Berlin", "test", true).await?;
+    env.ingest_text_with_resolver("Alice met Bob at Acme headquarters in Berlin", "test", true).await?;
 
     let entities = env.repo.get_all_active_entities().await?;
     let names: Vec<&str> = entities.iter().map(|e| e.name.as_str()).collect();

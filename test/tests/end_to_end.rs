@@ -121,8 +121,8 @@ async fn test_incremental_knowledge() -> Result<()> {
 async fn test_cross_episode_entity_linking() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    env.ingest_text("Rust is a systems programming language", "docs").await?;
-    env.ingest_text("Rust has excellent memory safety guarantees", "docs").await?;
+    env.ingest_text_with_resolver("Rust is a systems programming language", "docs", true).await?;
+    env.ingest_text_with_resolver("Rust has excellent memory safety guarantees", "docs", true).await?;
 
     let entities = env.repo.get_all_active_entities().await?;
     let rust_entities: Vec<_> = entities.iter().filter(|e| e.name == "Rust").collect();
