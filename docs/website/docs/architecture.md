@@ -62,10 +62,10 @@ Supports multiple backends: RocksDB (default, `~/.context-keeper/data`), in-memo
 
 ### context-keeper-mcp
 
-MCP server binary exposing Context Keeper as Claude agent tools:
-- **6 Tools** — add_memory, search, entity_info, recent_memories, purge_memories, and export_memories
+MCP server binary exposing Context Keeper as agent tools via the MCP protocol:
+- **10 Tools** — add_memory, search_memory, expand_search, get_entity, snapshot, list_recent, list_agents, list_namespaces, agent_activity, cross_namespace_search
 - **Browsable Resources** — Entities, relations, and memories as rich resources
-- **3 Prompt Templates** — System prompts, context templates, and query suggestions
+- **3 Prompt Templates** — Topic summaries, change diffs, and context ingestion
 - **Transport Support** — stdio (default) and HTTP (via axum)
 
 Uses rmcp (Rust MCP SDK) for protocol compliance.

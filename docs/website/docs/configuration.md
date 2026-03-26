@@ -125,7 +125,7 @@ services:
       MCP_HTTP_PORT: "3000"
     volumes:
       - context-keeper-data:/data
-    environment_file: .env
+    env_file: .env
 
 volumes:
   context-keeper-data:

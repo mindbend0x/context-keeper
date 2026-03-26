@@ -183,14 +183,14 @@ SurrealDB changefeeds track all mutations. You can subscribe to changes in real-
 
 ## Entity Resolution
 
-The system maintains a single canonical entity per unique **name**. This is the current deduplication strategy:
+The system maintains a single canonical entity per composite key of **(name, type, namespace)**. This deduplication strategy:
 
-- If "Alice" appears in two separate inputs, she is the same entity
-- Her summary is enriched with information from both inputs
-- If the inputs contradict (e.g., "Alice works at Acme" vs. "Alice works at TechCorp"), the old fact is invalidated
+- Matches on all three fields — "Alice" the person and "Alice" the project are distinct entities
+- Enriches summaries with information from both inputs when the same entity appears in multiple contexts
+- Invalidates old facts when inputs contradict (e.g., "Alice works at Acme" vs. "Alice works at TechCorp")
 
-:::note
-The current name-only approach can cause false positives (two different "Alices"). Architecture Decision Record [ADR-001](/docs/adr-001) recommends moving to a composite key (name + type + namespace) for better precision. This is planned for the Efficacy & Correctness milestone.
+:::tip
+Composite keys were introduced in [ADR-001 R3](/docs/adr-001) to prevent false merges when different entities share the same name. Use `namespace` to further isolate entities across projects or tenants.
 :::
 
 ## Data Model

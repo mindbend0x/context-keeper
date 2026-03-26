@@ -52,6 +52,7 @@ function Hero() {
         <div className="hero-install">
           <span className="prompt">$</span>
           <code>cargo install context-keeper-mcp</code>
+          <span style={{ fontSize: "0.7rem", color: "var(--ck-text-muted)", marginLeft: "0.25rem" }}>(soon)</span>
         </div>
       </div>
     </section>
@@ -190,7 +191,7 @@ function Features() {
       <div className="stats-row">
         {[
           ["5", "Rust crates"],
-          ["6", "MCP tools"],
+          ["10", "MCP tools"],
           ["35+", "DB operations"],
           ["0", "API keys to test"],
         ].map(([v, l]) => (
@@ -280,13 +281,17 @@ const tools = [
   { name: "get_entity", desc: "Look up any entity by name. Get its type, summary, temporal bounds, and relationships." },
   { name: "snapshot", desc: "Point-in-time graph state. Pass a timestamp, get back every entity and relation." },
   { name: "list_recent", desc: "The N most recent memories, ordered by creation time." },
+  { name: "list_agents", desc: "See which AI agents have contributed to the graph, with namespaces and episode counts." },
+  { name: "list_namespaces", desc: "List all namespaces in the graph with entity counts for multi-tenant visibility." },
+  { name: "agent_activity", desc: "Audit a specific agent's recent contributions by agent_id." },
+  { name: "cross_namespace_search", desc: "Search across all namespaces globally, ignoring namespace scoping." },
 ];
 
 function McpTools() {
   return (
     <section className="landing-section reveal" id="mcp-tools">
       <div className="section-label">MCP Interface</div>
-      <h2 className="section-title">6 tools your agent can call</h2>
+      <h2 className="section-title">10 tools your agent can call</h2>
       <div className="tools-grid">
         {tools.map((t, i) => (
           <div className="tool-card" key={i}>

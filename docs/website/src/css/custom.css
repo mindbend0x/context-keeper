@@ -686,23 +686,6 @@ table th {
   .arch-visual { padding: 1rem 0; }
 }
 
-/* Legacy arch-diagram class (kept for backwards compat) */
-.arch-diagram {
-  background: var(--ck-arch-bg);
-  border: 1px solid var(--ck-arch-border);
-  border-radius: 10px;
-  padding: 2rem;
-  font-family: var(--ifm-font-family-monospace);
-  font-size: 0.82rem;
-  line-height: 1.5;
-  color: var(--ck-arch-text);
-  overflow-x: auto;
-  white-space: pre;
-  max-width: 720px;
-  margin: 2rem auto;
-  box-shadow: 0 0 40px var(--ck-arch-shadow);
-}
-
 /* Tool cards */
 .tools-grid {
   display: grid;
@@ -801,10 +784,6 @@ table th {
 
 [data-theme='light'] .hero-install {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-}
-
-[data-theme='light'] .arch-diagram {
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.06);
 }
 
 /* Light mode stat values — keep them dark */

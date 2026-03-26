@@ -8,7 +8,7 @@ description: Complete reference for all 6 MCP tools, resources, and prompts expo
 
 Context Keeper implements the MCP protocol (version 2024-11-05) to integrate persistent memory with any AI agent. The server exposes:
 
-- **6 tools** for ingesting and querying the knowledge graph
+- **10 tools** for ingesting, querying, and managing the knowledge graph
 - **Browsable resources** including recent memories and per-entity snapshots
 - **3 prompt templates** for common memory tasks
 
@@ -111,6 +111,45 @@ Retrieve the most recent memories added to the graph, with optional limit.
 
 **Returns:** JSON array of recent memory chunks with content, ingestion timestamp, and source.
 
+### list_agents
+
+List all AI agents that have contributed to the knowledge graph, including their namespaces and episode counts. Useful for multi-agent setups to audit which agents have been writing memories.
+
+No parameters required.
+
+**Returns:** JSON array of agent records with agent_id, agent_name, namespace, and episode count. Returns a descriptive message if no agents have contributed yet.
+
+### list_namespaces
+
+List all namespaces in the knowledge graph with entity counts. Namespaces partition the graph so different projects or teams can have isolated memory spaces.
+
+No parameters required.
+
+**Returns:** JSON array of namespace records with name and entity count. Returns a descriptive message if no namespaces exist (all data is in the global namespace).
+
+### agent_activity
+
+Show recent episodes ingested by a specific agent. Useful for auditing what a particular agent has been contributing.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| agent_id | string | yes | The agent_id to look up activity for |
+| limit | integer | no | Maximum number of recent episodes to return. Defaults to 20. |
+
+**Returns:** JSON array of episodes with content, source, namespace, and created_at timestamp. Returns a message if no activity is found for the given agent_id.
+
+### cross_namespace_search
+
+Search the entire knowledge graph across all namespaces using hybrid vector + keyword search. Unlike `search_memory`, this always searches globally, ignoring namespace scoping.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| query | string | yes | The search query string |
+| limit | integer | no | Maximum number of results to return. Defaults to 10. |
+| entity_type | string | no | Filter by entity type (person, organization, location, event, product, service, concept, file, other). |
+
+**Returns:** JSON array of results with name, entity_type, summary, and score. Searches across every namespace in a single query.
+
 ## Resources
 
 ### Static Resources
@@ -172,7 +211,7 @@ For multi-agent scenarios, run the server on HTTP with streaming support.
 MCP_TRANSPORT=http MCP_HTTP_PORT=3000 cargo run -p context-keeper-mcp
 ```
 
-Clients connect to `http://localhost:3000/mcp/v1` and use the same tool/resource/prompt schema as stdio.
+Clients connect to `http://localhost:3000/mcp` and use the same tool/resource/prompt schema as stdio.
 
 ## Error Handling
 

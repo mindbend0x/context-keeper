@@ -188,7 +188,7 @@ async fn test_search_returns_top_5_by_default() { /* ... */ }
 ## Submitting Changes
 
 1. **Fork the repository** — Create a personal fork on GitHub.
-2. **Create a branch** — Follow the naming convention: `mindbend0x/fz-XX-description` (where XX is the Linear issue number).
+2. **Create a branch** — Use a descriptive name like `feat/fz-XX-description` or `fix/fz-XX-description` (where XX is the Linear issue number, if applicable).
 3. **Make changes** — Implement your feature or fix, adding tests as needed.
 4. **Run tests** — Ensure all tests pass:
    ```bash
