@@ -34,6 +34,8 @@ mod tests {
             embedding: vec![],
             valid_from: Utc::now() - Duration::days(10),
             valid_until: None,
+            namespace: None,
+            created_by_agent: None,
         };
         let score = staleness_score(&entity);
         assert!((score - 10.0).abs() <= 1.0);
@@ -49,6 +51,8 @@ mod tests {
             embedding: vec![],
             valid_from: Utc::now(),
             valid_until: None,
+            namespace: None,
+            created_by_agent: None,
         };
         assert_eq!(staleness_score(&entity), 0.0);
     }

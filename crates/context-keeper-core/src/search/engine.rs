@@ -54,6 +54,8 @@ mod tests {
             embedding: vec![],
             valid_from: Utc::now(),
             valid_until: None,
+            namespace: None,
+            created_by_agent: None,
         }
     }
 

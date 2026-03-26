@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use axum::{extract::Request, middleware, response::Response};
 use clap::Parser;
 use context_keeper_core::traits::*;
 use context_keeper_rig::{
@@ -56,6 +57,10 @@ struct Cli {
     /// Storage backend: "rocksdb:<path>" (default: ~/.context-keeper/data), "memory", or "remote:<ws_url>"
     #[arg(long, env = "STORAGE_BACKEND", default_value_t = default_storage())]
     storage: String,
+
+    /// Comma-separated list of valid bearer tokens for HTTP auth. Empty = no auth.
+    #[arg(long, env = "MCP_AUTH_TOKENS")]
+    auth_tokens: Option<String>,
 }
 
 fn parse_storage_backend(s: &str) -> StorageBackend {
@@ -66,6 +71,28 @@ fn parse_storage_backend(s: &str) -> StorageBackend {
     } else {
         StorageBackend::Memory
     }
+}
+
+async fn bearer_auth(
+    valid_tokens: Arc<Vec<String>>,
+    req: Request,
+    next: middleware::Next,
+) -> Response {
+    if let Some(auth) = req.headers().get("authorization") {
+        if let Ok(auth_str) = auth.to_str() {
+            if let Some(token) = auth_str.strip_prefix("Bearer ") {
+                if valid_tokens.iter().any(|t| t == token) {
+                    return next.run(req).await;
+                }
+            }
+        }
+    }
+
+    Response::builder()
+        .status(401)
+        .header("www-authenticate", "Bearer")
+        .body(axum::body::Body::from("Unauthorized"))
+        .unwrap()
 }
 
 #[tokio::main]
@@ -149,6 +176,16 @@ async fn main() -> Result<()> {
         query_rewriter,
     );
 
+    let valid_tokens: Arc<Vec<String>> = Arc::new(
+        cli.auth_tokens
+            .as_deref()
+            .unwrap_or("")
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+    );
+
     match cli.transport.as_str() {
         "stdio" => {
             tracing::info!("Serving MCP over stdio");
@@ -165,7 +202,19 @@ async fn main() -> Result<()> {
                 Default::default(),
             );
 
-            let router = axum::Router::new().nest_service("/mcp", http_service);
+            let router = if valid_tokens.is_empty() {
+                tracing::warn!("No auth tokens configured — HTTP endpoint is unauthenticated");
+                axum::Router::new().nest_service("/mcp", http_service)
+            } else {
+                tracing::info!(count = valid_tokens.len(), "Bearer token auth enabled");
+                let tokens = valid_tokens.clone();
+                axum::Router::new()
+                    .nest_service("/mcp", http_service)
+                    .layer(middleware::from_fn(move |req, next| {
+                        bearer_auth(tokens.clone(), req, next)
+                    }))
+            };
+
             let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
             tracing::info!("MCP HTTP server ready at http://{}/mcp", bind_addr);

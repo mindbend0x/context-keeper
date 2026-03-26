@@ -98,6 +98,9 @@ pub async fn ingest(
     let min_conf = min_confidence.unwrap_or(DEFAULT_MIN_CONFIDENCE);
     let mut diff = IngestionDiff::default();
 
+    let ns = episode.namespace.as_deref();
+    let agent_id = episode.agent.as_ref().map(|a| a.agent_id.clone());
+
     // 1. Extract entities
     let extracted = entity_extractor
         .extract_entities(&episode.content)
@@ -112,8 +115,8 @@ pub async fn ingest(
         let embedding = embedder.embed(&ext.name).await?;
 
         if let Some(resolver) = entity_resolver {
-            // Try exact name match first
-            if let Some(existing) = resolver.find_existing(&ext.name).await? {
+            // Try exact name + type match first
+            if let Some(existing) = resolver.find_existing(&ext.name, &ext.entity_type, ns).await? {
                 if let Some(reason) = detect_contradiction(&existing.summary, &ext.summary) {
                     diff.entities_invalidated.push(EntityInvalidation {
                         name: ext.name.clone(),
@@ -128,6 +131,8 @@ pub async fn ingest(
                         embedding,
                         valid_from: now,
                         valid_until: None,
+                        namespace: episode.namespace.clone(),
+                        created_by_agent: agent_id.clone(),
                     });
                     diff.entities_created.push(ext.name.clone());
                 } else {
@@ -145,13 +150,15 @@ pub async fn ingest(
                         embedding,
                         valid_from: existing.valid_from,
                         valid_until: None,
+                        namespace: existing.namespace.clone().or_else(|| episode.namespace.clone()),
+                        created_by_agent: agent_id.clone().or(existing.created_by_agent.clone()),
                     });
                 }
                 continue;
             }
 
             // Try fuzzy / vector similarity match for alias resolution
-            let similar = resolver.find_similar(&ext.name, &embedding, 0.85).await?;
+            let similar = resolver.find_similar(&ext.name, &embedding, 0.85, ns).await?;
             if let Some(best) = similar.first() {
                 diff.entities_updated.push(EntityUpdate {
                     name: ext.name.clone(),
@@ -166,6 +173,8 @@ pub async fn ingest(
                     embedding,
                     valid_from: best.valid_from,
                     valid_until: None,
+                    namespace: best.namespace.clone().or_else(|| episode.namespace.clone()),
+                    created_by_agent: agent_id.clone().or(best.created_by_agent.clone()),
                 });
                 continue;
             }
@@ -181,6 +190,8 @@ pub async fn ingest(
             embedding,
             valid_from: now,
             valid_until: None,
+            namespace: episode.namespace.clone(),
+            created_by_agent: agent_id.clone(),
         });
     }
 
@@ -224,6 +235,8 @@ pub async fn ingest(
         source_episode_id: episode.id,
         entity_ids: entities.iter().map(|e| e.id).collect(),
         created_at: now,
+        namespace: episode.namespace.clone(),
+        created_by_agent: agent_id,
     };
 
     tracing::info!(

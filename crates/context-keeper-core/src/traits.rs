@@ -71,17 +71,27 @@ pub trait QueryRewriter: Send + Sync {
 }
 
 /// Resolves newly extracted entities against existing graph nodes.
+///
+/// Resolution uses a composite key of (name, entity_type, namespace) to prevent
+/// collisions across namespaces and between different entity types sharing a name.
+/// When `namespace` is `None`, resolution searches the global (unscoped) graph.
 #[async_trait]
 pub trait EntityResolver: Send + Sync {
-    /// Exact name match against active entities.
-    async fn find_existing(&self, name: &str) -> Result<Option<Entity>>;
+    /// Exact name + type match against active entities, scoped by namespace.
+    async fn find_existing(
+        &self,
+        name: &str,
+        entity_type: &EntityType,
+        namespace: Option<&str>,
+    ) -> Result<Option<Entity>>;
 
-    /// Vector + string similarity match for alias resolution.
+    /// Vector + string similarity match for alias resolution, optionally scoped by namespace.
     async fn find_similar(
         &self,
         name: &str,
         embedding: &[f64],
         threshold: f64,
+        namespace: Option<&str>,
     ) -> Result<Vec<Entity>>;
 }
 

@@ -21,5 +21,22 @@ services:
       - surrealdb-data:/data
     restart: unless-stopped
 
+  # --- Shared SurrealDB server (multi-machine deployment) ---
+  # Uncomment below to use a standalone SurrealDB instance that
+  # multiple Context Keeper nodes can connect to via WebSocket.
+  #
+  # surrealdb:
+  #   image: surrealdb/surrealdb:v2
+  #   command: start --user root --pass root
+  #   ports:
+  #     - "8000:8000"
+  #   volumes:
+  #     - surrealdb-server-data:/data
+  #   restart: unless-stopped
+  #
+  # To use the shared server, set on context-keeper-mcp:
+  #   STORAGE_BACKEND: "remote:ws://surrealdb:8000"
+
 volumes:
   surrealdb-data:
+  # surrealdb-server-data:

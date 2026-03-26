@@ -45,7 +45,7 @@ async fn test_conversation_memory() -> Result<()> {
     assert_eq!(memories.len(), 5, "Should have 5 memories from 5 episodes");
 
     let mem_vec = env.embedder.embed("Kubernetes").await?;
-    let mem_results = env.repo.search_memories_by_vector(&mem_vec, 5).await?;
+    let mem_results = env.repo.search_memories_by_vector(&mem_vec, 5, None).await?;
     assert!(
         !mem_results.is_empty(),
         "Should find memories related to Kubernetes via vector search"

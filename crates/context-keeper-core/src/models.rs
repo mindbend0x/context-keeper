@@ -130,6 +130,21 @@ impl Default for RelationType {
     }
 }
 
+// ── Agent identity ──────────────────────────────────────────────────────
+
+/// Identifies the agent and machine that produced a piece of data.
+///
+/// Enables multi-agent provenance tracking when multiple AI assistants
+/// share a single Context Keeper instance.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AgentInfo {
+    pub agent_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<String>,
+}
+
 // ── Core domain types ───────────────────────────────────────────────────
 
 /// A raw input unit representing a single piece of information ingested into the system.
@@ -139,6 +154,10 @@ pub struct Episode {
     pub content: String,
     pub source: String,
     pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -152,6 +171,10 @@ pub struct Entity {
     pub embedding: Vec<f64>,
     pub valid_from: DateTime<Utc>,
     pub valid_until: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by_agent: Option<String>,
 }
 
 /// A directed graph edge between two entities with temporal bounds.
@@ -182,6 +205,10 @@ pub struct Memory {
     pub source_episode_id: Uuid,
     pub entity_ids: Vec<Uuid>,
     pub created_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by_agent: Option<String>,
 }
 
 /// Result returned from hybrid search operations.

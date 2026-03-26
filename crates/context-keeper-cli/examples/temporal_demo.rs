@@ -28,6 +28,8 @@ async fn main() -> Result<()> {
         embedding: embedder.embed("Alice Acme").await?,
         valid_from: Utc::now() - Duration::days(30),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&alice_v1).await?;
     println!("✓ Created: Alice works at Acme Corp (30 days ago)");
@@ -42,6 +44,8 @@ async fn main() -> Result<()> {
         embedding: embedder.embed("Acme").await?,
         valid_from: Utc::now() - Duration::days(30),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&acme).await?;
 
@@ -81,6 +85,8 @@ async fn main() -> Result<()> {
         embedding: embedder.embed("NewCo").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&newco).await?;
 

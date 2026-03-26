@@ -20,6 +20,8 @@ async fn test_entity_roundtrip_fidelity() -> Result<()> {
         embedding: embedding.clone(),
         valid_from: now,
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     env.repo.upsert_entity(&entity).await?;
 
@@ -48,6 +50,8 @@ async fn test_embedding_preservation() -> Result<()> {
         embedding: embedding.clone(),
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     env.repo.upsert_entity(&entity).await?;
 
@@ -180,6 +184,8 @@ async fn test_upsert_idempotency() -> Result<()> {
             embedding: env.embedder.embed("StableEntity").await?,
             valid_from: Utc::now(),
             valid_until: None,
+            namespace: None,
+            created_by_agent: None,
         };
         env.repo.upsert_entity(&entity).await?;
     }

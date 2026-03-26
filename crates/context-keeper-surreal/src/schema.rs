@@ -1,5 +1,5 @@
 use anyhow::Result;
-use surrealdb::engine::local::Db;
+use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
 
 use crate::client::SurrealConfig;
@@ -17,6 +17,10 @@ DEFINE TABLE IF NOT EXISTS episode SCHEMAFULL CHANGEFEED 30d;
 DEFINE FIELD IF NOT EXISTS content ON episode TYPE string;
 DEFINE FIELD IF NOT EXISTS source ON episode TYPE string;
 DEFINE FIELD IF NOT EXISTS session_id ON episode TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS agent_id ON episode TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS agent_name ON episode TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS machine_id ON episode TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS namespace ON episode TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS created_at ON episode TYPE datetime;
 
 DEFINE TABLE IF NOT EXISTS entity SCHEMAFULL CHANGEFEED 30d;
@@ -26,11 +30,15 @@ DEFINE FIELD IF NOT EXISTS summary ON entity TYPE string;
 DEFINE FIELD IF NOT EXISTS embedding ON entity TYPE array<float>;
 DEFINE FIELD IF NOT EXISTS valid_from ON entity TYPE datetime;
 DEFINE FIELD IF NOT EXISTS valid_until ON entity TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS namespace ON entity TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_by_agent ON entity TYPE option<string>;
 
 DEFINE TABLE IF NOT EXISTS memory SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS content ON memory TYPE string;
 DEFINE FIELD IF NOT EXISTS embedding ON memory TYPE array<float>;
 DEFINE FIELD IF NOT EXISTS created_at ON memory TYPE datetime;
+DEFINE FIELD IF NOT EXISTS namespace ON memory TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_by_agent ON memory TYPE option<string>;
 
 -- ── Graph edge tables (TYPE RELATION) ────────────────────────────────
 
@@ -64,13 +72,23 @@ DEFINE INDEX IF NOT EXISTS memory_content_ft ON memory FIELDS content
 DEFINE INDEX IF NOT EXISTS episode_content_ft ON episode FIELDS content
   FULLTEXT ANALYZER context_analyzer BM25;
 
--- ── Unique index for entity upsert by name ───────────────────────────
+-- ── Composite unique index for entity identity ───────────────────────
+-- Entities are uniquely identified by (name, entity_type, namespace).
+-- This allows the same name to exist in different namespaces or with
+-- different types without collision.
 
-DEFINE INDEX IF NOT EXISTS entity_name_unique ON entity FIELDS name UNIQUE;
+DEFINE INDEX IF NOT EXISTS entity_composite_unique ON entity FIELDS name, entity_type, namespace UNIQUE;
 
 -- ── Entity type index for type-filtered queries ──────────────────────
 
 DEFINE INDEX IF NOT EXISTS entity_type_idx ON entity FIELDS entity_type;
+
+-- ── Namespace indexes for multi-agent scoping ────────────────────────
+
+DEFINE INDEX IF NOT EXISTS episode_namespace_idx ON episode FIELDS namespace;
+DEFINE INDEX IF NOT EXISTS entity_namespace_idx ON entity FIELDS namespace;
+DEFINE INDEX IF NOT EXISTS memory_namespace_idx ON memory FIELDS namespace;
+DEFINE INDEX IF NOT EXISTS episode_agent_idx ON episode FIELDS agent_id;
 "#
     )
 }
@@ -80,7 +98,7 @@ DEFINE INDEX IF NOT EXISTS entity_type_idx ON entity FIELDS entity_type;
 /// Creates SCHEMAFULL node tables (episode, entity, memory), graph edge
 /// tables (relates_to, sourced_from, references), HNSW vector indexes,
 /// BM25 full-text indexes, and changefeeds for temporal auditing.
-pub async fn apply_schema(db: &Surreal<Db>, config: &SurrealConfig) -> Result<()> {
+pub async fn apply_schema(db: &Surreal<Any>, config: &SurrealConfig) -> Result<()> {
     tracing::info!(
         dim = config.embedding_dimensions,
         dist = %config.distance_metric,

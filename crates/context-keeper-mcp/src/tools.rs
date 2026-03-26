@@ -8,7 +8,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use context_keeper_core::{
     ingestion,
-    models::Episode,
+    models::{AgentInfo, Episode},
     search::{fuse_rrf, QueryExpander},
     traits::{Embedder, EntityExtractor, EntityResolver, QueryRewriter, RelationExtractor},
 };
@@ -33,6 +33,12 @@ pub struct AddMemoryInput {
     pub text: String,
     #[schemars(description = "Source label for the episode (e.g. 'chat', 'document')")]
     pub source: Option<String>,
+    #[schemars(description = "Namespace to scope this memory to (e.g. 'project-alpha'). Omit for the default global namespace.")]
+    pub namespace: Option<String>,
+    #[schemars(description = "Identifier of the agent adding this memory (e.g. 'cursor-agent-1')")]
+    pub agent_id: Option<String>,
+    #[schemars(description = "Human-readable name of the agent")]
+    pub agent_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -43,6 +49,8 @@ pub struct SearchMemoryInput {
     pub limit: Option<usize>,
     #[schemars(description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other")]
     pub entity_type: Option<String>,
+    #[schemars(description = "Namespace to search within. Omit to search all namespaces.")]
+    pub namespace: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -53,12 +61,16 @@ pub struct ExpandSearchInput {
     pub limit: Option<usize>,
     #[schemars(description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other")]
     pub entity_type: Option<String>,
+    #[schemars(description = "Namespace to search within. Omit to search all namespaces.")]
+    pub namespace: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetEntityInput {
     #[schemars(description = "The exact name of the entity to look up")]
     pub name: String,
+    #[schemars(description = "Namespace to look up in. Omit to search all namespaces.")]
+    pub namespace: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -71,6 +83,24 @@ pub struct SnapshotInput {
 pub struct ListRecentInput {
     #[schemars(description = "Maximum number of recent memories to return (default: 10)")]
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AgentActivityInput {
+    #[schemars(description = "The agent_id to look up activity for")]
+    pub agent_id: String,
+    #[schemars(description = "Maximum number of recent episodes to return (default: 20)")]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CrossNamespaceSearchInput {
+    #[schemars(description = "The search query string")]
+    pub query: String,
+    #[schemars(description = "Maximum number of results to return (default: 10)")]
+    pub limit: Option<usize>,
+    #[schemars(description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other")]
+    pub entity_type: Option<String>,
 }
 
 // ── Serializable response types ──────────────────────────────────────────
@@ -193,11 +223,18 @@ impl ContextKeeperServer {
         Parameters(input): Parameters<AddMemoryInput>,
     ) -> Result<String, McpError> {
         let source = input.source.unwrap_or_else(|| "mcp".to_string());
+        let agent = input.agent_id.map(|id| AgentInfo {
+            agent_id: id,
+            agent_name: input.agent_name,
+            machine_id: None,
+        });
         let episode = Episode {
             id: Uuid::new_v4(),
             content: input.text,
             source,
             session_id: None,
+            agent,
+            namespace: input.namespace,
             created_at: Utc::now(),
         };
 
@@ -214,10 +251,11 @@ impl ContextKeeperServer {
         .map_err(|e| McpError::internal_error(format!("Ingestion failed: {e}"), None))?;
 
         // Invalidate entities that had contradictions
+        let ep_ns = episode.namespace.as_deref();
         for inv in &result.diff.entities_invalidated {
             let existing = self
                 .repo
-                .find_entities_by_name(&inv.name)
+                .find_entities_by_name(&inv.name, ep_ns)
                 .await
                 .map_err(|e| McpError::internal_error(format!("Entity lookup failed: {e}"), None))?;
             for entity in existing {
@@ -307,6 +345,7 @@ impl ContextKeeperServer {
     ) -> Result<String, McpError> {
         let limit = input.limit.unwrap_or(5);
         let type_filter = input.entity_type.as_deref();
+        let ns = input.namespace.as_deref();
 
         let query_embedding = self
             .embedder
@@ -316,13 +355,13 @@ impl ContextKeeperServer {
 
         let vector_results = self
             .repo
-            .search_entities_by_vector(&query_embedding, limit, type_filter)
+            .search_entities_by_vector(&query_embedding, limit, type_filter, ns)
             .await
             .map_err(|e| McpError::internal_error(format!("Vector search failed: {e}"), None))?;
 
         let keyword_results = self
             .repo
-            .search_entities_by_keyword(&input.query, type_filter)
+            .search_entities_by_keyword(&input.query, type_filter, ns)
             .await
             .map_err(|e| McpError::internal_error(format!("Keyword search failed: {e}"), None))?;
 
@@ -357,6 +396,7 @@ impl ContextKeeperServer {
     ) -> Result<String, McpError> {
         let limit = input.limit.unwrap_or(10);
         let type_filter = input.entity_type.as_deref();
+        let ns = input.namespace.as_deref();
         let expander = QueryExpander::new(3);
 
         let variants = expander
@@ -374,13 +414,13 @@ impl ContextKeeperServer {
 
             let vector_results = self
                 .repo
-                .search_entities_by_vector(&query_embedding, limit, type_filter)
+                .search_entities_by_vector(&query_embedding, limit, type_filter, ns)
                 .await
                 .map_err(|e| McpError::internal_error(format!("Vector search failed: {e}"), None))?;
 
             let keyword_results = self
                 .repo
-                .search_entities_by_keyword(variant, type_filter)
+                .search_entities_by_keyword(variant, type_filter, ns)
                 .await
                 .map_err(|e| McpError::internal_error(format!("Keyword search failed: {e}"), None))?;
 
@@ -415,7 +455,7 @@ impl ContextKeeperServer {
     ) -> Result<String, McpError> {
         let entities = self
             .repo
-            .find_entities_by_name(&input.name)
+            .find_entities_by_name(&input.name, input.namespace.as_deref())
             .await
             .map_err(|e| McpError::internal_error(format!("Entity lookup failed: {e}"), None))?;
 
@@ -519,6 +559,120 @@ impl ContextKeeperServer {
         serde_json::to_string_pretty(&items)
             .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
     }
+
+    /// List all agents that have contributed memories to the knowledge graph.
+    #[tool(description = "List all AI agents that have contributed to the knowledge graph, including their namespaces and episode counts. Useful for multi-agent setups to see who has been writing memories.")]
+    async fn list_agents(&self) -> Result<String, McpError> {
+        let agents = self
+            .repo
+            .list_agents()
+            .await
+            .map_err(|e| McpError::internal_error(format!("Query failed: {e}"), None))?;
+
+        if agents.is_empty() {
+            return Ok("No agents have contributed to the knowledge graph yet.".to_string());
+        }
+
+        serde_json::to_string_pretty(&agents)
+            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
+    }
+
+    /// List all namespaces in the knowledge graph.
+    #[tool(description = "List all namespaces in the knowledge graph with entity counts. Namespaces partition the graph so different projects or teams can have isolated memory spaces.")]
+    async fn list_namespaces(&self) -> Result<String, McpError> {
+        let namespaces = self
+            .repo
+            .list_namespaces()
+            .await
+            .map_err(|e| McpError::internal_error(format!("Query failed: {e}"), None))?;
+
+        if namespaces.is_empty() {
+            return Ok("No namespaces found. All data is in the default (global) namespace.".to_string());
+        }
+
+        serde_json::to_string_pretty(&namespaces)
+            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
+    }
+
+    /// Show recent activity from a specific agent.
+    #[tool(description = "Show recent episodes ingested by a specific agent, identified by agent_id. Useful for auditing what a particular agent has been contributing.")]
+    async fn agent_activity(
+        &self,
+        Parameters(input): Parameters<AgentActivityInput>,
+    ) -> Result<String, McpError> {
+        let limit = input.limit.unwrap_or(20);
+        let episodes = self
+            .repo
+            .list_episodes_by_agent(&input.agent_id, limit)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Query failed: {e}"), None))?;
+
+        if episodes.is_empty() {
+            return Ok(format!("No activity found for agent '{}'", input.agent_id));
+        }
+
+        let items: Vec<serde_json::Value> = episodes
+            .iter()
+            .map(|e| serde_json::json!({
+                "content": e.content,
+                "source": e.source,
+                "namespace": e.namespace,
+                "created_at": e.created_at.to_rfc3339(),
+            }))
+            .collect();
+
+        serde_json::to_string_pretty(&items)
+            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
+    }
+
+    /// Search across all namespaces regardless of the caller's default namespace.
+    #[tool(description = "Search the entire knowledge graph across all namespaces using hybrid vector + keyword search. Unlike search_memory, this always searches globally, ignoring namespace scoping.")]
+    async fn cross_namespace_search(
+        &self,
+        Parameters(input): Parameters<CrossNamespaceSearchInput>,
+    ) -> Result<String, McpError> {
+        let limit = input.limit.unwrap_or(10);
+        let type_filter = input.entity_type.as_deref();
+
+        let query_embedding = self
+            .embedder
+            .embed(&input.query)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Embedding failed: {e}"), None))?;
+
+        let vector_results = self
+            .repo
+            .search_entities_by_vector(&query_embedding, limit, type_filter, None)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Vector search failed: {e}"), None))?;
+
+        let keyword_results = self
+            .repo
+            .search_entities_by_keyword(&input.query, type_filter, None)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Keyword search failed: {e}"), None))?;
+
+        let fused = fuse_rrf(vec![
+            vector_results.into_iter().map(|(e, _)| e).collect(),
+            keyword_results,
+        ]);
+
+        let items: Vec<SearchResultItem> = fused
+            .iter()
+            .take(limit)
+            .filter_map(|r| {
+                r.entity.as_ref().map(|e| SearchResultItem {
+                    name: e.name.clone(),
+                    entity_type: e.entity_type.to_string(),
+                    summary: e.summary.clone(),
+                    score: r.score,
+                })
+            })
+            .collect();
+
+        serde_json::to_string_pretty(&items)
+            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
+    }
 }
 
 #[tool_handler]
@@ -539,10 +693,13 @@ impl ServerHandler for ContextKeeperServer {
                 website_url: None,
             },
             instructions: Some(
-                "Context Keeper is a temporal knowledge graph memory system. \
-                 Use add_memory to store information, search_memory or expand_search \
-                 to retrieve it, get_entity for detailed entity lookups, snapshot for \
-                 point-in-time queries, and list_recent for recent memories."
+                "Context Keeper is a temporal knowledge graph memory system for multi-agent collaboration. \
+                 Use add_memory to store information (with optional namespace and agent_id for provenance), \
+                 search_memory or expand_search to retrieve it, get_entity for detailed entity lookups, \
+                 snapshot for point-in-time queries, and list_recent for recent memories. \
+                 For multi-agent workflows: list_agents shows contributing agents, list_namespaces \
+                 shows available scopes, agent_activity shows a specific agent's contributions, and \
+                 cross_namespace_search searches globally across all namespaces."
                     .into(),
             ),
         }
@@ -648,7 +805,7 @@ impl ServerHandler for ContextKeeperServer {
         if let Some(name) = uri.strip_prefix("memory://entity/") {
             let entities = self
                 .repo
-                .find_entities_by_name(name)
+                .find_entities_by_name(name, None)
                 .await
                 .map_err(|e| McpError::internal_error(format!("Entity lookup failed: {e}"), None))?;
 

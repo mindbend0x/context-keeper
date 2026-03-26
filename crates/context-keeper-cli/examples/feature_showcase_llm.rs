@@ -287,6 +287,8 @@ async fn main() -> Result<()> {
             content: text.to_string(),
             source: source.to_string(),
             session_id: Some(source.to_string()),
+            agent: None,
+            namespace: None,
             created_at: Utc::now(),
         };
 
@@ -383,7 +385,7 @@ async fn main() -> Result<()> {
     for (query, limit) in &queries {
         tracing::info!(query, "Running HNSW vector search on entities");
         let emb = embedder.embed(query).await?;
-        let results = repo.search_entities_by_vector(&emb, *limit, None).await?;
+        let results = repo.search_entities_by_vector(&emb, *limit, None, None).await?;
 
         item(&format!("Query: \"{query}\""));
         blank();
@@ -402,7 +404,7 @@ async fn main() -> Result<()> {
     tracing::info!("Running HNSW vector search on memories");
     let mem_q = "who is leading the AI research division";
     let mem_emb = embedder.embed(mem_q).await?;
-    let mem_results = repo.search_memories_by_vector(&mem_emb, 3).await?;
+    let mem_results = repo.search_memories_by_vector(&mem_emb, 3, None).await?;
 
     item(&format!("Query: \"{mem_q}\"  (memory search)"));
     blank();
@@ -424,7 +426,7 @@ async fn main() -> Result<()> {
 
     for keyword in &keywords {
         tracing::info!(keyword, "Running BM25 keyword search");
-        let kw_entities = repo.search_entities_by_keyword(keyword, None).await?;
+        let kw_entities = repo.search_entities_by_keyword(keyword, None, None).await?;
         let kw_episodes = repo.search_episodes_by_keyword(keyword).await?;
 
         item(&format!(
@@ -460,8 +462,8 @@ async fn main() -> Result<()> {
 
     tracing::info!(query = hybrid_query, "Running hybrid search with RRF fusion");
 
-    let vec_hits = repo.search_entities_by_vector(&hybrid_emb, 5, None).await?;
-    let kw_hits = repo.search_entities_by_keyword("Munich", None).await?;
+    let vec_hits = repo.search_entities_by_vector(&hybrid_emb, 5, None, None).await?;
+    let kw_hits = repo.search_entities_by_keyword("Munich", None, None).await?;
 
     item(&format!("Query: \"{hybrid_query}\""));
     item(&format!(
@@ -502,7 +504,7 @@ async fn main() -> Result<()> {
     let sparse_query = "simulation physics engine";
 
     let sparse_emb = embedder.embed(sparse_query).await?;
-    let initial = repo.search_entities_by_vector(&sparse_emb, 5, None).await?;
+    let initial = repo.search_entities_by_vector(&sparse_emb, 5, None, None).await?;
 
     tracing::info!(
         query = sparse_query,
@@ -532,7 +534,7 @@ async fn main() -> Result<()> {
 
     for variant in &variants[1..] {
         let emb = embedder.embed(variant).await?;
-        let hits = repo.search_entities_by_vector(&emb, 5, None).await?;
+        let hits = repo.search_entities_by_vector(&emb, 5, None, None).await?;
         expanded_lists.push(hits.into_iter().map(|(e, _)| e).collect());
     }
 
@@ -570,6 +572,8 @@ async fn main() -> Result<()> {
         embedding: embedder.embed("Nextera Robotics small startup pre-Series A").await?,
         valid_from: old_date,
         valid_until: Some(Utc::now() - Duration::days(30)),
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&nextera_v1).await?;
 
@@ -583,6 +587,8 @@ async fn main() -> Result<()> {
             .await?,
         valid_from: Utc::now() - Duration::days(30),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&nextera_v2).await?;
 
