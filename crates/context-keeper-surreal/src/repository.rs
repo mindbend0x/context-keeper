@@ -360,17 +360,38 @@ impl Repository {
         Ok(rows.into_iter().next().and_then(entity_from_row))
     }
 
-    pub async fn find_entities_by_name(&self, name: &str, namespace: Option<&str>) -> Result<Vec<Entity>> {
-        let q = match namespace {
-            Some(_) => "SELECT * FROM entity WHERE name = $name AND valid_until IS NONE AND namespace = $ns",
-            None => "SELECT * FROM entity WHERE name = $name AND valid_until IS NONE",
-        };
-        let mut query = self.db.query(q).bind(("name", name.to_string()));
+    pub async fn find_entities_by_name(
+        &self,
+        name: &str,
+        namespace: Option<&str>,
+    ) -> Result<Vec<Entity>> {
+        self.find_entities_by_name_and_type(name, None, namespace).await
+    }
+
+    pub async fn find_entities_by_name_and_type(
+        &self,
+        name: &str,
+        entity_type: Option<&EntityType>,
+        namespace: Option<&str>,
+    ) -> Result<Vec<Entity>> {
+        let mut conditions = vec!["name = $name", "valid_until IS NONE"];
+        if entity_type.is_some() {
+            conditions.push("entity_type = $etype");
+        }
+        if namespace.is_some() {
+            conditions.push("namespace = $ns");
+        }
+        let q = format!("SELECT * FROM entity WHERE {}", conditions.join(" AND "));
+
+        let mut query = self.db.query(&q).bind(("name", name.to_string()));
+        if let Some(etype) = entity_type {
+            query = query.bind(("etype", etype.to_string()));
+        }
         if let Some(ns) = namespace {
             query = query.bind(("ns", ns.to_string()));
         }
         let mut response = query.await.map_err(storage_err)?;
-        debug!("find_entities_by_name");
+        debug!("find_entities_by_name_and_type");
         let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }

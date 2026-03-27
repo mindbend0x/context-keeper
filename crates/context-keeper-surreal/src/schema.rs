@@ -73,13 +73,16 @@ DEFINE INDEX IF NOT EXISTS memory_content_ft ON memory FIELDS content
 DEFINE INDEX IF NOT EXISTS episode_content_ft ON episode FIELDS content
   FULLTEXT ANALYZER context_analyzer BM25;
 
--- ── Composite lookup index for entity resolution ─────────────────────
--- Used by EntityResolver for fast (name, entity_type, namespace) lookups.
--- Uniqueness is enforced at the application level by the EntityResolver
--- to allow the same name in different namespaces.
+-- ── Composite identity index ─────────────────────────────────────────
+-- Entity identity is (name, entity_type). "Alice (Person)" and
+-- "Alice (Organization)" are distinct graph nodes.
+-- Namespace further scopes: same (name, type) in different namespaces
+-- are separate entities. Uniqueness enforced by the EntityResolver
+-- at the application level because SurrealDB UNIQUE indexes treat
+-- NONE (null namespace) values as distinct.
 
 DEFINE INDEX IF NOT EXISTS entity_name_idx ON entity FIELDS name;
-DEFINE INDEX IF NOT EXISTS entity_composite_idx ON entity FIELDS name, entity_type, namespace;
+DEFINE INDEX IF NOT EXISTS entity_identity_idx ON entity FIELDS name, entity_type, namespace;
 
 -- ── Entity type index for type-filtered queries ──────────────────────
 
