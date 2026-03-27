@@ -1,8 +1,8 @@
-use anyhow::Result;
 use chrono::Utc;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::error::Result;
 use crate::models::{Entity, Episode, Memory, Relation};
 use crate::traits::{Embedder, EntityExtractor, EntityResolver, RelationExtractor};
 

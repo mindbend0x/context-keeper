@@ -1,5 +1,5 @@
 use crate::repository::Repository;
-use anyhow::Result;
+use context_keeper_core::error::Result;
 use context_keeper_core::models::{Entity, Memory};
 
 /// Thin wrapper over the Repository's HNSW-backed vector search.

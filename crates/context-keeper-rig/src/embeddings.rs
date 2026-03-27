@@ -2,8 +2,9 @@
 //!
 //! Implements the core `Embedder` trait using Rig's `EmbeddingModel`.
 
-use anyhow::Result;
 use async_trait::async_trait;
+use context_keeper_core::error::Result;
+use context_keeper_core::ContextKeeperError;
 use context_keeper_core::traits::Embedder;
 use rig::client::EmbeddingsClient;
 use rig::embeddings::EmbeddingModel;
@@ -38,7 +39,11 @@ impl RigEmbedder {
 #[async_trait]
 impl Embedder for RigEmbedder {
     async fn embed(&self, text: &str) -> Result<Vec<f64>> {
-        let embeddings = self.model.embed_text(text).await?;
-        Ok(embeddings.vec)   
+        let embeddings = self
+            .model
+            .embed_text(text)
+            .await
+            .map_err(|e| ContextKeeperError::EmbeddingFailed(e.to_string()))?;
+        Ok(embeddings.vec)
     }
 }

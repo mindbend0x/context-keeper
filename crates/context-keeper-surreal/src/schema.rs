@@ -1,4 +1,5 @@
-use anyhow::Result;
+use context_keeper_core::error::Result;
+use context_keeper_core::ContextKeeperError;
 use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
 
@@ -106,7 +107,11 @@ pub async fn apply_schema(db: &Surreal<Any>, config: &SurrealConfig) -> Result<(
         "Applying Context Keeper graph schema"
     );
     let schema = build_schema(config);
-    db.query(schema).await?.check()?;
+    db.query(schema)
+        .await
+        .map_err(|e| ContextKeeperError::StorageError(e.to_string()))?
+        .check()
+        .map_err(|e| ContextKeeperError::StorageError(e.to_string()))?;
     tracing::info!("Schema applied successfully");
     Ok(())
 }

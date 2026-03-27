@@ -1,14 +1,19 @@
-use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use context_keeper_core::error::Result;
 use context_keeper_core::models::*;
 use context_keeper_core::traits::EntityResolver;
+use context_keeper_core::ContextKeeperError;
 use serde::{Deserialize, Serialize};
 use surrealdb::engine::any::Any;
 use surrealdb::types::SurrealValue;
 use surrealdb::Surreal;
 use tracing::debug;
 use uuid::Uuid;
+
+fn storage_err(e: impl std::fmt::Display) -> ContextKeeperError {
+    ContextKeeperError::StorageError(e.to_string())
+}
 
 /// Typed repository for all Context Keeper data operations against SurrealDB.
 ///
@@ -244,8 +249,8 @@ impl EntityResolver for Repository {
         if let Some(ns) = namespace {
             query = query.bind(("ns", ns.to_string()));
         }
-        let mut response = query.await?;
-        let rows: Vec<EntityRow> = response.take(0)?;
+        let mut response = query.await.map_err(storage_err)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().next().and_then(entity_from_row))
     }
 
@@ -276,12 +281,12 @@ impl Repository {
     // ── File export/import ───────────────────────────────────────────
 
     pub async fn export(&self, path: &str) -> Result<()> {
-        self.db.export(path).await?;
+        self.db.export(path).await.map_err(storage_err)?;
         Ok(())
     }
 
     pub async fn import_from_file(&self, path: &str) -> Result<()> {
-        self.db.import(path).await?;
+        self.db.import(path).await.map_err(storage_err)?;
         Ok(())
     }
 
@@ -302,14 +307,15 @@ impl Repository {
             .bind(("machine_id", episode.agent.as_ref().and_then(|a| a.machine_id.clone())))
             .bind(("namespace", episode.namespace.clone()))
             .bind(("created_at", episode.created_at.to_rfc3339()))
-            .await?;
+            .await
+            .map_err(storage_err)?;
         Ok(())
     }
 
     pub async fn get_episode(&self, id: Uuid) -> Result<Option<Episode>> {
         let q = format!("SELECT * FROM episode:`{}`", id);
-        let mut response = self.db.query(&q).await?;
-        let rows: Vec<EpisodeRow> = response.take(0)?;
+        let mut response = self.db.query(&q).await.map_err(storage_err)?;
+        let rows: Vec<EpisodeRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().next().and_then(episode_from_row))
     }
 
@@ -318,8 +324,9 @@ impl Repository {
             .db
             .query("SELECT * FROM episode ORDER BY created_at DESC LIMIT $limit")
             .bind(("limit", limit))
-            .await?;
-        let rows: Vec<EpisodeRow> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<EpisodeRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(episode_from_row).collect())
     }
 
@@ -341,14 +348,15 @@ impl Repository {
             .bind(("valid_until", entity.valid_until.map(|d| d.to_rfc3339())))
             .bind(("namespace", entity.namespace.clone()))
             .bind(("created_by_agent", entity.created_by_agent.clone()))
-            .await?;
+            .await
+            .map_err(storage_err)?;
         Ok(())
     }
 
     pub async fn get_entity(&self, id: Uuid) -> Result<Option<Entity>> {
         let q = format!("SELECT * FROM entity:`{}`", id);
-        let mut response = self.db.query(&q).await?;
-        let rows: Vec<EntityRow> = response.take(0)?;
+        let mut response = self.db.query(&q).await.map_err(storage_err)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().next().and_then(entity_from_row))
     }
 
@@ -361,9 +369,9 @@ impl Repository {
         if let Some(ns) = namespace {
             query = query.bind(("ns", ns.to_string()));
         }
-        let mut response = query.await?;
+        let mut response = query.await.map_err(storage_err)?;
         debug!("find_entities_by_name");
-        let rows: Vec<EntityRow> = response.take(0)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
 
@@ -380,8 +388,8 @@ impl Repository {
         if let Some(ns) = namespace {
             query = query.bind(("ns", ns.to_string()));
         }
-        let mut response = query.await?;
-        let rows: Vec<EntityRow> = response.take(0)?;
+        let mut response = query.await.map_err(storage_err)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
 
@@ -392,7 +400,7 @@ impl Repository {
             "UPDATE entity:`{}` SET valid_until = <datetime>$now",
             id
         );
-        self.db.query(&q).bind(("now", now)).await?;
+        self.db.query(&q).bind(("now", now)).await.map_err(storage_err)?;
         Ok(())
     }
 
@@ -402,8 +410,9 @@ impl Repository {
             .db
             .query("SELECT * FROM entity WHERE entity_type = $etype AND valid_until IS NONE")
             .bind(("etype", entity_type.to_string()))
-            .await?;
-        let rows: Vec<EntityRow> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
 
@@ -417,7 +426,6 @@ impl Repository {
     pub async fn create_relation(&self, relation: &Relation) -> Result<bool> {
         let rel_type_str = relation.relation_type.to_string();
 
-        // Check for existing active relation with same (from, to, type)
         let check_q = format!(
             "SELECT id, in AS in_id, out AS out_id, relation_type, confidence, valid_from, valid_until FROM relates_to WHERE in = entity:`{}` AND out = entity:`{}` AND relation_type = $rel_type AND valid_until IS NONE LIMIT 1",
             relation.from_entity_id, relation.to_entity_id
@@ -426,8 +434,9 @@ impl Repository {
             .db
             .query(&check_q)
             .bind(("rel_type", rel_type_str.clone()))
-            .await?;
-        let existing: Vec<RelationEdgeRow> = check_resp.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let existing: Vec<RelationEdgeRow> = check_resp.take(0).map_err(storage_err)?;
 
         if let Some(existing_row) = existing.into_iter().next() {
             let avg_conf = ((existing_row.confidence as u16 + relation.confidence as u16) / 2) as u8;
@@ -438,11 +447,11 @@ impl Repository {
             self.db
                 .query(&update_q)
                 .bind(("confidence", avg_conf))
-                .await?;
-            return Ok(false); // merged, not created
+                .await
+                .map_err(storage_err)?;
+            return Ok(false);
         }
 
-        // For symmetric types, also check the reverse direction
         if relation.relation_type.is_symmetric() {
             let rev_q = format!(
                 "SELECT id, in AS in_id, out AS out_id, relation_type, confidence, valid_from, valid_until FROM relates_to WHERE in = entity:`{}` AND out = entity:`{}` AND relation_type = $rel_type AND valid_until IS NONE LIMIT 1",
@@ -452,8 +461,9 @@ impl Repository {
                 .db
                 .query(&rev_q)
                 .bind(("rel_type", rel_type_str.clone()))
-                .await?;
-            let rev_existing: Vec<RelationEdgeRow> = rev_resp.take(0)?;
+                .await
+                .map_err(storage_err)?;
+            let rev_existing: Vec<RelationEdgeRow> = rev_resp.take(0).map_err(storage_err)?;
 
             if let Some(rev_row) = rev_existing.into_iter().next() {
                 let avg_conf =
@@ -465,8 +475,9 @@ impl Repository {
                 self.db
                     .query(&update_q)
                     .bind(("confidence", avg_conf))
-                    .await?;
-                return Ok(false); // merged, not created
+                    .await
+                    .map_err(storage_err)?;
+                return Ok(false);
             }
         }
 
@@ -482,8 +493,9 @@ impl Repository {
             .bind(("confidence", relation.confidence))
             .bind(("valid_from", relation.valid_from.to_rfc3339()))
             .bind(("valid_until", relation.valid_until.map(|d| d.to_rfc3339())))
-            .await?;
-        Ok(true) // newly created
+            .await
+            .map_err(storage_err)?;
+        Ok(true)
     }
 
     pub async fn invalidate_relation(&self, id: Uuid) -> Result<()> {
@@ -492,7 +504,8 @@ impl Repository {
         self.db
             .query(&q)
             .bind(("now", now))
-            .await?;
+            .await
+            .map_err(storage_err)?;
         Ok(())
     }
 
@@ -502,8 +515,8 @@ impl Repository {
             "SELECT id, in AS in_id, out AS out_id, relation_type, confidence, valid_from, valid_until FROM relates_to WHERE (in = entity:`{}` OR out = entity:`{}`) AND valid_until IS NONE",
             entity_id, entity_id
         );
-        let mut response = self.db.query(&q).await?;
-        let rows: Vec<RelationEdgeRow> = response.take(0)?;
+        let mut response = self.db.query(&q).await.map_err(storage_err)?;
+        let rows: Vec<RelationEdgeRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(relation_from_edge_row).collect())
     }
 
@@ -515,8 +528,9 @@ impl Repository {
             .query("UPDATE relates_to SET valid_until = <datetime>$now WHERE confidence < $threshold AND valid_until IS NONE")
             .bind(("now", now))
             .bind(("threshold", threshold))
-            .await?;
-        let affected: Vec<RelationEdgeRow> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let affected: Vec<RelationEdgeRow> = response.take(0).map_err(storage_err)?;
         Ok(affected.len())
     }
 
@@ -538,14 +552,15 @@ impl Repository {
             .bind(("created_at", memory.created_at.to_rfc3339()))
             .bind(("namespace", memory.namespace.clone()))
             .bind(("created_by_agent", memory.created_by_agent.clone()))
-            .await?;
+            .await
+            .map_err(storage_err)?;
 
         let q = format!("RELATE memory:`{}`->sourced_from->episode:`{}`", mem_id, ep_id);
-        self.db.query(&q).await?;
+        self.db.query(&q).await.map_err(storage_err)?;
 
         for entity_id in &memory.entity_ids {
             let q = format!("RELATE memory:`{}`->references->entity:`{}`", mem_id, entity_id);
-            self.db.query(&q).await?;
+            self.db.query(&q).await.map_err(storage_err)?;
         }
 
         Ok(())
@@ -556,8 +571,9 @@ impl Repository {
             .db
             .query("SELECT *, ->sourced_from->episode AS episode_ids, ->references->entity AS entity_ids FROM memory ORDER BY created_at DESC LIMIT $limit")
             .bind(("limit", limit))
-            .await?;
-        let rows: Vec<MemoryWithEdgesRow> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<MemoryWithEdgesRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(memory_with_edges_from_row).collect())
     }
 
@@ -598,9 +614,9 @@ impl Repository {
             query = query.bind(("ns", ns.to_string()));
         }
 
-        let mut response = query.await?;
+        let mut response = query.await.map_err(storage_err)?;
 
-        let rows: Vec<ScoredEntityRow> = response.take(0)?;
+        let rows: Vec<ScoredEntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows
             .into_iter()
             .filter_map(|r| {
@@ -639,9 +655,9 @@ impl Repository {
         if let Some(ns) = namespace {
             query = query.bind(("ns", ns.to_string()));
         }
-        let mut response = query.await?;
+        let mut response = query.await.map_err(storage_err)?;
 
-        let rows: Vec<ScoredMemoryRow> = response.take(0)?;
+        let rows: Vec<ScoredMemoryRow> = response.take(0).map_err(storage_err)?;
         Ok(rows
             .into_iter()
             .filter_map(|r| {
@@ -694,9 +710,9 @@ impl Repository {
             db_query = db_query.bind(("ns", ns.to_string()));
         }
 
-        let mut response = db_query.await?;
+        let mut response = db_query.await.map_err(storage_err)?;
 
-        let rows: Vec<FtsEntityRow> = response.take(0)?;
+        let rows: Vec<FtsEntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows
             .into_iter()
             .filter_map(|r| {
@@ -726,9 +742,9 @@ impl Repository {
         if let Some(ns) = namespace {
             db_query = db_query.bind(("ns", ns.to_string()));
         }
-        let mut response = db_query.await?;
+        let mut response = db_query.await.map_err(storage_err)?;
 
-        let rows: Vec<ScoredMemoryRow> = response.take(0)?;
+        let rows: Vec<ScoredMemoryRow> = response.take(0).map_err(storage_err)?;
         Ok(rows
             .into_iter()
             .filter_map(|r| {
@@ -750,9 +766,10 @@ impl Repository {
             .db
             .query("SELECT *, search::score(1) AS relevance FROM episode WHERE content @1@ $query ORDER BY relevance DESC")
             .bind(("query", query.to_string()))
-            .await?;
+            .await
+            .map_err(storage_err)?;
 
-        let rows: Vec<EpisodeRow> = response.take(0)?;
+        let rows: Vec<EpisodeRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(episode_from_row).collect())
     }
 
@@ -775,8 +792,8 @@ impl Repository {
                 "SELECT * FROM entity:`{}`<->relates_to<->entity WHERE valid_until IS NONE",
                 eid
             );
-            let mut response = self.db.query(&q).await?;
-            let rows: Vec<EntityRow> = response.take(0)?;
+            let mut response = self.db.query(&q).await.map_err(storage_err)?;
+            let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
             for row in rows {
                 if let Some(entity) = entity_from_row(row) {
                     if !all_entities.iter().any(|e| e.id == entity.id) {
@@ -797,8 +814,9 @@ impl Repository {
             .db
             .query("SELECT * FROM entity WHERE valid_from <= <datetime>$at AND (valid_until IS NONE OR valid_until > <datetime>$at)")
             .bind(("at", at_str))
-            .await?;
-        let rows: Vec<EntityRow> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
 
@@ -808,8 +826,9 @@ impl Repository {
             .db
             .query("SELECT id, in AS in_id, out AS out_id, relation_type, confidence, valid_from, valid_until FROM relates_to WHERE valid_from <= <datetime>$at AND (valid_until IS NONE OR valid_until > <datetime>$at)")
             .bind(("at", at_str))
-            .await?;
-        let rows: Vec<RelationEdgeRow> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<RelationEdgeRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(relation_from_edge_row).collect())
     }
 
@@ -822,8 +841,9 @@ impl Repository {
             .db
             .query("SHOW CHANGES FOR TABLE entity SINCE $since")
             .bind(("since", since_str))
-            .await?;
-        let changes: Vec<serde_json::Value> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let changes: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
         Ok(changes)
     }
 
@@ -833,8 +853,9 @@ impl Repository {
             .db
             .query("SHOW CHANGES FOR TABLE relates_to SINCE $since")
             .bind(("since", since.to_rfc3339()))
-            .await?;
-        let changes: Vec<serde_json::Value> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let changes: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
         Ok(changes)
     }
 
@@ -845,8 +866,9 @@ impl Repository {
         let mut response = self
             .db
             .query("SELECT agent_id, agent_name, array::group(namespace) AS namespaces, count() AS episode_count FROM episode WHERE agent_id IS NOT NONE GROUP BY agent_id, agent_name")
-            .await?;
-        let rows: Vec<serde_json::Value> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
         Ok(rows)
     }
 
@@ -855,8 +877,9 @@ impl Repository {
         let mut response = self
             .db
             .query("SELECT namespace, count() AS entity_count FROM entity WHERE namespace IS NOT NONE AND valid_until IS NONE GROUP BY namespace")
-            .await?;
-        let rows: Vec<serde_json::Value> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
         Ok(rows)
     }
 
@@ -867,8 +890,9 @@ impl Repository {
             .query("SELECT * FROM episode WHERE agent_id = $agent_id ORDER BY created_at DESC LIMIT $limit")
             .bind(("agent_id", agent_id.to_string()))
             .bind(("limit", limit))
-            .await?;
-        let rows: Vec<EpisodeRow> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<EpisodeRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(episode_from_row).collect())
     }
 }
