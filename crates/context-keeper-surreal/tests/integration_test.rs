@@ -76,7 +76,7 @@ async fn test_entity_crud() -> Result<()> {
     assert!(fetched.is_some());
     assert_eq!(fetched.unwrap().name, "Alice");
 
-    let by_name = repo.find_entities_by_name("Alice", None).await?;
+    let by_name = repo.find_entities_by_name("Alice", None, None).await?;
     assert_eq!(by_name.len(), 1);
 
     Ok(())

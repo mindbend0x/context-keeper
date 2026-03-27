@@ -69,7 +69,7 @@ impl TestEnv {
         .await?;
 
         for inv in &result.diff.entities_invalidated {
-            let existing = self.repo.find_entities_by_name(&inv.name, None).await?;
+            let existing = self.repo.find_entities_by_name(&inv.name, None, None).await?;
             for entity in existing {
                 self.repo.invalidate_entity(entity.id).await?;
             }
@@ -134,7 +134,7 @@ impl TestEnv {
         .await?;
 
         for inv in &result.diff.entities_invalidated {
-            let existing = self.repo.find_entities_by_name(&inv.name, namespace).await?;
+            let existing = self.repo.find_entities_by_name(&inv.name, None, namespace).await?;
             for entity in existing {
                 self.repo.invalidate_entity(entity.id).await?;
             }

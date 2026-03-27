@@ -262,7 +262,7 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Entity { name } => {
-            let entities = repo.find_entities_by_name(&name, ns).await?;
+            let entities = repo.find_entities_by_name(&name, None, ns).await?;
             if entities.is_empty() {
                 info!("No entity found with name '{}'", name);
             } else {

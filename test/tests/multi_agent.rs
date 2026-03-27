@@ -151,7 +151,7 @@ async fn test_namespace_scoped_name_search() -> Result<()> {
     env.ingest_as_agent("Alice is a manager", "test", "agent-b", Some("team-b"))
         .await?;
 
-    let global = env.repo.find_entities_by_name("Alice", None).await?;
+    let global = env.repo.find_entities_by_name("Alice", None, None).await?;
     assert_eq!(
         global.len(),
         1,
@@ -161,7 +161,7 @@ async fn test_namespace_scoped_name_search() -> Result<()> {
 
     let team_a = env
         .repo
-        .find_entities_by_name("Alice", Some("team-a"))
+        .find_entities_by_name("Alice", None, Some("team-a"))
         .await?;
     assert_eq!(
         team_a.len(),

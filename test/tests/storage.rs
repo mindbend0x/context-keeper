@@ -232,7 +232,7 @@ async fn test_composite_entity_identity_coexistence() -> Result<()> {
     env.repo.upsert_entity(&alice_person).await?;
     env.repo.upsert_entity(&alice_org).await?;
 
-    let all_alice = env.repo.find_entities_by_name("Alice", None).await?;
+    let all_alice = env.repo.find_entities_by_name("Alice", None, None).await?;
     assert_eq!(
         all_alice.len(),
         2,
@@ -241,7 +241,7 @@ async fn test_composite_entity_identity_coexistence() -> Result<()> {
 
     let persons = env
         .repo
-        .find_entities_by_name_and_type("Alice", Some(&EntityType::Person), None)
+        .find_entities_by_name("Alice", Some(&EntityType::Person), None)
         .await?;
     assert_eq!(persons.len(), 1);
     assert_eq!(persons[0].entity_type, EntityType::Person);
@@ -249,7 +249,7 @@ async fn test_composite_entity_identity_coexistence() -> Result<()> {
 
     let orgs = env
         .repo
-        .find_entities_by_name_and_type("Alice", Some(&EntityType::Organization), None)
+        .find_entities_by_name("Alice", Some(&EntityType::Organization), None)
         .await?;
     assert_eq!(orgs.len(), 1);
     assert_eq!(orgs[0].entity_type, EntityType::Organization);
@@ -268,13 +268,13 @@ async fn test_negation_invalidates_entity() -> Result<()> {
 
     env.ingest_text_with_resolver("Alice works at Acme", "test", true).await?;
 
-    let before = env.repo.find_entities_by_name("Alice", None).await?;
+    let before = env.repo.find_entities_by_name("Alice", None, None).await?;
     assert_eq!(before.len(), 1, "Alice should exist after first ingestion");
     let original_id = before[0].id;
 
     env.ingest_text_with_resolver("Alice left Acme", "test", true).await?;
 
-    let after = env.repo.find_entities_by_name("Alice", None).await?;
+    let after = env.repo.find_entities_by_name("Alice", None, None).await?;
     assert_eq!(after.len(), 1, "Should have one active Alice after negation");
     assert_ne!(
         after[0].id, original_id,
@@ -351,14 +351,14 @@ async fn test_deduplication_updates_entity() -> Result<()> {
 
     env.ingest_text_with_resolver("Alice works at Acme", "test", true).await?;
 
-    let before = env.repo.find_entities_by_name("Alice", None).await?;
+    let before = env.repo.find_entities_by_name("Alice", None, None).await?;
     assert_eq!(before.len(), 1);
     let original_id = before[0].id;
     let original_summary = before[0].summary.clone();
 
     env.ingest_text_with_resolver("Alice leads engineering at Acme", "test", true).await?;
 
-    let after = env.repo.find_entities_by_name("Alice", None).await?;
+    let after = env.repo.find_entities_by_name("Alice", None, None).await?;
     assert_eq!(
         after.len(),
         1,

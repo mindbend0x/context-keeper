@@ -439,7 +439,7 @@ async fn main() -> Result<()> {
 
     section("10 · Graph Traversal (entity neighbors)");
 
-    let acme_entities = repo.find_entities_by_name("Acme", None).await?;
+    let acme_entities = repo.find_entities_by_name("Acme", None, None).await?;
     if let Some(acme) = acme_entities.first() {
         tracing::info!(entity = %acme.name, "Fetching graph neighbors");
         let neighbors = repo.get_graph_neighbors(&[acme.id], 1).await?;

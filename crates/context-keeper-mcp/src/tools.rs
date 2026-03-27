@@ -460,7 +460,7 @@ impl ContextKeeperServer {
     ) -> Result<String, McpError> {
         let entities = self
             .repo
-            .find_entities_by_name(&input.name, input.namespace.as_deref())
+            .find_entities_by_name(&input.name, None, input.namespace.as_deref())
             .await
             .map_err(to_mcp)?;
 
@@ -810,7 +810,7 @@ impl ServerHandler for ContextKeeperServer {
         if let Some(name) = uri.strip_prefix("memory://entity/") {
             let entities = self
                 .repo
-                .find_entities_by_name(name, None)
+                .find_entities_by_name(name, None, None)
                 .await
                 .map_err(to_mcp)?;
 

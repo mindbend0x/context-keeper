@@ -360,14 +360,6 @@ impl Repository {
     pub async fn find_entities_by_name(
         &self,
         name: &str,
-        namespace: Option<&str>,
-    ) -> Result<Vec<Entity>> {
-        self.find_entities_by_name_and_type(name, None, namespace).await
-    }
-
-    pub async fn find_entities_by_name_and_type(
-        &self,
-        name: &str,
         entity_type: Option<&EntityType>,
         namespace: Option<&str>,
     ) -> Result<Vec<Entity>> {
@@ -388,7 +380,7 @@ impl Repository {
             query = query.bind(("ns", ns.to_string()));
         }
         let mut response = query.await.map_err(storage_err)?;
-        debug!("find_entities_by_name_and_type");
+        debug!("find_entities_by_name");
         let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
