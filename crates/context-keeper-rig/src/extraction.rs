@@ -6,15 +6,16 @@
 //! Requires a valid `OPENAI_API_KEY` (or other provider key) at runtime.
 //! For testing, use `MockEntityExtractor` and `MockRelationExtractor` from core.
 
-use anyhow::Result;
 use async_trait::async_trait;
+use context_keeper_core::error::Result;
+use context_keeper_core::ContextKeeperError;
 use context_keeper_core::traits::{
     EntityExtractor, ExtractedEntity,
-    ExtractedRelation, RelationExtractor
+    ExtractedRelation, RelationExtractor,
 };
 use rig::providers::openai;
-use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 const ENTITY_EXTRACTION_PROMPT: &str = "\
 Extract named entities from the text. Classify each entity as one of: \
@@ -65,7 +66,7 @@ impl RigEntityExtractor {
 
 #[async_trait]
 impl EntityExtractor for RigEntityExtractor {
-    async fn extract_entities(&self, text: &str) -> anyhow::Result<Vec<ExtractedEntity>> {
+    async fn extract_entities(&self, text: &str) -> Result<Vec<ExtractedEntity>> {
         let builder = self
             .client
             .extractor::<RigExtractedEntities>(&self.model);
@@ -74,7 +75,8 @@ impl EntityExtractor for RigEntityExtractor {
             .preamble(&self.system_prompt)
             .build()
             .extract(text)
-            .await?;
+            .await
+            .map_err(|e| ContextKeeperError::ExtractionFailed(e.to_string()))?;
 
         Ok(values.entities)
     }
@@ -125,7 +127,8 @@ impl RelationExtractor for RigRelationExtractor {
             .preamble(&preamble)
             .build()
             .extract(text)
-            .await?;
+            .await
+            .map_err(|e| ContextKeeperError::ExtractionFailed(e.to_string()))?;
 
         Ok(values.relations)
     }

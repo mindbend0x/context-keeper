@@ -1,5 +1,6 @@
-use anyhow::Result;
+use context_keeper_core::error::Result;
 use context_keeper_core::models::DistanceMetric;
+use context_keeper_core::ContextKeeperError;
 use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
 
@@ -53,11 +54,14 @@ pub async fn connect(config: &SurrealConfig) -> Result<Surreal<Any>> {
         }
     };
 
-    let db = surrealdb::engine::any::connect(&endpoint).await?;
+    let db = surrealdb::engine::any::connect(&endpoint)
+        .await
+        .map_err(|e| ContextKeeperError::StorageError(e.to_string()))?;
 
     db.use_ns(&config.namespace)
         .use_db(&config.database)
-        .await?;
+        .await
+        .map_err(|e| ContextKeeperError::StorageError(e.to_string()))?;
 
     tracing::info!(
         ns = %config.namespace,
@@ -69,10 +73,13 @@ pub async fn connect(config: &SurrealConfig) -> Result<Surreal<Any>> {
 
 /// Create an embedded in-memory SurrealDB instance (convenience wrapper).
 pub async fn connect_memory(config: &SurrealConfig) -> Result<Surreal<Any>> {
-    let db = surrealdb::engine::any::connect("mem://").await?;
+    let db = surrealdb::engine::any::connect("mem://")
+        .await
+        .map_err(|e| ContextKeeperError::StorageError(e.to_string()))?;
     db.use_ns(&config.namespace)
         .use_db(&config.database)
-        .await?;
+        .await
+        .map_err(|e| ContextKeeperError::StorageError(e.to_string()))?;
     tracing::info!(
         ns = %config.namespace,
         db = %config.database,

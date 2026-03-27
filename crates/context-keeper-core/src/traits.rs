@@ -1,10 +1,10 @@
-use anyhow::Result;
 use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+use crate::error::Result;
 use crate::models::{Entity, EntityType, RelationType};
 
 // ── Extracted types (shared between traits and models) ──────────────────

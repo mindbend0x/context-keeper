@@ -1,5 +1,5 @@
+use crate::error::Result;
 use crate::traits::QueryRewriter;
-use anyhow::Result;
 
 /// Expands search queries to improve recall when initial results are sparse.
 ///

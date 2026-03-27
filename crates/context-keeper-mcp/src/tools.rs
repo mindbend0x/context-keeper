@@ -11,6 +11,7 @@ use context_keeper_core::{
     models::{AgentInfo, Episode},
     search::{fuse_rrf, QueryExpander},
     traits::{Embedder, EntityExtractor, EntityResolver, QueryRewriter, RelationExtractor},
+    ContextKeeperError,
 };
 use context_keeper_surreal::Repository;
 use rmcp::{
@@ -24,6 +25,14 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+fn to_mcp(err: ContextKeeperError) -> McpError {
+    match err {
+        ContextKeeperError::EntityNotFound(msg) => McpError::resource_not_found(msg, None),
+        ContextKeeperError::ValidationError(msg) => McpError::invalid_params(msg, None),
+        other => McpError::internal_error(other.to_string(), None),
+    }
+}
 
 // ── Input schemas ────────────────────────────────────────────────────────
 
@@ -248,40 +257,33 @@ impl ContextKeeperServer {
             None,
         )
         .await
-        .map_err(|e| McpError::internal_error(format!("Ingestion failed: {e}"), None))?;
+        .map_err(to_mcp)?;
 
-        // Invalidate entities that had contradictions
         let ep_ns = episode.namespace.as_deref();
         for inv in &result.diff.entities_invalidated {
             let existing = self
                 .repo
                 .find_entities_by_name(&inv.name, ep_ns)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Entity lookup failed: {e}"), None))?;
+                .map_err(to_mcp)?;
             for entity in existing {
                 self.repo
                     .invalidate_entity(entity.id)
                     .await
-                    .map_err(|e| {
-                        McpError::internal_error(
-                            format!("Failed to invalidate entity: {e}"),
-                            None,
-                        )
-                    })?;
+                    .map_err(to_mcp)?;
             }
         }
 
-        // Persist everything
         self.repo
             .create_episode(&episode)
             .await
-            .map_err(|e| McpError::internal_error(format!("Failed to create episode: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         for entity in &result.entities {
             self.repo
                 .upsert_entity(entity)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Failed to upsert entity: {e}"), None))?;
+                .map_err(to_mcp)?;
         }
 
         let mut relations_merged = 0usize;
@@ -290,7 +292,7 @@ impl ContextKeeperServer {
                 .repo
                 .create_relation(relation)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Failed to create relation: {e}"), None))?;
+                .map_err(to_mcp)?;
             if !created {
                 relations_merged += 1;
             }
@@ -299,7 +301,7 @@ impl ContextKeeperServer {
             self.repo
                 .create_memory(memory)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Failed to create memory: {e}"), None))?;
+                .map_err(to_mcp)?;
         }
 
         let response = AddMemoryResponse {
@@ -351,19 +353,19 @@ impl ContextKeeperServer {
             .embedder
             .embed(&input.query)
             .await
-            .map_err(|e| McpError::internal_error(format!("Embedding failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let vector_results = self
             .repo
             .search_entities_by_vector(&query_embedding, limit, type_filter, ns)
             .await
-            .map_err(|e| McpError::internal_error(format!("Vector search failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let keyword_results = self
             .repo
             .search_entities_by_keyword(&input.query, type_filter, ns)
             .await
-            .map_err(|e| McpError::internal_error(format!("Keyword search failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let fused = fuse_rrf(vec![
             vector_results.into_iter().map(|(e, _)| e).collect(),
@@ -402,7 +404,7 @@ impl ContextKeeperServer {
         let variants = expander
             .expand(&input.query, self.query_rewriter.as_ref())
             .await
-            .map_err(|e| McpError::internal_error(format!("Query expansion failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let mut ranked_lists = Vec::new();
         for variant in &variants {
@@ -410,19 +412,19 @@ impl ContextKeeperServer {
                 .embedder
                 .embed(variant)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Embedding failed: {e}"), None))?;
+                .map_err(to_mcp)?;
 
             let vector_results = self
                 .repo
                 .search_entities_by_vector(&query_embedding, limit, type_filter, ns)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Vector search failed: {e}"), None))?;
+                .map_err(to_mcp)?;
 
             let keyword_results = self
                 .repo
                 .search_entities_by_keyword(variant, type_filter, ns)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Keyword search failed: {e}"), None))?;
+                .map_err(to_mcp)?;
 
             ranked_lists.push(vector_results.into_iter().map(|(e, _)| e).collect());
             ranked_lists.push(keyword_results);
@@ -457,7 +459,7 @@ impl ContextKeeperServer {
             .repo
             .find_entities_by_name(&input.name, input.namespace.as_deref())
             .await
-            .map_err(|e| McpError::internal_error(format!("Entity lookup failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         if entities.is_empty() {
             return Ok(format!("No entity found with name '{}'", input.name));
@@ -469,7 +471,7 @@ impl ContextKeeperServer {
                 .repo
                 .get_relations_for_entity(entity.id)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Relation lookup failed: {e}"), None))?;
+                .map_err(to_mcp)?;
 
             details.push(EntityDetail {
                 name: entity.name.clone(),
@@ -508,13 +510,13 @@ impl ContextKeeperServer {
             .repo
             .entities_at(at)
             .await
-            .map_err(|e| McpError::internal_error(format!("Snapshot query failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let relations = self
             .repo
             .relations_at(at)
             .await
-            .map_err(|e| McpError::internal_error(format!("Snapshot query failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let response = SnapshotResponse {
             timestamp: at.to_rfc3339(),
@@ -546,7 +548,7 @@ impl ContextKeeperServer {
             .repo
             .list_recent_memories(limit)
             .await
-            .map_err(|e| McpError::internal_error(format!("Query failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let items: Vec<MemoryItem> = memories
             .iter()
@@ -567,7 +569,7 @@ impl ContextKeeperServer {
             .repo
             .list_agents()
             .await
-            .map_err(|e| McpError::internal_error(format!("Query failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         if agents.is_empty() {
             return Ok("No agents have contributed to the knowledge graph yet.".to_string());
@@ -584,7 +586,7 @@ impl ContextKeeperServer {
             .repo
             .list_namespaces()
             .await
-            .map_err(|e| McpError::internal_error(format!("Query failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         if namespaces.is_empty() {
             return Ok("No namespaces found. All data is in the default (global) namespace.".to_string());
@@ -605,7 +607,7 @@ impl ContextKeeperServer {
             .repo
             .list_episodes_by_agent(&input.agent_id, limit)
             .await
-            .map_err(|e| McpError::internal_error(format!("Query failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         if episodes.is_empty() {
             return Ok(format!("No activity found for agent '{}'", input.agent_id));
@@ -638,19 +640,19 @@ impl ContextKeeperServer {
             .embedder
             .embed(&input.query)
             .await
-            .map_err(|e| McpError::internal_error(format!("Embedding failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let vector_results = self
             .repo
             .search_entities_by_vector(&query_embedding, limit, type_filter, None)
             .await
-            .map_err(|e| McpError::internal_error(format!("Vector search failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let keyword_results = self
             .repo
             .search_entities_by_keyword(&input.query, type_filter, None)
             .await
-            .map_err(|e| McpError::internal_error(format!("Keyword search failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let fused = fuse_rrf(vec![
             vector_results.into_iter().map(|(e, _)| e).collect(),
@@ -728,7 +730,7 @@ impl ServerHandler for ContextKeeperServer {
             .repo
             .get_all_active_entities()
             .await
-            .map_err(|e| McpError::internal_error(format!("Failed to list entities: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         for entity in &entities {
             resources.push(
@@ -784,7 +786,7 @@ impl ServerHandler for ContextKeeperServer {
                 .repo
                 .list_recent_memories(20)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Query failed: {e}"), None))?;
+                .map_err(to_mcp)?;
 
             let items: Vec<MemoryItem> = memories
                 .iter()
@@ -807,7 +809,7 @@ impl ServerHandler for ContextKeeperServer {
                 .repo
                 .find_entities_by_name(name, None)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Entity lookup failed: {e}"), None))?;
+                .map_err(to_mcp)?;
 
             if entities.is_empty() {
                 return Err(McpError::resource_not_found(
@@ -822,7 +824,7 @@ impl ServerHandler for ContextKeeperServer {
                     .repo
                     .get_relations_for_entity(entity.id)
                     .await
-                    .map_err(|e| McpError::internal_error(format!("Relation lookup failed: {e}"), None))?;
+                    .map_err(to_mcp)?;
 
                 details.push(EntityDetail {
                     name: entity.name.clone(),
