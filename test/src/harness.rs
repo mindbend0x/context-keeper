@@ -74,6 +74,9 @@ impl TestEnv {
                 self.repo.invalidate_entity(entity.id).await?;
             }
         }
+        for entity_id in &result.diff.entity_ids_to_invalidate_relations {
+            self.repo.invalidate_relations_for_entity(*entity_id).await?;
+        }
 
         self.repo.create_episode(&episode).await?;
         for entity in &result.entities {
@@ -135,6 +138,9 @@ impl TestEnv {
             for entity in existing {
                 self.repo.invalidate_entity(entity.id).await?;
             }
+        }
+        for entity_id in &result.diff.entity_ids_to_invalidate_relations {
+            self.repo.invalidate_relations_for_entity(*entity_id).await?;
         }
 
         self.repo.create_episode(&episode).await?;

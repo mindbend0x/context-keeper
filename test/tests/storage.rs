@@ -258,6 +258,205 @@ async fn test_composite_entity_identity_coexistence() -> Result<()> {
     Ok(())
 }
 
+// ── Negation invalidates old entity ───────────────────────────────────────
+// "Alice works at Acme" followed by "Alice left Acme" should invalidate
+// the original Alice entity and create a new one.
+
+#[tokio::test]
+async fn test_negation_invalidates_entity() -> Result<()> {
+    let env = TestEnv::new().await?;
+
+    env.ingest_text_with_resolver("Alice works at Acme", "test", true).await?;
+
+    let before = env.repo.find_entities_by_name("Alice", None).await?;
+    assert_eq!(before.len(), 1, "Alice should exist after first ingestion");
+    let original_id = before[0].id;
+
+    env.ingest_text_with_resolver("Alice left Acme", "test", true).await?;
+
+    let after = env.repo.find_entities_by_name("Alice", None).await?;
+    assert_eq!(after.len(), 1, "Should have one active Alice after negation");
+    assert_ne!(
+        after[0].id, original_id,
+        "New Alice entity should have a different ID than the invalidated one"
+    );
+
+    let original = env.repo.get_entity(original_id).await?.expect("original should still exist in DB");
+    assert!(
+        original.valid_until.is_some(),
+        "Original Alice entity should be soft-deleted (valid_until set)"
+    );
+
+    Ok(())
+}
+
+// ── Invalidated entities don't appear in active queries ──────────────────
+
+#[tokio::test]
+async fn test_invalidated_entities_excluded_from_active() -> Result<()> {
+    let env = TestEnv::new().await?;
+
+    env.ingest_text_with_resolver("Alice works at Acme", "test", true).await?;
+    env.ingest_text_with_resolver("Alice quit Acme", "test", true).await?;
+
+    let all_active = env.repo.get_all_active_entities().await?;
+    let active_alice: Vec<_> = all_active.iter().filter(|e| e.name == "Alice").collect();
+    assert_eq!(
+        active_alice.len(),
+        1,
+        "Only one active Alice should exist after negation"
+    );
+    assert!(
+        active_alice[0].valid_until.is_none(),
+        "Active Alice should have no valid_until"
+    );
+
+    Ok(())
+}
+
+// ── Relations invalidated along with entities ────────────────────────────
+
+#[tokio::test]
+async fn test_relations_invalidated_with_entity() -> Result<()> {
+    let env = TestEnv::new().await?;
+
+    let r1 = env.ingest_text_with_resolver("Alice works at Acme", "test", true).await?;
+
+    let alice_before: Vec<_> = r1.entities.iter().filter(|e| e.name == "Alice").collect();
+    assert!(!alice_before.is_empty(), "Alice should be extracted");
+    let alice_id = alice_before[0].id;
+
+    let rels_before = env.repo.get_relations_for_entity(alice_id).await?;
+    assert!(
+        !rels_before.is_empty(),
+        "Alice should have relations after first ingestion"
+    );
+
+    env.ingest_text_with_resolver("Alice left Acme", "test", true).await?;
+
+    let rels_after = env.repo.get_relations_for_entity(alice_id).await?;
+    assert!(
+        rels_after.is_empty(),
+        "Old Alice's relations should be invalidated after negation"
+    );
+
+    Ok(())
+}
+
+// ── Deduplication: same entity ingested twice → single entity updated ────
+
+#[tokio::test]
+async fn test_deduplication_updates_entity() -> Result<()> {
+    let env = TestEnv::new().await?;
+
+    env.ingest_text_with_resolver("Alice works at Acme", "test", true).await?;
+
+    let before = env.repo.find_entities_by_name("Alice", None).await?;
+    assert_eq!(before.len(), 1);
+    let original_id = before[0].id;
+    let original_summary = before[0].summary.clone();
+
+    env.ingest_text_with_resolver("Alice leads engineering at Acme", "test", true).await?;
+
+    let after = env.repo.find_entities_by_name("Alice", None).await?;
+    assert_eq!(
+        after.len(),
+        1,
+        "Should still have one Alice after dedup (no contradiction)"
+    );
+    assert_eq!(
+        after[0].id, original_id,
+        "Entity ID should be preserved through dedup update"
+    );
+    assert_ne!(
+        after[0].summary, original_summary,
+        "Summary should be updated with merged info"
+    );
+
+    Ok(())
+}
+
+// ── Invalidate relations for entity (repository method) ──────────────────
+
+#[tokio::test]
+async fn test_invalidate_relations_for_entity() -> Result<()> {
+    let env = TestEnv::new().await?;
+    let embedder = &env.embedder;
+
+    let alice = Entity {
+        id: Uuid::new_v4(),
+        name: "Alice".to_string(),
+        entity_type: EntityType::Person,
+        summary: "Engineer".to_string(),
+        embedding: embedder.embed("Alice").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+        namespace: None,
+        created_by_agent: None,
+    };
+    let acme = Entity {
+        id: Uuid::new_v4(),
+        name: "Acme".to_string(),
+        entity_type: EntityType::Organization,
+        summary: "Company".to_string(),
+        embedding: embedder.embed("Acme").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+        namespace: None,
+        created_by_agent: None,
+    };
+    let bob = Entity {
+        id: Uuid::new_v4(),
+        name: "Bob".to_string(),
+        entity_type: EntityType::Person,
+        summary: "Manager".to_string(),
+        embedding: embedder.embed("Bob").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+        namespace: None,
+        created_by_agent: None,
+    };
+
+    env.repo.upsert_entity(&alice).await?;
+    env.repo.upsert_entity(&acme).await?;
+    env.repo.upsert_entity(&bob).await?;
+
+    let rel1 = Relation {
+        id: Uuid::new_v4(),
+        from_entity_id: alice.id,
+        to_entity_id: acme.id,
+        relation_type: RelationType::WorksAt,
+        confidence: 90,
+        valid_from: Utc::now(),
+        valid_until: None,
+    };
+    let rel2 = Relation {
+        id: Uuid::new_v4(),
+        from_entity_id: alice.id,
+        to_entity_id: bob.id,
+        relation_type: RelationType::Knows,
+        confidence: 80,
+        valid_from: Utc::now(),
+        valid_until: None,
+    };
+    env.repo.create_relation(&rel1).await?;
+    env.repo.create_relation(&rel2).await?;
+
+    let before = env.repo.get_relations_for_entity(alice.id).await?;
+    assert_eq!(before.len(), 2, "Alice should have 2 relations before invalidation");
+
+    let count = env.repo.invalidate_relations_for_entity(alice.id).await?;
+    assert_eq!(count, 2, "Should invalidate 2 relations");
+
+    let after = env.repo.get_relations_for_entity(alice.id).await?;
+    assert!(after.is_empty(), "Alice should have no active relations after invalidation");
+
+    let bob_rels = env.repo.get_relations_for_entity(bob.id).await?;
+    assert!(bob_rels.is_empty(), "Bob's relation to Alice should also be invalidated");
+
+    Ok(())
+}
+
 // ── Export/import consistency ─────────────────────────────────────────────
 
 #[tokio::test]
@@ -297,6 +496,137 @@ async fn test_export_import_consistency() -> Result<()> {
     );
 
     let _ = std::fs::remove_file(&export_path);
+
+    Ok(())
+}
+
+// ── Relation dedup with canonical types ─────────────────────────────────
+// Different raw predicates that canonicalize to the same type should merge.
+
+#[tokio::test]
+async fn test_relation_dedup_canonical_types() -> Result<()> {
+    let env = TestEnv::new().await?;
+    let now = Utc::now();
+    let embedding = env.embedder.embed("dedup_test").await?;
+
+    let alice = Entity {
+        id: Uuid::new_v4(),
+        name: "Alice".to_string(),
+        entity_type: EntityType::Person,
+        summary: "Engineer".to_string(),
+        embedding: embedding.clone(),
+        valid_from: now,
+        valid_until: None,
+        namespace: None,
+        created_by_agent: None,
+    };
+    let acme = Entity {
+        id: Uuid::new_v4(),
+        name: "Acme".to_string(),
+        entity_type: EntityType::Organization,
+        summary: "Company".to_string(),
+        embedding: embedding.clone(),
+        valid_from: now,
+        valid_until: None,
+        namespace: None,
+        created_by_agent: None,
+    };
+    env.repo.upsert_entity(&alice).await?;
+    env.repo.upsert_entity(&acme).await?;
+
+    let rel1 = Relation {
+        id: Uuid::new_v4(),
+        from_entity_id: alice.id,
+        to_entity_id: acme.id,
+        relation_type: RelationType::from("works_at"),
+        confidence: 80,
+        valid_from: now,
+        valid_until: None,
+    };
+    let created = env.repo.create_relation(&rel1).await?;
+    assert!(created, "first relation should be created");
+
+    // "employed_at" canonicalizes to WorksAt — should deduplicate
+    let rel2 = Relation {
+        id: Uuid::new_v4(),
+        from_entity_id: alice.id,
+        to_entity_id: acme.id,
+        relation_type: RelationType::from("employed_at"),
+        confidence: 90,
+        valid_from: now,
+        valid_until: None,
+    };
+    let created = env.repo.create_relation(&rel2).await?;
+    assert!(!created, "duplicate canonical type should merge, not create");
+
+    let rels = env.repo.get_relations_for_entity(alice.id).await?;
+    assert_eq!(rels.len(), 1, "only one relation should exist after dedup");
+    assert_eq!(rels[0].confidence, 85, "confidence should be averaged");
+
+    Ok(())
+}
+
+// ── Symmetric relation dedup ────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_symmetric_relation_dedup() -> Result<()> {
+    let env = TestEnv::new().await?;
+    let now = Utc::now();
+    let embedding = env.embedder.embed("sym_test").await?;
+
+    let alice = Entity {
+        id: Uuid::new_v4(),
+        name: "Alice".to_string(),
+        entity_type: EntityType::Person,
+        summary: "Person A".to_string(),
+        embedding: embedding.clone(),
+        valid_from: now,
+        valid_until: None,
+        namespace: None,
+        created_by_agent: None,
+    };
+    let bob = Entity {
+        id: Uuid::new_v4(),
+        name: "Bob".to_string(),
+        entity_type: EntityType::Person,
+        summary: "Person B".to_string(),
+        embedding: embedding.clone(),
+        valid_from: now,
+        valid_until: None,
+        namespace: None,
+        created_by_agent: None,
+    };
+    env.repo.upsert_entity(&alice).await?;
+    env.repo.upsert_entity(&bob).await?;
+
+    let rel_fwd = Relation {
+        id: Uuid::new_v4(),
+        from_entity_id: alice.id,
+        to_entity_id: bob.id,
+        relation_type: RelationType::Knows,
+        confidence: 70,
+        valid_from: now,
+        valid_until: None,
+    };
+    let created = env.repo.create_relation(&rel_fwd).await?;
+    assert!(created, "forward relation should be created");
+
+    // Reverse direction of a symmetric type should deduplicate
+    let rel_rev = Relation {
+        id: Uuid::new_v4(),
+        from_entity_id: bob.id,
+        to_entity_id: alice.id,
+        relation_type: RelationType::Knows,
+        confidence: 90,
+        valid_from: now,
+        valid_until: None,
+    };
+    let created = env.repo.create_relation(&rel_rev).await?;
+    assert!(!created, "reverse symmetric relation should merge");
+
+    let rels = env.repo.get_relations_for_entity(alice.id).await?;
+    assert_eq!(rels.len(), 1, "only one relation should exist for symmetric dedup");
+    assert_eq!(rels[0].confidence, 80, "confidence should be averaged");
 
     Ok(())
 }

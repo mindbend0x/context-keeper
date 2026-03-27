@@ -122,6 +122,7 @@ struct AddMemoryResponse {
     relations_created: usize,
     relations_merged: usize,
     relations_pruned: usize,
+    relations_invalidated: usize,
     memories_created: usize,
     entity_names: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -266,12 +267,21 @@ impl ContextKeeperServer {
                 .find_entities_by_name(&inv.name, ep_ns)
                 .await
                 .map_err(to_mcp)?;
-            for entity in existing {
+            for entity in &existing {
                 self.repo
                     .invalidate_entity(entity.id)
                     .await
                     .map_err(to_mcp)?;
             }
+        }
+
+        let mut relations_invalidated = 0usize;
+        for entity_id in &result.diff.entity_ids_to_invalidate_relations {
+            relations_invalidated += self
+                .repo
+                .invalidate_relations_for_entity(*entity_id)
+                .await
+                .map_err(to_mcp)?;
         }
 
         self.repo
@@ -311,6 +321,7 @@ impl ContextKeeperServer {
             relations_created: result.diff.relations_created,
             relations_merged,
             relations_pruned: result.diff.relations_pruned,
+            relations_invalidated,
             memories_created: result.memories.len(),
             entity_names: result.entities.iter().map(|e| e.name.clone()).collect(),
             updates: result

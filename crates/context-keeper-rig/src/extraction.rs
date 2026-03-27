@@ -24,8 +24,19 @@ Return JSON array of {name, entity_type, summary}.";
 
 const RELATION_EXTRACTION_PROMPT: &str = "\
 Extract relations between the given entities. \
-The predicate MUST be one of: works_at, located_in, part_of, uses, \
-created_by, knows, depends_on, related_to. \
+The predicate MUST be one of the following canonical types: \
+works_at, located_in, part_of, member_of, uses, created_by, knows, depends_on, related_to. \
+Choose the most specific type that fits: \
+- works_at: employment, reporting, management (e.g. \"Alice works at Acme\") \
+- located_in: physical or geographic containment (e.g. \"Acme is based in NYC\") \
+- part_of: structural containment or subsets (e.g. \"engine is part of car\") \
+- member_of: membership in groups or organizations (e.g. \"Alice is a member of the board\") \
+- uses: usage, adoption, utilization (e.g. \"Acme uses Rust\") \
+- created_by: authorship, creation, founding (e.g. \"Linux was created by Linus\") \
+- knows: personal acquaintance or collaboration (e.g. \"Alice knows Bob\") \
+- depends_on: technical or logical dependency (e.g. \"service A depends on service B\") \
+- related_to: ONLY use when no other type fits. \
+Avoid defaulting to related_to when a more specific type applies. \
 Assign a confidence score from 0 to 100. \
 Return JSON array of {subject, predicate, object, confidence}.";
 

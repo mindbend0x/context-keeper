@@ -525,6 +525,24 @@ impl Repository {
         Ok(())
     }
 
+    /// Invalidate all active relations where the given entity is either endpoint.
+    /// Returns the number of relations invalidated.
+    pub async fn invalidate_relations_for_entity(&self, entity_id: Uuid) -> Result<usize> {
+        let now = Utc::now().to_rfc3339();
+        let q = format!(
+            "UPDATE relates_to SET valid_until = <datetime>$now WHERE (in = entity:`{}` OR out = entity:`{}`) AND valid_until IS NONE",
+            entity_id, entity_id
+        );
+        let mut response = self
+            .db
+            .query(&q)
+            .bind(("now", now))
+            .await
+            .map_err(storage_err)?;
+        let affected: Vec<RelationEdgeRow> = response.take(0).map_err(storage_err)?;
+        Ok(affected.len())
+    }
+
     /// Get active relations for an entity using graph traversal.
     pub async fn get_relations_for_entity(&self, entity_id: Uuid) -> Result<Vec<Relation>> {
         let q = format!(

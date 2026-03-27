@@ -24,6 +24,9 @@ pub struct IngestionDiff {
     pub relations_created: usize,
     pub relations_merged: usize,
     pub relations_pruned: usize,
+    /// Entity IDs whose active relations should be invalidated (set `valid_until` to now).
+    /// Populated when a contradiction invalidates an entity — its stale relations must go too.
+    pub entity_ids_to_invalidate_relations: Vec<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,11 +56,29 @@ const NEGATION_MARKERS: &[&str] = &[
     "departed",
     "was replaced",
     "ex-",
+    "moved to",
+    "transferred",
+    "switched to",
+    "replaced by",
+    "no longer at",
+    "ended",
+    "stopped",
+    "fired",
+    "terminated",
+    "retired",
+    "dissolved",
 ];
 
 /// Heuristic contradiction detection between old and new summaries.
+///
+/// Returns `Some(reason)` if the new summary contradicts the old one. Two
+/// signals are checked:
+/// 1. Presence of negation markers in the new summary.
+/// 2. Very low word overlap combined with any negation marker — indicates the
+///    entity's state has fundamentally changed.
 fn detect_contradiction(existing_summary: &str, new_summary: &str) -> Option<String> {
     let new_lower = new_summary.to_lowercase();
+
     for marker in NEGATION_MARKERS {
         if new_lower.contains(marker) {
             return Some(format!("Negation marker '{marker}' found in new summary"));
@@ -65,7 +86,8 @@ fn detect_contradiction(existing_summary: &str, new_summary: &str) -> Option<Str
     }
 
     let existing_lower = existing_summary.to_lowercase();
-    let existing_words: std::collections::HashSet<&str> = existing_lower.split_whitespace().collect();
+    let existing_words: std::collections::HashSet<&str> =
+        existing_lower.split_whitespace().collect();
     let new_words: std::collections::HashSet<&str> = new_lower.split_whitespace().collect();
     let overlap: usize = existing_words.intersection(&new_words).count();
     let total = existing_words.len().max(new_words.len());
@@ -74,7 +96,40 @@ fn detect_contradiction(existing_summary: &str, new_summary: &str) -> Option<Str
         return Some("Summaries share no common terms".to_string());
     }
 
+    // Low overlap + content-level negation markers in the combined text
+    if total > 3 {
+        let overlap_ratio = overlap as f64 / total as f64;
+        let combined = format!("{} {}", existing_lower, new_lower);
+        let has_negation_signal = NEGATION_MARKERS.iter().any(|m| combined.contains(m));
+        if overlap_ratio < 0.25 && has_negation_signal {
+            return Some(format!(
+                "Low word overlap ({:.0}%) with negation signal",
+                overlap_ratio * 100.0
+            ));
+        }
+    }
+
     None
+}
+
+/// Merge an existing entity summary with new information.
+///
+/// If the new summary adds information not present in the old one, the two
+/// are concatenated. If they are substantially the same, the new one wins.
+fn merge_summaries(existing: &str, new: &str) -> String {
+    let existing_lower = existing.to_lowercase();
+    let new_lower = new.to_lowercase();
+
+    let existing_words: std::collections::HashSet<&str> =
+        existing_lower.split_whitespace().collect();
+    let new_words: std::collections::HashSet<&str> = new_lower.split_whitespace().collect();
+
+    let novel_count = new_words.difference(&existing_words).count();
+    if novel_count > 0 && !existing.is_empty() && !new.is_empty() {
+        format!("{}; {}", existing, new)
+    } else {
+        new.to_string()
+    }
 }
 
 /// Process an episode through the ingestion pipeline.
@@ -122,7 +177,7 @@ pub async fn ingest(
                         name: ext.name.clone(),
                         reason: reason.clone(),
                     });
-                    // The caller invalidates the old entity; we emit a fresh one
+                    diff.entity_ids_to_invalidate_relations.push(existing.id);
                     entities.push(Entity {
                         id: Uuid::new_v4(),
                         name: ext.name.clone(),
@@ -136,17 +191,17 @@ pub async fn ingest(
                     });
                     diff.entities_created.push(ext.name.clone());
                 } else {
-                    // Update existing entity summary and embedding
+                    let merged = merge_summaries(&existing.summary, &ext.summary);
                     diff.entities_updated.push(EntityUpdate {
                         name: ext.name.clone(),
                         old_summary: existing.summary.clone(),
-                        new_summary: ext.summary.clone(),
+                        new_summary: merged.clone(),
                     });
                     entities.push(Entity {
                         id: existing.id,
                         name: ext.name.clone(),
                         entity_type: ext.entity_type.clone(),
-                        summary: ext.summary.clone(),
+                        summary: merged,
                         embedding,
                         valid_from: existing.valid_from,
                         valid_until: None,
@@ -160,16 +215,17 @@ pub async fn ingest(
             // Try fuzzy / vector similarity match for alias resolution
             let similar = resolver.find_similar(&ext.name, &embedding, 0.85, ns).await?;
             if let Some(best) = similar.first() {
+                let merged = merge_summaries(&best.summary, &ext.summary);
                 diff.entities_updated.push(EntityUpdate {
                     name: ext.name.clone(),
                     old_summary: best.summary.clone(),
-                    new_summary: ext.summary.clone(),
+                    new_summary: merged.clone(),
                 });
                 entities.push(Entity {
                     id: best.id,
                     name: best.name.clone(),
                     entity_type: ext.entity_type.clone(),
-                    summary: ext.summary.clone(),
+                    summary: merged,
                     embedding,
                     valid_from: best.valid_from,
                     valid_until: None,
