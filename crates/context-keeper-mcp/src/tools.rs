@@ -259,16 +259,20 @@ impl ContextKeeperServer {
         .await
         .map_err(to_mcp)?;
 
-        let ep_ns = episode.namespace.as_deref();
         for inv in &result.diff.entities_invalidated {
-            let existing = self
-                .repo
-                .find_entities_by_name(&inv.name, ep_ns)
+            self.repo
+                .invalidate_entity(inv.invalidated_id)
                 .await
                 .map_err(to_mcp)?;
-            for entity in existing {
+
+            let relations = self
+                .repo
+                .get_relations_for_entity(inv.invalidated_id)
+                .await
+                .map_err(to_mcp)?;
+            for rel in &relations {
                 self.repo
-                    .invalidate_entity(entity.id)
+                    .invalidate_relation(rel.id)
                     .await
                     .map_err(to_mcp)?;
             }

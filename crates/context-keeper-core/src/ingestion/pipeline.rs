@@ -36,7 +36,9 @@ pub struct EntityUpdate {
 #[derive(Debug, Serialize)]
 pub struct EntityInvalidation {
     pub name: String,
+    pub entity_type: String,
     pub reason: String,
+    pub invalidated_id: Uuid,
 }
 
 const DEFAULT_MIN_CONFIDENCE: u8 = 50;
@@ -44,7 +46,9 @@ const DEFAULT_MIN_CONFIDENCE: u8 = 50;
 const NEGATION_MARKERS: &[&str] = &[
     "no longer",
     "not anymore",
+    "no more",
     "former",
+    "formerly",
     "previously",
     "used to",
     "left",
@@ -52,12 +56,29 @@ const NEGATION_MARKERS: &[&str] = &[
     "resigned",
     "departed",
     "was replaced",
+    "was fired",
+    "was terminated",
+    "retired from",
+    "moved away",
+    "moved from",
+    "switched from",
+    "changed from",
+    "stopped",
+    "ended",
+    "cancelled",
+    "divorced",
+    "separated from",
     "ex-",
 ];
 
 /// Heuristic contradiction detection between old and new summaries.
+///
+/// Returns `Some(reason)` when the new summary appears to negate or supersede
+/// the existing one. Checks for explicit negation markers first, then falls
+/// back to a word-overlap heuristic for complete rewrites.
 fn detect_contradiction(existing_summary: &str, new_summary: &str) -> Option<String> {
     let new_lower = new_summary.to_lowercase();
+
     for marker in NEGATION_MARKERS {
         if new_lower.contains(marker) {
             return Some(format!("Negation marker '{marker}' found in new summary"));
@@ -65,7 +86,8 @@ fn detect_contradiction(existing_summary: &str, new_summary: &str) -> Option<Str
     }
 
     let existing_lower = existing_summary.to_lowercase();
-    let existing_words: std::collections::HashSet<&str> = existing_lower.split_whitespace().collect();
+    let existing_words: std::collections::HashSet<&str> =
+        existing_lower.split_whitespace().collect();
     let new_words: std::collections::HashSet<&str> = new_lower.split_whitespace().collect();
     let overlap: usize = existing_words.intersection(&new_words).count();
     let total = existing_words.len().max(new_words.len());
@@ -75,6 +97,20 @@ fn detect_contradiction(existing_summary: &str, new_summary: &str) -> Option<Str
     }
 
     None
+}
+
+/// Merge two summaries, preferring the new information while preserving context.
+fn merge_summaries(existing: &str, new: &str) -> String {
+    if existing.is_empty() {
+        return new.to_string();
+    }
+    if new.is_empty() {
+        return existing.to_string();
+    }
+    if existing == new {
+        return new.to_string();
+    }
+    format!("{} | Updated: {}", existing, new)
 }
 
 /// Process an episode through the ingestion pipeline.
@@ -115,14 +151,19 @@ pub async fn ingest(
         let embedding = embedder.embed(&ext.name).await?;
 
         if let Some(resolver) = entity_resolver {
-            // Try exact name + type match first
             if let Some(existing) = resolver.find_existing(&ext.name, &ext.entity_type, ns).await? {
                 if let Some(reason) = detect_contradiction(&existing.summary, &ext.summary) {
+                    tracing::info!(
+                        entity = %ext.name,
+                        reason = %reason,
+                        "Contradiction detected — invalidating old entity"
+                    );
                     diff.entities_invalidated.push(EntityInvalidation {
                         name: ext.name.clone(),
+                        entity_type: ext.entity_type.to_string(),
                         reason: reason.clone(),
+                        invalidated_id: existing.id,
                     });
-                    // The caller invalidates the old entity; we emit a fresh one
                     entities.push(Entity {
                         id: Uuid::new_v4(),
                         name: ext.name.clone(),
@@ -136,17 +177,17 @@ pub async fn ingest(
                     });
                     diff.entities_created.push(ext.name.clone());
                 } else {
-                    // Update existing entity summary and embedding
+                    let merged = merge_summaries(&existing.summary, &ext.summary);
                     diff.entities_updated.push(EntityUpdate {
                         name: ext.name.clone(),
                         old_summary: existing.summary.clone(),
-                        new_summary: ext.summary.clone(),
+                        new_summary: merged.clone(),
                     });
                     entities.push(Entity {
                         id: existing.id,
                         name: ext.name.clone(),
                         entity_type: ext.entity_type.clone(),
-                        summary: ext.summary.clone(),
+                        summary: merged,
                         embedding,
                         valid_from: existing.valid_from,
                         valid_until: None,
@@ -157,19 +198,19 @@ pub async fn ingest(
                 continue;
             }
 
-            // Try fuzzy / vector similarity match for alias resolution
             let similar = resolver.find_similar(&ext.name, &embedding, 0.85, ns).await?;
             if let Some(best) = similar.first() {
+                let merged = merge_summaries(&best.summary, &ext.summary);
                 diff.entities_updated.push(EntityUpdate {
                     name: ext.name.clone(),
                     old_summary: best.summary.clone(),
-                    new_summary: ext.summary.clone(),
+                    new_summary: merged.clone(),
                 });
                 entities.push(Entity {
                     id: best.id,
                     name: best.name.clone(),
                     entity_type: ext.entity_type.clone(),
-                    summary: ext.summary.clone(),
+                    summary: merged,
                     embedding,
                     valid_from: best.valid_from,
                     valid_until: None,
