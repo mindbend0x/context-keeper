@@ -1,0 +1,36 @@
+---
+description: MCP tool implementation patterns using rmcp
+globs: crates/context-keeper-mcp/**/*.rs
+alwaysApply: false
+---
+
+# MCP Tool Patterns
+
+## Adding a Tool
+
+Tools are methods on `ContextKeeperServer` inside the `#[tool_router] impl` block.
+
+1. Define an input struct with `#[derive(Debug, Deserialize, schemars::JsonSchema)]`
+2. Add `#[schemars(description = "...")]` to every field — these become the tool's parameter docs
+3. Add the method with `#[tool(description = "...")]` — this is the tool description MCP clients see
+4. Signature: `async fn tool_name(&self, Parameters(input): Parameters<InputType>) -> Result<String, McpError>`
+5. Return serialized JSON via `serde_json::to_string_pretty`
+6. Map all errors to `McpError::internal_error(msg, None)` or `McpError::invalid_params(msg, None)`
+
+## Error Mapping
+
+```rust
+.map_err(|e| McpError::internal_error(format!("Descriptive message: {e}"), None))?;
+```
+
+Use `invalid_params` for input validation failures, `internal_error` for everything else.
+
+## Response Types
+
+Define `#[derive(Debug, Serialize)]` structs for responses. Use `#[serde(skip_serializing_if = "Vec::is_empty")]` for optional collections.
+
+## Resources & Prompts
+
+- Resources: implement in `list_resources` / `read_resource` on the `ServerHandler` impl
+- Prompts: implement in `list_prompts` / `get_prompt` on the `ServerHandler` impl
+- URI scheme: `memory://` prefix (e.g., `memory://recent`, `memory://entity/{name}`)

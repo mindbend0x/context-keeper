@@ -1,0 +1,42 @@
+---
+description: Rust coding conventions for the Context Keeper workspace
+alwaysApply: true
+---
+
+# Rust Conventions
+
+## Error Handling
+
+- Use `thiserror` for all new error types. Define domain errors in the crate that owns the concept.
+- Core crate: `ContextKeeperError` enum with variants like `ExtractionFailed`, `StorageError`, `EntityNotFound`.
+- Crate-boundary functions return `Result<T, ContextKeeperError>` (or crate-specific error). Internal helpers may use `anyhow`.
+- When converting existing code, migrate `anyhow::Result` → typed errors one module at a time.
+
+## Async & Traits
+
+- All I/O-bound operations are `async`. Runtime is `tokio`.
+- Cross-crate abstractions use `#[async_trait]` traits defined in `context-keeper-core/src/traits.rs`.
+- Implementations live in `context-keeper-rig` (LLM) or `context-keeper-surreal` (storage).
+
+## Crate Boundaries
+
+```
+cli/mcp → core ← rig → surreal
+```
+
+- **core** has zero heavyweight deps. No SurrealDB, no Rig, no HTTP clients.
+- **rig** depends on core + rig-core. Implements `Embedder`, `EntityExtractor`, `RelationExtractor`, `QueryRewriter`.
+- **surreal** depends on core + surrealdb. Implements `EntityResolver` + the `Repository`.
+- **mcp/cli** are thin binaries that wire concrete types together.
+
+## Naming
+
+- Extracted data types: `Extracted*` (e.g., `ExtractedEntity`, `ExtractedRelation`).
+- Stored data types: plain names (e.g., `Entity`, `Relation`, `Memory`, `Episode`).
+- Traits: verb-based (`Embedder`, `EntityExtractor`, `QueryRewriter`).
+
+## Testing
+
+- Every trait in core has a `Mock*` implementation in `traits.rs`.
+- Tests must pass without API keys or a running database.
+- Use `#[tokio::test]` for async tests.
