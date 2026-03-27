@@ -208,6 +208,83 @@ impl RelationExtractor for MockRelationExtractor {
     }
 }
 
+/// Mock entity extractor that fails the first N attempts, then succeeds.
+///
+/// Used for testing retry logic in the extraction pipeline.
+pub struct MockFailingExtractor {
+    fail_count: std::sync::atomic::AtomicU32,
+    failures_remaining: std::sync::atomic::AtomicU32,
+}
+
+impl MockFailingExtractor {
+    pub fn new(fail_first_n: u32) -> Self {
+        Self {
+            fail_count: std::sync::atomic::AtomicU32::new(0),
+            failures_remaining: std::sync::atomic::AtomicU32::new(fail_first_n),
+        }
+    }
+
+    pub fn attempts(&self) -> u32 {
+        self.fail_count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl EntityExtractor for MockFailingExtractor {
+    async fn extract_entities(&self, text: &str) -> Result<Vec<ExtractedEntity>> {
+        self.fail_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+        let remaining = self
+            .failures_remaining
+            .fetch_update(
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+                |v| if v > 0 { Some(v - 1) } else { Some(0) },
+            )
+            .unwrap_or(0);
+
+        if remaining > 0 {
+            return Err(crate::ContextKeeperError::ExtractionFailed(
+                "simulated LLM failure".into(),
+            ));
+        }
+
+        let inner = MockEntityExtractor;
+        inner.extract_entities(text).await
+    }
+}
+
+#[async_trait]
+impl RelationExtractor for MockFailingExtractor {
+    async fn extract_relations(
+        &self,
+        text: &str,
+        entities: &[ExtractedEntity],
+    ) -> Result<Vec<ExtractedRelation>> {
+        self.fail_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+        let remaining = self
+            .failures_remaining
+            .fetch_update(
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+                |v| if v > 0 { Some(v - 1) } else { Some(0) },
+            )
+            .unwrap_or(0);
+
+        if remaining > 0 {
+            return Err(crate::ContextKeeperError::ExtractionFailed(
+                "simulated LLM failure".into(),
+            ));
+        }
+
+        let inner = MockRelationExtractor;
+        inner.extract_relations(text, entities).await
+    }
+}
+
 /// Mock query rewriter that generates simple variants.
 pub struct MockQueryRewriter;
 
@@ -325,5 +402,51 @@ mod tests {
         assert_eq!(EntityType::from("organization"), EntityType::Organization);
         assert_eq!(EntityType::from("company"), EntityType::Organization);
         assert_eq!(EntityType::from("unknown"), EntityType::Other);
+    }
+
+    #[tokio::test]
+    async fn test_mock_failing_extractor_fails_then_succeeds() {
+        let extractor = MockFailingExtractor::new(2);
+
+        let r1 = extractor.extract_entities("Alice met Bob").await;
+        assert!(r1.is_err(), "first attempt should fail");
+
+        let r2 = extractor.extract_entities("Alice met Bob").await;
+        assert!(r2.is_err(), "second attempt should fail");
+
+        let r3 = extractor.extract_entities("Alice met Bob").await;
+        assert!(r3.is_ok(), "third attempt should succeed");
+
+        assert_eq!(extractor.attempts(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_mock_failing_extractor_zero_failures() {
+        let extractor = MockFailingExtractor::new(0);
+        let result = extractor.extract_entities("Alice met Bob").await;
+        assert!(result.is_ok(), "should succeed immediately with 0 failures");
+    }
+
+    #[tokio::test]
+    async fn test_mock_failing_relation_extractor() {
+        let extractor = MockFailingExtractor::new(1);
+        let entities = vec![
+            ExtractedEntity {
+                name: "Alice".into(),
+                entity_type: EntityType::Person,
+                summary: "A person".into(),
+            },
+            ExtractedEntity {
+                name: "Bob".into(),
+                entity_type: EntityType::Person,
+                summary: "Another person".into(),
+            },
+        ];
+
+        let r1 = extractor.extract_relations("text", &entities).await;
+        assert!(r1.is_err(), "first attempt should fail");
+
+        let r2 = extractor.extract_relations("text", &entities).await;
+        assert!(r2.is_ok(), "second attempt should succeed");
     }
 }
