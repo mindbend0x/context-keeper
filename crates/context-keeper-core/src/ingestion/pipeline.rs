@@ -171,9 +171,7 @@ pub async fn ingest(
     let agent_id = episode.agent.as_ref().map(|a| a.agent_id.clone());
 
     // 1. Extract entities
-    let extracted = entity_extractor
-        .extract_entities(&episode.content)
-        .await?;
+    let extracted = entity_extractor.extract_entities(&episode.content).await?;
     tracing::info!(count = extracted.len(), "Extracted entities");
 
     // 2. Build Entity models, resolving against existing graph when possible
@@ -184,7 +182,10 @@ pub async fn ingest(
         let embedding = embedder.embed(&ext.name).await?;
 
         if let Some(resolver) = entity_resolver {
-            if let Some(existing) = resolver.find_existing(&ext.name, &ext.entity_type, ns).await? {
+            if let Some(existing) = resolver
+                .find_existing(&ext.name, &ext.entity_type, ns)
+                .await?
+            {
                 if let Some(reason) = detect_contradiction(&existing.summary, &ext.summary) {
                     tracing::info!(
                         entity = %ext.name,
@@ -225,14 +226,19 @@ pub async fn ingest(
                         embedding,
                         valid_from: existing.valid_from,
                         valid_until: None,
-                        namespace: existing.namespace.clone().or_else(|| episode.namespace.clone()),
+                        namespace: existing
+                            .namespace
+                            .clone()
+                            .or_else(|| episode.namespace.clone()),
                         created_by_agent: agent_id.clone().or(existing.created_by_agent.clone()),
                     });
                 }
                 continue;
             }
 
-            let similar = resolver.find_similar(&ext.name, &embedding, 0.85, ns).await?;
+            let similar = resolver
+                .find_similar(&ext.name, &embedding, 0.85, ns)
+                .await?;
             if let Some(best) = similar.first() {
                 let merged = merge_summaries(&best.summary, &ext.summary);
                 diff.entities_updated.push(EntityUpdate {

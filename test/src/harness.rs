@@ -1,11 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use context_keeper_core::{
-    ingestion,
-    ingestion::IngestionResult,
-    models::*,
-    search::fuse_rrf,
-    traits::*,
+    ingestion, ingestion::IngestionResult, models::*, search::fuse_rrf, traits::*,
 };
 use context_keeper_surreal::{apply_schema, connect_memory, Repository, SurrealConfig};
 use uuid::Uuid;
@@ -69,13 +65,18 @@ impl TestEnv {
         .await?;
 
         for inv in &result.diff.entities_invalidated {
-            let existing = self.repo.find_entities_by_name(&inv.name, None, None).await?;
+            let existing = self
+                .repo
+                .find_entities_by_name(&inv.name, None, None)
+                .await?;
             for entity in existing {
                 self.repo.invalidate_entity(entity.id).await?;
             }
         }
         for entity_id in &result.diff.entity_ids_to_invalidate_relations {
-            self.repo.invalidate_relations_for_entity(*entity_id).await?;
+            self.repo
+                .invalidate_relations_for_entity(*entity_id)
+                .await?;
         }
 
         self.repo.create_episode(&episode).await?;
@@ -134,13 +135,18 @@ impl TestEnv {
         .await?;
 
         for inv in &result.diff.entities_invalidated {
-            let existing = self.repo.find_entities_by_name(&inv.name, None, namespace).await?;
+            let existing = self
+                .repo
+                .find_entities_by_name(&inv.name, None, namespace)
+                .await?;
             for entity in existing {
                 self.repo.invalidate_entity(entity.id).await?;
             }
         }
         for entity_id in &result.diff.entity_ids_to_invalidate_relations {
-            self.repo.invalidate_relations_for_entity(*entity_id).await?;
+            self.repo
+                .invalidate_relations_for_entity(*entity_id)
+                .await?;
         }
 
         self.repo.create_episode(&episode).await?;

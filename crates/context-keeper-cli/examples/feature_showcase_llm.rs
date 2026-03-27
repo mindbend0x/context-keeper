@@ -86,12 +86,9 @@ struct LlmConfig {
 impl LlmConfig {
     fn from_env() -> Result<Self> {
         Ok(Self {
-            api_url: std::env::var("OPENAI_API_URL")
-                .context("OPENAI_API_URL not set")?,
-            api_key: std::env::var("OPENAI_API_KEY")
-                .context("OPENAI_API_KEY not set")?,
-            embedding_model: std::env::var("EMBEDDING_MODEL")
-                .context("EMBEDDING_MODEL not set")?,
+            api_url: std::env::var("OPENAI_API_URL").context("OPENAI_API_URL not set")?,
+            api_key: std::env::var("OPENAI_API_KEY").context("OPENAI_API_KEY not set")?,
+            embedding_model: std::env::var("EMBEDDING_MODEL").context("EMBEDDING_MODEL not set")?,
             embedding_dims: std::env::var("EMBEDDING_DIMS")
                 .context("EMBEDDING_DIMS not set")?
                 .parse()
@@ -240,16 +237,10 @@ async fn main() -> Result<()> {
         &llm.embedding_model,
         llm.embedding_dims,
     );
-    let entity_extractor = RigEntityExtractor::new(
-        &llm.api_url,
-        &llm.api_key,
-        &llm.extraction_model,
-    );
-    let relation_extractor = RigRelationExtractor::new(
-        &llm.api_url,
-        &llm.api_key,
-        &llm.extraction_model,
-    );
+    let entity_extractor =
+        RigEntityExtractor::new(&llm.api_url, &llm.api_key, &llm.extraction_model);
+    let relation_extractor =
+        RigRelationExtractor::new(&llm.api_url, &llm.api_key, &llm.extraction_model);
     let query_rewriter = MockQueryRewriter;
 
     tracing::info!("Initialized Rig-backed LLM services");
@@ -348,7 +339,11 @@ async fn main() -> Result<()> {
             &text[..60.min(text.len())],
         ));
         blank();
-        detail(&format!("Entities ({}): {:?}", entity_names.len(), entity_names));
+        detail(&format!(
+            "Entities ({}): {:?}",
+            entity_names.len(),
+            entity_names
+        ));
         blank();
         detail(&format!("Relations ({}):", relation_descs.len()));
         for rd in &relation_descs {
@@ -385,7 +380,9 @@ async fn main() -> Result<()> {
     for (query, limit) in &queries {
         tracing::info!(query, "Running HNSW vector search on entities");
         let emb = embedder.embed(query).await?;
-        let results = repo.search_entities_by_vector(&emb, *limit, None, None).await?;
+        let results = repo
+            .search_entities_by_vector(&emb, *limit, None, None)
+            .await?;
 
         item(&format!("Query: \"{query}\""));
         blank();
@@ -460,10 +457,17 @@ async fn main() -> Result<()> {
     let hybrid_query = "Munich university robotics partnership";
     let hybrid_emb = embedder.embed(hybrid_query).await?;
 
-    tracing::info!(query = hybrid_query, "Running hybrid search with RRF fusion");
+    tracing::info!(
+        query = hybrid_query,
+        "Running hybrid search with RRF fusion"
+    );
 
-    let vec_hits = repo.search_entities_by_vector(&hybrid_emb, 5, None, None).await?;
-    let kw_hits = repo.search_entities_by_keyword("Munich", None, None).await?;
+    let vec_hits = repo
+        .search_entities_by_vector(&hybrid_emb, 5, None, None)
+        .await?;
+    let kw_hits = repo
+        .search_entities_by_keyword("Munich", None, None)
+        .await?;
 
     item(&format!("Query: \"{hybrid_query}\""));
     item(&format!(
@@ -504,7 +508,9 @@ async fn main() -> Result<()> {
     let sparse_query = "simulation physics engine";
 
     let sparse_emb = embedder.embed(sparse_query).await?;
-    let initial = repo.search_entities_by_vector(&sparse_emb, 5, None, None).await?;
+    let initial = repo
+        .search_entities_by_vector(&sparse_emb, 5, None, None)
+        .await?;
 
     tracing::info!(
         query = sparse_query,
@@ -529,8 +535,7 @@ async fn main() -> Result<()> {
     }
     blank();
 
-    let mut expanded_lists: Vec<Vec<Entity>> =
-        vec![initial.into_iter().map(|(e, _)| e).collect()];
+    let mut expanded_lists: Vec<Vec<Entity>> = vec![initial.into_iter().map(|(e, _)| e).collect()];
 
     for variant in &variants[1..] {
         let emb = embedder.embed(variant).await?;
@@ -569,7 +574,9 @@ async fn main() -> Result<()> {
         name: "Nextera Robotics".into(),
         entity_type: EntityType::Organization,
         summary: "Small robotics startup with 30 employees, pre-Series A".into(),
-        embedding: embedder.embed("Nextera Robotics small startup pre-Series A").await?,
+        embedding: embedder
+            .embed("Nextera Robotics small startup pre-Series A")
+            .await?,
         valid_from: old_date,
         valid_until: Some(Utc::now() - Duration::days(30)),
         namespace: None,
@@ -581,7 +588,9 @@ async fn main() -> Result<()> {
         id: Uuid::new_v4(),
         name: "Nextera Robotics".into(),
         entity_type: EntityType::Organization,
-        summary: "Growing AI robotics company, 120 employees, Series B funded, partnering with TU Munich".into(),
+        summary:
+            "Growing AI robotics company, 120 employees, Series B funded, partnering with TU Munich"
+                .into(),
         embedding: embedder
             .embed("Nextera Robotics growing company Series B TU Munich partner")
             .await?,
@@ -735,17 +744,16 @@ async fn main() -> Result<()> {
     let store_query = "knowledge graph temporal reasoning";
     let store_emb = embedder.embed(store_query).await?;
 
-    tracing::info!(query = store_query, "SurrealVectorStore top-k entity search");
+    tracing::info!(
+        query = store_query,
+        "SurrealVectorStore top-k entity search"
+    );
     let top_k = store.top_k_entities(&store_emb, 5).await?;
 
     item(&format!("Query: \"{store_query}\""));
     blank();
     for (i, r) in top_k.iter().enumerate() {
-        let name = r
-            .entity
-            .as_ref()
-            .map(|e| e.name.as_str())
-            .unwrap_or("?");
+        let name = r.entity.as_ref().map(|e| e.name.as_str()).unwrap_or("?");
         detail(&format!(
             "{}. {:<28} score: {:.4}  │  \"{}\"",
             i + 1,
@@ -806,7 +814,10 @@ async fn main() -> Result<()> {
         snapshot.timestamp.format("%Y-%m-%d %H:%M")
     ));
     item(&format!("  Active entities  : {}", snapshot.entities.len()));
-    item(&format!("  Active relations : {}", snapshot.relations.len()));
+    item(&format!(
+        "  Active relations : {}",
+        snapshot.relations.len()
+    ));
 
     end_section();
 

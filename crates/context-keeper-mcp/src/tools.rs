@@ -15,13 +15,11 @@ use context_keeper_core::{
 };
 use context_keeper_surreal::Repository;
 use rmcp::{
-    handler::server::{
-        router::tool::ToolRouter,
-        wrapper::Parameters,
-    },
-    model::*, schemars, tool, tool_handler, tool_router,
-    ErrorData as McpError, RoleServer, ServerHandler,
+    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    model::*,
+    schemars,
     service::RequestContext,
+    tool, tool_handler, tool_router, ErrorData as McpError, RoleServer, ServerHandler,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -42,7 +40,9 @@ pub struct AddMemoryInput {
     pub text: String,
     #[schemars(description = "Source label for the episode (e.g. 'chat', 'document')")]
     pub source: Option<String>,
-    #[schemars(description = "Namespace to scope this memory to (e.g. 'project-alpha'). Omit for the default global namespace.")]
+    #[schemars(
+        description = "Namespace to scope this memory to (e.g. 'project-alpha'). Omit for the default global namespace."
+    )]
     pub namespace: Option<String>,
     #[schemars(description = "Identifier of the agent adding this memory (e.g. 'cursor-agent-1')")]
     pub agent_id: Option<String>,
@@ -56,7 +56,9 @@ pub struct SearchMemoryInput {
     pub query: String,
     #[schemars(description = "Maximum number of results to return (default: 5)")]
     pub limit: Option<usize>,
-    #[schemars(description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other")]
+    #[schemars(
+        description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other"
+    )]
     pub entity_type: Option<String>,
     #[schemars(description = "Namespace to search within. Omit to search all namespaces.")]
     pub namespace: Option<String>,
@@ -68,7 +70,9 @@ pub struct ExpandSearchInput {
     pub query: String,
     #[schemars(description = "Maximum number of results to return (default: 10)")]
     pub limit: Option<usize>,
-    #[schemars(description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other")]
+    #[schemars(
+        description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other"
+    )]
     pub entity_type: Option<String>,
     #[schemars(description = "Namespace to search within. Omit to search all namespaces.")]
     pub namespace: Option<String>,
@@ -84,7 +88,9 @@ pub struct GetEntityInput {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SnapshotInput {
-    #[schemars(description = "ISO 8601 timestamp for the point-in-time snapshot (e.g. '2025-01-15T12:00:00Z')")]
+    #[schemars(
+        description = "ISO 8601 timestamp for the point-in-time snapshot (e.g. '2025-01-15T12:00:00Z')"
+    )]
     pub timestamp: String,
 }
 
@@ -108,7 +114,9 @@ pub struct CrossNamespaceSearchInput {
     pub query: String,
     #[schemars(description = "Maximum number of results to return (default: 10)")]
     pub limit: Option<usize>,
-    #[schemars(description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other")]
+    #[schemars(
+        description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other"
+    )]
     pub entity_type: Option<String>,
 }
 
@@ -227,7 +235,9 @@ impl ContextKeeperServer {
     /// Ingest a piece of text into the knowledge graph. Extracts entities and
     /// relations via LLM, generates embeddings, and stores everything in the
     /// graph database.
-    #[tool(description = "Add a memory to the knowledge graph. Ingests text, extracts entities and relations, and stores everything with embeddings for later retrieval. Returns a diff of what was created, updated, or invalidated.")]
+    #[tool(
+        description = "Add a memory to the knowledge graph. Ingests text, extracts entities and relations, and stores everything with embeddings for later retrieval. Returns a diff of what was created, updated, or invalidated."
+    )]
     async fn add_memory(
         &self,
         Parameters(input): Parameters<AddMemoryInput>,
@@ -276,34 +286,21 @@ impl ContextKeeperServer {
                 .map_err(to_mcp)?;
         }
 
-        self.repo
-            .create_episode(&episode)
-            .await
-            .map_err(to_mcp)?;
+        self.repo.create_episode(&episode).await.map_err(to_mcp)?;
 
         for entity in &result.entities {
-            self.repo
-                .upsert_entity(entity)
-                .await
-                .map_err(to_mcp)?;
+            self.repo.upsert_entity(entity).await.map_err(to_mcp)?;
         }
 
         let mut relations_merged = 0usize;
         for relation in &result.relations {
-            let created = self
-                .repo
-                .create_relation(relation)
-                .await
-                .map_err(to_mcp)?;
+            let created = self.repo.create_relation(relation).await.map_err(to_mcp)?;
             if !created {
                 relations_merged += 1;
             }
         }
         for memory in &result.memories {
-            self.repo
-                .create_memory(memory)
-                .await
-                .map_err(to_mcp)?;
+            self.repo.create_memory(memory).await.map_err(to_mcp)?;
         }
 
         let response = AddMemoryResponse {
@@ -343,7 +340,9 @@ impl ContextKeeperServer {
 
     /// Search the knowledge graph using hybrid vector + keyword search with
     /// Reciprocal Rank Fusion.
-    #[tool(description = "Search memories and entities in the knowledge graph using hybrid vector similarity and BM25 keyword search, fused with Reciprocal Rank Fusion. Optionally filter by entity_type.")]
+    #[tool(
+        description = "Search memories and entities in the knowledge graph using hybrid vector similarity and BM25 keyword search, fused with Reciprocal Rank Fusion. Optionally filter by entity_type."
+    )]
     async fn search_memory(
         &self,
         Parameters(input): Parameters<SearchMemoryInput>,
@@ -352,11 +351,7 @@ impl ContextKeeperServer {
         let type_filter = input.entity_type.as_deref();
         let ns = input.namespace.as_deref();
 
-        let query_embedding = self
-            .embedder
-            .embed(&input.query)
-            .await
-            .map_err(to_mcp)?;
+        let query_embedding = self.embedder.embed(&input.query).await.map_err(to_mcp)?;
 
         let vector_results = self
             .repo
@@ -394,7 +389,9 @@ impl ContextKeeperServer {
 
     /// Run query expansion to improve recall when initial search results are
     /// sparse. Generates semantic variants of the query and searches each.
-    #[tool(description = "Expand a search query into semantic variants using LLM rewriting, then search each variant and merge results with RRF for improved recall. Optionally filter by entity_type.")]
+    #[tool(
+        description = "Expand a search query into semantic variants using LLM rewriting, then search each variant and merge results with RRF for improved recall. Optionally filter by entity_type."
+    )]
     async fn expand_search(
         &self,
         Parameters(input): Parameters<ExpandSearchInput>,
@@ -411,11 +408,7 @@ impl ContextKeeperServer {
 
         let mut ranked_lists = Vec::new();
         for variant in &variants {
-            let query_embedding = self
-                .embedder
-                .embed(variant)
-                .await
-                .map_err(to_mcp)?;
+            let query_embedding = self.embedder.embed(variant).await.map_err(to_mcp)?;
 
             let vector_results = self
                 .repo
@@ -453,7 +446,9 @@ impl ContextKeeperServer {
     }
 
     /// Look up an entity by name and return its details including relationships.
-    #[tool(description = "Get detailed information about a named entity, including its type, summary, temporal bounds, and all active relationships.")]
+    #[tool(
+        description = "Get detailed information about a named entity, including its type, summary, temporal bounds, and all active relationships."
+    )]
     async fn get_entity(
         &self,
         Parameters(input): Parameters<GetEntityInput>,
@@ -499,7 +494,9 @@ impl ContextKeeperServer {
     }
 
     /// Query the knowledge graph state at a specific point in time.
-    #[tool(description = "Get a point-in-time snapshot of the knowledge graph at a specific timestamp, showing all entities and relations that were active at that moment.")]
+    #[tool(
+        description = "Get a point-in-time snapshot of the knowledge graph at a specific timestamp, showing all entities and relations that were active at that moment."
+    )]
     async fn snapshot(
         &self,
         Parameters(input): Parameters<SnapshotInput>,
@@ -509,17 +506,9 @@ impl ContextKeeperServer {
             .parse()
             .map_err(|e| McpError::invalid_params(format!("Invalid timestamp: {e}"), None))?;
 
-        let entities = self
-            .repo
-            .entities_at(at)
-            .await
-            .map_err(to_mcp)?;
+        let entities = self.repo.entities_at(at).await.map_err(to_mcp)?;
 
-        let relations = self
-            .repo
-            .relations_at(at)
-            .await
-            .map_err(to_mcp)?;
+        let relations = self.repo.relations_at(at).await.map_err(to_mcp)?;
 
         let response = SnapshotResponse {
             timestamp: at.to_rfc3339(),
@@ -540,7 +529,9 @@ impl ContextKeeperServer {
     }
 
     /// List the most recently added memories.
-    #[tool(description = "List the N most recently added memories from the knowledge graph, ordered by creation time.")]
+    #[tool(
+        description = "List the N most recently added memories from the knowledge graph, ordered by creation time."
+    )]
     async fn list_recent(
         &self,
         Parameters(input): Parameters<ListRecentInput>,
@@ -566,13 +557,11 @@ impl ContextKeeperServer {
     }
 
     /// List all agents that have contributed memories to the knowledge graph.
-    #[tool(description = "List all AI agents that have contributed to the knowledge graph, including their namespaces and episode counts. Useful for multi-agent setups to see who has been writing memories.")]
+    #[tool(
+        description = "List all AI agents that have contributed to the knowledge graph, including their namespaces and episode counts. Useful for multi-agent setups to see who has been writing memories."
+    )]
     async fn list_agents(&self) -> Result<String, McpError> {
-        let agents = self
-            .repo
-            .list_agents()
-            .await
-            .map_err(to_mcp)?;
+        let agents = self.repo.list_agents().await.map_err(to_mcp)?;
 
         if agents.is_empty() {
             return Ok("No agents have contributed to the knowledge graph yet.".to_string());
@@ -583,16 +572,16 @@ impl ContextKeeperServer {
     }
 
     /// List all namespaces in the knowledge graph.
-    #[tool(description = "List all namespaces in the knowledge graph with entity counts. Namespaces partition the graph so different projects or teams can have isolated memory spaces.")]
+    #[tool(
+        description = "List all namespaces in the knowledge graph with entity counts. Namespaces partition the graph so different projects or teams can have isolated memory spaces."
+    )]
     async fn list_namespaces(&self) -> Result<String, McpError> {
-        let namespaces = self
-            .repo
-            .list_namespaces()
-            .await
-            .map_err(to_mcp)?;
+        let namespaces = self.repo.list_namespaces().await.map_err(to_mcp)?;
 
         if namespaces.is_empty() {
-            return Ok("No namespaces found. All data is in the default (global) namespace.".to_string());
+            return Ok(
+                "No namespaces found. All data is in the default (global) namespace.".to_string(),
+            );
         }
 
         serde_json::to_string_pretty(&namespaces)
@@ -600,7 +589,9 @@ impl ContextKeeperServer {
     }
 
     /// Show recent activity from a specific agent.
-    #[tool(description = "Show recent episodes ingested by a specific agent, identified by agent_id. Useful for auditing what a particular agent has been contributing.")]
+    #[tool(
+        description = "Show recent episodes ingested by a specific agent, identified by agent_id. Useful for auditing what a particular agent has been contributing."
+    )]
     async fn agent_activity(
         &self,
         Parameters(input): Parameters<AgentActivityInput>,
@@ -618,12 +609,14 @@ impl ContextKeeperServer {
 
         let items: Vec<serde_json::Value> = episodes
             .iter()
-            .map(|e| serde_json::json!({
-                "content": e.content,
-                "source": e.source,
-                "namespace": e.namespace,
-                "created_at": e.created_at.to_rfc3339(),
-            }))
+            .map(|e| {
+                serde_json::json!({
+                    "content": e.content,
+                    "source": e.source,
+                    "namespace": e.namespace,
+                    "created_at": e.created_at.to_rfc3339(),
+                })
+            })
             .collect();
 
         serde_json::to_string_pretty(&items)
@@ -631,7 +624,9 @@ impl ContextKeeperServer {
     }
 
     /// Search across all namespaces regardless of the caller's default namespace.
-    #[tool(description = "Search the entire knowledge graph across all namespaces using hybrid vector + keyword search. Unlike search_memory, this always searches globally, ignoring namespace scoping.")]
+    #[tool(
+        description = "Search the entire knowledge graph across all namespaces using hybrid vector + keyword search. Unlike search_memory, this always searches globally, ignoring namespace scoping."
+    )]
     async fn cross_namespace_search(
         &self,
         Parameters(input): Parameters<CrossNamespaceSearchInput>,
@@ -639,11 +634,7 @@ impl ContextKeeperServer {
         let limit = input.limit.unwrap_or(10);
         let type_filter = input.entity_type.as_deref();
 
-        let query_embedding = self
-            .embedder
-            .embed(&input.query)
-            .await
-            .map_err(to_mcp)?;
+        let query_embedding = self.embedder.embed(&input.query).await.map_err(to_mcp)?;
 
         let vector_results = self
             .repo
@@ -717,23 +708,18 @@ impl ServerHandler for ContextKeeperServer {
         _request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
-        let mut resources: Vec<Resource> = vec![
-            RawResource {
-                uri: "memory://recent".into(),
-                name: "recent-memories".into(),
-                title: None,
-                description: Some("The 20 most recently added memories".into()),
-                mime_type: Some("application/json".into()),
-                size: None,
-                icons: None,
-            }.no_annotation(),
-        ];
+        let mut resources: Vec<Resource> = vec![RawResource {
+            uri: "memory://recent".into(),
+            name: "recent-memories".into(),
+            title: None,
+            description: Some("The 20 most recently added memories".into()),
+            mime_type: Some("application/json".into()),
+            size: None,
+            icons: None,
+        }
+        .no_annotation()];
 
-        let entities = self
-            .repo
-            .get_all_active_entities()
-            .await
-            .map_err(to_mcp)?;
+        let entities = self.repo.get_all_active_entities().await.map_err(to_mcp)?;
 
         for entity in &entities {
             resources.push(
@@ -745,7 +731,8 @@ impl ServerHandler for ContextKeeperServer {
                     mime_type: Some("application/json".into()),
                     size: None,
                     icons: None,
-                }.no_annotation(),
+                }
+                .no_annotation(),
             );
         }
 
@@ -761,18 +748,19 @@ impl ServerHandler for ContextKeeperServer {
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, McpError> {
         Ok(ListResourceTemplatesResult {
-            resource_templates: vec![
-                ResourceTemplate {
-                    raw: RawResourceTemplate {
-                        uri_template: "memory://entity/{name}".into(),
-                        name: "entity-detail".into(),
-                        title: Some("Entity Detail".into()),
-                        description: Some("Get detailed information about a named entity including relationships".into()),
-                        mime_type: Some("application/json".into()),
-                    },
-                    annotations: None,
+            resource_templates: vec![ResourceTemplate {
+                raw: RawResourceTemplate {
+                    uri_template: "memory://entity/{name}".into(),
+                    name: "entity-detail".into(),
+                    title: Some("Entity Detail".into()),
+                    description: Some(
+                        "Get detailed information about a named entity including relationships"
+                            .into(),
+                    ),
+                    mime_type: Some("application/json".into()),
                 },
-            ],
+                annotations: None,
+            }],
             next_cursor: None,
         })
     }
@@ -785,11 +773,7 @@ impl ServerHandler for ContextKeeperServer {
         let uri = &request.uri;
 
         if uri == "memory://recent" {
-            let memories = self
-                .repo
-                .list_recent_memories(20)
-                .await
-                .map_err(to_mcp)?;
+            let memories = self.repo.list_recent_memories(20).await.map_err(to_mcp)?;
 
             let items: Vec<MemoryItem> = memories
                 .iter()
@@ -799,8 +783,9 @@ impl ServerHandler for ContextKeeperServer {
                 })
                 .collect();
 
-            let text = serde_json::to_string_pretty(&items)
-                .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))?;
+            let text = serde_json::to_string_pretty(&items).map_err(|e| {
+                McpError::internal_error(format!("Serialization failed: {e}"), None)
+            })?;
 
             return Ok(ReadResourceResult {
                 contents: vec![ResourceContents::text(text, uri)],
@@ -847,8 +832,9 @@ impl ServerHandler for ContextKeeperServer {
                 });
             }
 
-            let text = serde_json::to_string_pretty(&details)
-                .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))?;
+            let text = serde_json::to_string_pretty(&details).map_err(|e| {
+                McpError::internal_error(format!("Serialization failed: {e}"), None)
+            })?;
 
             return Ok(ReadResourceResult {
                 contents: vec![ResourceContents::text(text, uri)],
@@ -886,7 +872,10 @@ impl ServerHandler for ContextKeeperServer {
                     Some(vec![PromptArgument {
                         name: "since".into(),
                         title: None,
-                        description: Some("ISO 8601 date/time to look back from (e.g. '2025-01-15T00:00:00Z')".into()),
+                        description: Some(
+                            "ISO 8601 date/time to look back from (e.g. '2025-01-15T00:00:00Z')"
+                                .into(),
+                        ),
                         required: Some(true),
                     }]),
                 ),

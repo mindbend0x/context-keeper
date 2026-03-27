@@ -285,28 +285,44 @@ mod tests {
     #[test]
     fn entity_type_organization_aliases() {
         for alias in ["org", "company", "firm", "Organization", "COMPANY"] {
-            assert_eq!(EntityType::from(alias), EntityType::Organization, "alias: {alias}");
+            assert_eq!(
+                EntityType::from(alias),
+                EntityType::Organization,
+                "alias: {alias}"
+            );
         }
     }
 
     #[test]
     fn entity_type_location_aliases() {
         for alias in ["place", "city", "country", "LOCATION", "City"] {
-            assert_eq!(EntityType::from(alias), EntityType::Location, "alias: {alias}");
+            assert_eq!(
+                EntityType::from(alias),
+                EntityType::Location,
+                "alias: {alias}"
+            );
         }
     }
 
     #[test]
     fn entity_type_product_aliases() {
         for alias in ["product", "tool", "app", "Tool", "APP"] {
-            assert_eq!(EntityType::from(alias), EntityType::Product, "alias: {alias}");
+            assert_eq!(
+                EntityType::from(alias),
+                EntityType::Product,
+                "alias: {alias}"
+            );
         }
     }
 
     #[test]
     fn entity_type_concept_aliases() {
         for alias in ["concept", "idea", "topic", "technology", "Technology"] {
-            assert_eq!(EntityType::from(alias), EntityType::Concept, "alias: {alias}");
+            assert_eq!(
+                EntityType::from(alias),
+                EntityType::Concept,
+                "alias: {alias}"
+            );
         }
     }
 
@@ -322,71 +338,126 @@ mod tests {
     #[test]
     fn relation_type_works_at_aliases() {
         for alias in [
-            "works_at", "employed_at", "works_for", "employee_of", "employed_by",
-            "reports_to", "manages", "Works At", "WORKS-FOR",
+            "works_at",
+            "employed_at",
+            "works_for",
+            "employee_of",
+            "employed_by",
+            "reports_to",
+            "manages",
+            "Works At",
+            "WORKS-FOR",
         ] {
-            assert_eq!(RelationType::canonicalize(alias), RelationType::WorksAt, "alias: {alias}");
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::WorksAt,
+                "alias: {alias}"
+            );
         }
     }
 
     #[test]
     fn relation_type_located_in_aliases() {
         for alias in [
-            "located_in", "based_in", "headquartered_in", "lives_in", "resides_in",
-            "Located In", "BASED-IN",
+            "located_in",
+            "based_in",
+            "headquartered_in",
+            "lives_in",
+            "resides_in",
+            "Located In",
+            "BASED-IN",
         ] {
-            assert_eq!(RelationType::canonicalize(alias), RelationType::LocatedIn, "alias: {alias}");
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::LocatedIn,
+                "alias: {alias}"
+            );
         }
     }
 
     #[test]
     fn relation_type_part_of_aliases() {
         for alias in ["part_of", "is_part_of", "belongs_to", "subset_of"] {
-            assert_eq!(RelationType::canonicalize(alias), RelationType::PartOf, "alias: {alias}");
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::PartOf,
+                "alias: {alias}"
+            );
         }
     }
 
     #[test]
     fn relation_type_member_of_aliases() {
         for alias in ["member_of", "affiliated_with", "Member Of"] {
-            assert_eq!(RelationType::canonicalize(alias), RelationType::MemberOf, "alias: {alias}");
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::MemberOf,
+                "alias: {alias}"
+            );
         }
     }
 
     #[test]
     fn relation_type_uses_aliases() {
         for alias in ["uses", "utilizes", "leverages", "adopts", "employs"] {
-            assert_eq!(RelationType::canonicalize(alias), RelationType::Uses, "alias: {alias}");
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::Uses,
+                "alias: {alias}"
+            );
         }
     }
 
     #[test]
     fn relation_type_created_by_aliases() {
         for alias in [
-            "created_by", "authored_by", "built_by", "developed_by", "founded_by",
-            "invented_by", "designed_by", "built", "authored", "created",
+            "created_by",
+            "authored_by",
+            "built_by",
+            "developed_by",
+            "founded_by",
+            "invented_by",
+            "designed_by",
+            "built",
+            "authored",
+            "created",
         ] {
-            assert_eq!(RelationType::canonicalize(alias), RelationType::CreatedBy, "alias: {alias}");
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::CreatedBy,
+                "alias: {alias}"
+            );
         }
     }
 
     #[test]
     fn relation_type_knows_aliases() {
         for alias in ["knows", "met", "collaborates_with", "works_with", "mentors"] {
-            assert_eq!(RelationType::canonicalize(alias), RelationType::Knows, "alias: {alias}");
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::Knows,
+                "alias: {alias}"
+            );
         }
     }
 
     #[test]
     fn relation_type_depends_on_aliases() {
         for alias in ["depends_on", "requires", "needs", "relies_on"] {
-            assert_eq!(RelationType::canonicalize(alias), RelationType::DependsOn, "alias: {alias}");
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::DependsOn,
+                "alias: {alias}"
+            );
         }
     }
 
     #[test]
     fn relation_type_unknown_defaults_to_related_to() {
-        assert_eq!(RelationType::canonicalize("foo_bar"), RelationType::RelatedTo);
+        assert_eq!(
+            RelationType::canonicalize("foo_bar"),
+            RelationType::RelatedTo
+        );
         assert_eq!(RelationType::canonicalize("xyz"), RelationType::RelatedTo);
     }
 

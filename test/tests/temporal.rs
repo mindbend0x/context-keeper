@@ -199,7 +199,9 @@ async fn test_temporal_relation_lifecycle() -> Result<()> {
 
     let before_invalidation = env.repo.relations_at(Utc::now()).await?;
     assert!(
-        before_invalidation.iter().any(|r| r.relation_type == RelationType::WorksAt),
+        before_invalidation
+            .iter()
+            .any(|r| r.relation_type == RelationType::WorksAt),
         "Relation should exist before invalidation"
     );
 

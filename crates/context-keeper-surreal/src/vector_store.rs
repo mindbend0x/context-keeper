@@ -22,7 +22,10 @@ impl SurrealVectorStore {
         embedding: &[f64],
         k: usize,
     ) -> Result<Vec<VectorSearchResult>> {
-        let results = self.repo.search_entities_by_vector(embedding, k, None, None).await?;
+        let results = self
+            .repo
+            .search_entities_by_vector(embedding, k, None, None)
+            .await?;
         Ok(results
             .into_iter()
             .map(|(entity, score)| VectorSearchResult {
@@ -41,7 +44,10 @@ impl SurrealVectorStore {
         embedding: &[f64],
         k: usize,
     ) -> Result<Vec<VectorSearchResult>> {
-        let results = self.repo.search_memories_by_vector(embedding, k, None).await?;
+        let results = self
+            .repo
+            .search_memories_by_vector(embedding, k, None)
+            .await?;
         Ok(results
             .into_iter()
             .map(|(memory, score)| VectorSearchResult {
@@ -55,11 +61,7 @@ impl SurrealVectorStore {
     }
 
     /// Convenience: delegates to `top_k_entities` (backwards compatibility).
-    pub async fn top_k(
-        &self,
-        embedding: &[f64],
-        k: usize,
-    ) -> Result<Vec<VectorSearchResult>> {
+    pub async fn top_k(&self, embedding: &[f64], k: usize) -> Result<Vec<VectorSearchResult>> {
         self.top_k_entities(embedding, k).await
     }
 }

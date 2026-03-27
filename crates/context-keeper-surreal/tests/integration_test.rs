@@ -1,13 +1,9 @@
 use anyhow::Result;
 use chrono::{Duration, Utc};
 use context_keeper_core::{
-    ingestion,
-    models::*,
-    search::fuse_rrf,
-    temporal::staleness_score,
-    traits::*,
+    ingestion, models::*, search::fuse_rrf, temporal::staleness_score, traits::*,
 };
-use context_keeper_surreal::{connect_memory, apply_schema, Repository, SurrealConfig};
+use context_keeper_surreal::{apply_schema, connect_memory, Repository, SurrealConfig};
 use uuid::Uuid;
 
 /// Helper: create a fresh in-memory DB + repo with dim=8 for mock embeddings.
@@ -258,7 +254,9 @@ async fn test_vector_search() -> Result<()> {
     }
 
     let query_embedding = embedder.embed("Rust").await?;
-    let results = repo.search_entities_by_vector(&query_embedding, 3, None, None).await?;
+    let results = repo
+        .search_entities_by_vector(&query_embedding, 3, None, None)
+        .await?;
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].0.name, "Rust");
     assert!((results[0].1 - 1.0).abs() < 0.01);
@@ -297,7 +295,9 @@ async fn test_memory_vector_search() -> Result<()> {
     repo.create_memory(&memory).await?;
 
     let query_embedding = embedder.embed("Rust fast memory safe").await?;
-    let results = repo.search_memories_by_vector(&query_embedding, 5, None).await?;
+    let results = repo
+        .search_memories_by_vector(&query_embedding, 5, None)
+        .await?;
     assert_eq!(results.len(), 1);
     assert!((results[0].1 - 1.0).abs() < 0.01);
 
@@ -324,11 +324,15 @@ async fn test_bm25_entity_search() -> Result<()> {
     };
     repo.upsert_entity(&entity).await?;
 
-    let results = repo.search_entities_by_keyword("Kubernetes", None, None).await?;
+    let results = repo
+        .search_entities_by_keyword("Kubernetes", None, None)
+        .await?;
     assert!(!results.is_empty());
     assert_eq!(results[0].name, "Kubernetes");
 
-    let results = repo.search_entities_by_keyword("orchestration", None, None).await?;
+    let results = repo
+        .search_entities_by_keyword("orchestration", None, None)
+        .await?;
     assert!(!results.is_empty());
 
     Ok(())
@@ -609,7 +613,9 @@ async fn test_relations_at_temporal() -> Result<()> {
     repo.create_relation(&rel).await?;
 
     let rels = repo.relations_at(now).await?;
-    assert!(rels.iter().any(|r| r.relation_type == RelationType::WorksAt));
+    assert!(rels
+        .iter()
+        .any(|r| r.relation_type == RelationType::WorksAt));
 
     Ok(())
 }
@@ -715,7 +721,11 @@ async fn test_symmetric_relation_dedup() -> Result<()> {
     assert!(!created, "Reverse symmetric relation should be merged");
 
     let rels = repo.get_relations_for_entity(alice.id).await?;
-    assert_eq!(rels.len(), 1, "Should have exactly one relation after dedup");
+    assert_eq!(
+        rels.len(),
+        1,
+        "Should have exactly one relation after dedup"
+    );
     assert_eq!(rels[0].confidence, 85, "Confidence should be averaged");
 
     Ok(())

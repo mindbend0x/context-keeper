@@ -62,8 +62,10 @@ async fn test_entity_extraction_recall() -> Result<()> {
 async fn test_entity_deduplication() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    env.ingest_text_with_resolver("Alice works at Acme Corp in Berlin", "test", true).await?;
-    env.ingest_text_with_resolver("Alice met Bob at Acme headquarters in Berlin", "test", true).await?;
+    env.ingest_text_with_resolver("Alice works at Acme Corp in Berlin", "test", true)
+        .await?;
+    env.ingest_text_with_resolver("Alice met Bob at Acme headquarters in Berlin", "test", true)
+        .await?;
 
     let entities = env.repo.get_all_active_entities().await?;
     let names: Vec<&str> = entities.iter().map(|e| e.name.as_str()).collect();
@@ -97,8 +99,14 @@ async fn test_relation_extraction_connectivity() -> Result<()> {
     }
 
     for relation in &result.relations {
-        let from_exists = result.entities.iter().any(|e| e.id == relation.from_entity_id);
-        let to_exists = result.entities.iter().any(|e| e.id == relation.to_entity_id);
+        let from_exists = result
+            .entities
+            .iter()
+            .any(|e| e.id == relation.from_entity_id);
+        let to_exists = result
+            .entities
+            .iter()
+            .any(|e| e.id == relation.to_entity_id);
         assert!(from_exists, "Relation references non-existent from_entity");
         assert!(to_exists, "Relation references non-existent to_entity");
     }
@@ -115,11 +123,23 @@ async fn test_memory_creation_per_episode() -> Result<()> {
     let r1 = env.ingest_text("Alice works at Acme", "test").await?;
     let r2 = env.ingest_text("Bob lives in Berlin", "test").await?;
 
-    assert_eq!(r1.memories.len(), 1, "Each episode should produce exactly 1 memory");
-    assert_eq!(r2.memories.len(), 1, "Each episode should produce exactly 1 memory");
+    assert_eq!(
+        r1.memories.len(),
+        1,
+        "Each episode should produce exactly 1 memory"
+    );
+    assert_eq!(
+        r2.memories.len(),
+        1,
+        "Each episode should produce exactly 1 memory"
+    );
 
     let memories = env.repo.list_recent_memories(10).await?;
-    assert_eq!(memories.len(), 2, "Two ingested episodes should yield 2 memories");
+    assert_eq!(
+        memories.len(),
+        2,
+        "Two ingested episodes should yield 2 memories"
+    );
 
     assert_eq!(r1.memories[0].content, "Alice works at Acme");
     assert_eq!(r2.memories[0].content, "Bob lives in Berlin");
@@ -176,13 +196,29 @@ async fn test_empty_input_graceful() -> Result<()> {
     let env = TestEnv::new().await?;
 
     let r1 = env.ingest_text("", "test").await?;
-    assert!(r1.entities.is_empty(), "Empty input should produce no entities");
-    assert!(r1.relations.is_empty(), "Empty input should produce no relations");
-    assert_eq!(r1.memories.len(), 1, "Even empty input gets a memory record");
+    assert!(
+        r1.entities.is_empty(),
+        "Empty input should produce no entities"
+    );
+    assert!(
+        r1.relations.is_empty(),
+        "Empty input should produce no relations"
+    );
+    assert_eq!(
+        r1.memories.len(),
+        1,
+        "Even empty input gets a memory record"
+    );
 
     let r2 = env.ingest_text("   ", "test").await?;
-    assert!(r2.entities.is_empty(), "Whitespace-only input should produce no entities");
-    assert!(r2.relations.is_empty(), "Whitespace-only input should produce no relations");
+    assert!(
+        r2.entities.is_empty(),
+        "Whitespace-only input should produce no entities"
+    );
+    assert!(
+        r2.relations.is_empty(),
+        "Whitespace-only input should produce no relations"
+    );
 
     Ok(())
 }
@@ -219,7 +255,10 @@ async fn test_extraction_f1_across_scenarios() -> Result<()> {
 
         eprintln!(
             "  scenario={:<25} precision={:.2} recall={:.2} f1={:.2}",
-            scenario.name, p, r, f1(p, r)
+            scenario.name,
+            p,
+            r,
+            f1(p, r)
         );
     }
 

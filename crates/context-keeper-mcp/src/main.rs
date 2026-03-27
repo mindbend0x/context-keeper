@@ -11,8 +11,10 @@ use context_keeper_rig::{
 };
 use context_keeper_surreal::{apply_schema, connect, Repository, StorageBackend, SurrealConfig};
 use dotenv::dotenv;
+use rmcp::transport::{
+    streamable_http_server::session::local::LocalSessionManager, StreamableHttpService,
+};
 use rmcp::ServiceExt;
-use rmcp::transport::{StreamableHttpService, streamable_http_server::session::local::LocalSessionManager};
 use tracing_subscriber::EnvFilter;
 
 mod tools;
@@ -22,7 +24,10 @@ use tools::ContextKeeperServer;
 /// with `~` expanded to the actual home directory.
 fn default_storage() -> String {
     match dirs::home_dir() {
-        Some(home) => format!("rocksdb:{}", home.join(".context-keeper").join("data").display()),
+        Some(home) => format!(
+            "rocksdb:{}",
+            home.join(".context-keeper").join("data").display()
+        ),
         None => "memory".to_string(),
     }
 }
@@ -51,7 +56,13 @@ struct Cli {
     api_url: Option<String>,
     #[arg(short = 'k', long, env = "OPENAI_API_KEY", global = true)]
     api_key: Option<String>,
-    #[arg(short = 'f', long, env = "DB_FILE_PATH", global = true, default_value = "context.sql")]
+    #[arg(
+        short = 'f',
+        long,
+        env = "DB_FILE_PATH",
+        global = true,
+        default_value = "context.sql"
+    )]
     db_file_path: String,
 
     /// Storage backend: "rocksdb:<path>" (default: ~/.context-keeper/data), "memory", or "remote:<ws_url>"
@@ -150,7 +161,12 @@ async fn main() -> Result<()> {
         (Some(api_url), Some(api_key), Some(emb_model), Some(ext_model)) => {
             tracing::info!("Using LLM-powered extraction");
             (
-                Arc::new(RigEmbedder::new(api_url, api_key, emb_model, embedding_dims)),
+                Arc::new(RigEmbedder::new(
+                    api_url,
+                    api_key,
+                    emb_model,
+                    embedding_dims,
+                )),
                 Arc::new(RigEntityExtractor::new(api_url, api_key, ext_model)),
                 Arc::new(RigRelationExtractor::new(api_url, api_key, ext_model)),
                 Arc::new(RigQueryRewriter::new(api_url, api_key, ext_model)),

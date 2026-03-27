@@ -4,8 +4,8 @@
 
 use async_trait::async_trait;
 use context_keeper_core::error::Result;
-use context_keeper_core::ContextKeeperError;
 use context_keeper_core::traits::Embedder;
+use context_keeper_core::ContextKeeperError;
 use rig::client::EmbeddingsClient;
 use rig::embeddings::EmbeddingModel;
 use rig::providers::openai;
@@ -24,9 +24,8 @@ impl RigEmbedder {
             .api_key(api_key)
             .build()
             .expect("Failed to create OpenAI client");
-        
-        let model = openai_client
-            .embedding_model_with_ndims(model_name, dimension);
+
+        let model = openai_client.embedding_model_with_ndims(model_name, dimension);
 
         Self {
             model_name: model_name.to_string(),

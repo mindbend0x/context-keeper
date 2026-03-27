@@ -12,10 +12,10 @@
 use async_trait::async_trait;
 use context_keeper_core::error::Result;
 use context_keeper_core::models::EntityType;
-use context_keeper_core::ContextKeeperError;
 use context_keeper_core::traits::{
     EntityExtractor, ExtractedEntity, ExtractedRelation, RelationExtractor,
 };
+use context_keeper_core::ContextKeeperError;
 use rig::providers::openai;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -113,13 +113,15 @@ impl EntityExtractor for RigEntityExtractor {
         for attempt in 0..=self.retry_config.max_retries {
             if attempt > 0 {
                 let backoff = self.retry_config.initial_backoff * 4u32.pow(attempt - 1);
-                tracing::warn!(attempt, backoff_ms = backoff.as_millis(), "Retrying entity extraction");
+                tracing::warn!(
+                    attempt,
+                    backoff_ms = backoff.as_millis(),
+                    "Retrying entity extraction"
+                );
                 tokio::time::sleep(backoff).await;
             }
 
-            let builder = self
-                .client
-                .extractor::<RigExtractedEntities>(&self.model);
+            let builder = self.client.extractor::<RigExtractedEntities>(&self.model);
 
             match builder
                 .preamble(&self.system_prompt)
@@ -191,13 +193,15 @@ impl RelationExtractor for RigRelationExtractor {
         for attempt in 0..=self.retry_config.max_retries {
             if attempt > 0 {
                 let backoff = self.retry_config.initial_backoff * 4u32.pow(attempt - 1);
-                tracing::warn!(attempt, backoff_ms = backoff.as_millis(), "Retrying relation extraction");
+                tracing::warn!(
+                    attempt,
+                    backoff_ms = backoff.as_millis(),
+                    "Retrying relation extraction"
+                );
                 tokio::time::sleep(backoff).await;
             }
 
-            let builder = self
-                .client
-                .extractor::<RigExtractedRelations>(&self.model);
+            let builder = self.client.extractor::<RigExtractedRelations>(&self.model);
 
             let preamble = [
                 self.system_prompt.clone(),

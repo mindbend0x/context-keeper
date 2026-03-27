@@ -64,10 +64,7 @@ async fn main() -> Result<()> {
     // 3. Snapshot from 15 days ago: Alice should be visible
     let past = Utc::now() - Duration::days(15);
     let snapshot = repo.entities_at(past).await?;
-    println!(
-        "\n--- Snapshot at {} ---",
-        past.format("%Y-%m-%d")
-    );
+    println!("\n--- Snapshot at {} ---", past.format("%Y-%m-%d"));
     for e in &snapshot {
         println!("  {} ({}): {}", e.name, e.entity_type, e.summary);
     }

@@ -376,7 +376,10 @@ mod tests {
 
     #[test]
     fn test_relation_type_canonicalize() {
-        assert_eq!(RelationType::canonicalize("works_at"), RelationType::WorksAt);
+        assert_eq!(
+            RelationType::canonicalize("works_at"),
+            RelationType::WorksAt
+        );
         assert_eq!(
             RelationType::canonicalize("employed_at"),
             RelationType::WorksAt

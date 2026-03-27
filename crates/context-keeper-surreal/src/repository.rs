@@ -207,7 +207,11 @@ fn memory_from_row(r: MemoryRow) -> Option<Memory> {
 }
 
 fn memory_with_edges_from_row(r: MemoryWithEdgesRow) -> Option<Memory> {
-    let episode_id = r.episode_ids.first().and_then(record_id_to_uuid).unwrap_or(Uuid::nil());
+    let episode_id = r
+        .episode_ids
+        .first()
+        .and_then(record_id_to_uuid)
+        .unwrap_or(Uuid::nil());
     let entity_ids: Vec<Uuid> = r.entity_ids.iter().filter_map(record_id_to_uuid).collect();
     Some(Memory {
         id: record_id_to_uuid(&r.id)?,
@@ -237,12 +241,19 @@ fn relation_from_edge_row(r: RelationEdgeRow) -> Option<Relation> {
 
 #[async_trait]
 impl EntityResolver for Repository {
-    async fn find_existing(&self, name: &str, entity_type: &EntityType, _namespace: Option<&str>) -> Result<Option<Entity>> {
+    async fn find_existing(
+        &self,
+        name: &str,
+        entity_type: &EntityType,
+        _namespace: Option<&str>,
+    ) -> Result<Option<Entity>> {
         let etype_str = entity_type.to_string();
         // Resolution is namespace-agnostic: (name, entity_type) uniquely identifies an entity
         // across all namespaces so the same real-world entity isn't duplicated per namespace.
         let q = "SELECT * FROM entity WHERE name = $name AND entity_type = $etype AND valid_until IS NONE LIMIT 1";
-        let mut response = self.db.query(q)
+        let mut response = self
+            .db
+            .query(q)
             .bind(("name", name.to_string()))
             .bind(("etype", etype_str))
             .await
@@ -299,9 +310,18 @@ impl Repository {
             .bind(("content", episode.content.clone()))
             .bind(("source", episode.source.clone()))
             .bind(("session_id", episode.session_id.clone()))
-            .bind(("agent_id", episode.agent.as_ref().map(|a| a.agent_id.clone())))
-            .bind(("agent_name", episode.agent.as_ref().and_then(|a| a.agent_name.clone())))
-            .bind(("machine_id", episode.agent.as_ref().and_then(|a| a.machine_id.clone())))
+            .bind((
+                "agent_id",
+                episode.agent.as_ref().map(|a| a.agent_id.clone()),
+            ))
+            .bind((
+                "agent_name",
+                episode.agent.as_ref().and_then(|a| a.agent_name.clone()),
+            ))
+            .bind((
+                "machine_id",
+                episode.agent.as_ref().and_then(|a| a.machine_id.clone()),
+            ))
             .bind(("namespace", episode.namespace.clone()))
             .bind(("created_at", episode.created_at.to_rfc3339()))
             .await
@@ -389,7 +409,10 @@ impl Repository {
         self.get_all_active_entities_in_namespace(None).await
     }
 
-    pub async fn get_all_active_entities_in_namespace(&self, namespace: Option<&str>) -> Result<Vec<Entity>> {
+    pub async fn get_all_active_entities_in_namespace(
+        &self,
+        namespace: Option<&str>,
+    ) -> Result<Vec<Entity>> {
         let q = match namespace {
             Some(_) => "SELECT * FROM entity WHERE valid_until IS NONE AND namespace = $ns",
             None => "SELECT * FROM entity WHERE valid_until IS NONE",
@@ -406,11 +429,12 @@ impl Repository {
     /// Invalidate an entity by setting its `valid_until` to now.
     pub async fn invalidate_entity(&self, id: Uuid) -> Result<()> {
         let now = Utc::now().to_rfc3339();
-        let q = format!(
-            "UPDATE entity:`{}` SET valid_until = <datetime>$now",
-            id
-        );
-        self.db.query(&q).bind(("now", now)).await.map_err(storage_err)?;
+        let q = format!("UPDATE entity:`{}` SET valid_until = <datetime>$now", id);
+        self.db
+            .query(&q)
+            .bind(("now", now))
+            .await
+            .map_err(storage_err)?;
         Ok(())
     }
 
@@ -449,7 +473,8 @@ impl Repository {
         let existing: Vec<RelationEdgeRow> = check_resp.take(0).map_err(storage_err)?;
 
         if let Some(existing_row) = existing.into_iter().next() {
-            let avg_conf = ((existing_row.confidence as u16 + relation.confidence as u16) / 2) as u8;
+            let avg_conf =
+                ((existing_row.confidence as u16 + relation.confidence as u16) / 2) as u8;
             let update_q = format!(
                 "UPDATE relates_to:`{}` SET confidence = $confidence",
                 record_id_to_uuid(&existing_row.id).unwrap_or(relation.id)
@@ -476,8 +501,7 @@ impl Repository {
             let rev_existing: Vec<RelationEdgeRow> = rev_resp.take(0).map_err(storage_err)?;
 
             if let Some(rev_row) = rev_existing.into_iter().next() {
-                let avg_conf =
-                    ((rev_row.confidence as u16 + relation.confidence as u16) / 2) as u8;
+                let avg_conf = ((rev_row.confidence as u16 + relation.confidence as u16) / 2) as u8;
                 let update_q = format!(
                     "UPDATE relates_to:`{}` SET confidence = $confidence",
                     record_id_to_uuid(&rev_row.id).unwrap_or(relation.id)
@@ -510,7 +534,10 @@ impl Repository {
 
     pub async fn invalidate_relation(&self, id: Uuid) -> Result<()> {
         let now = Utc::now().to_rfc3339();
-        let q = format!("UPDATE relates_to:`{}` SET valid_until = <datetime>$now", id);
+        let q = format!(
+            "UPDATE relates_to:`{}` SET valid_until = <datetime>$now",
+            id
+        );
         self.db
             .query(&q)
             .bind(("now", now))
@@ -545,7 +572,10 @@ impl Repository {
         );
         let mut response = self.db.query(&q).await.map_err(storage_err)?;
         let rows: Vec<RelationEdgeRow> = response.take(0).map_err(storage_err)?;
-        Ok(rows.into_iter().filter_map(relation_from_edge_row).collect())
+        Ok(rows
+            .into_iter()
+            .filter_map(relation_from_edge_row)
+            .collect())
     }
 
     /// Batch-prune relations below a confidence threshold.
@@ -583,11 +613,17 @@ impl Repository {
             .await
             .map_err(storage_err)?;
 
-        let q = format!("RELATE memory:`{}`->sourced_from->episode:`{}`", mem_id, ep_id);
+        let q = format!(
+            "RELATE memory:`{}`->sourced_from->episode:`{}`",
+            mem_id, ep_id
+        );
         self.db.query(&q).await.map_err(storage_err)?;
 
         for entity_id in &memory.entity_ids {
-            let q = format!("RELATE memory:`{}`->references->entity:`{}`", mem_id, entity_id);
+            let q = format!(
+                "RELATE memory:`{}`->references->entity:`{}`",
+                mem_id, entity_id
+            );
             self.db.query(&q).await.map_err(storage_err)?;
         }
 
@@ -602,7 +638,10 @@ impl Repository {
             .await
             .map_err(storage_err)?;
         let rows: Vec<MemoryWithEdgesRow> = response.take(0).map_err(storage_err)?;
-        Ok(rows.into_iter().filter_map(memory_with_edges_from_row).collect())
+        Ok(rows
+            .into_iter()
+            .filter_map(memory_with_edges_from_row)
+            .collect())
     }
 
     // ── Vector Search (HNSW) ─────────────────────────────────────────
@@ -631,7 +670,9 @@ impl Repository {
             conditions.join(" AND ")
         );
 
-        let mut query = self.db.query(&q)
+        let mut query = self
+            .db
+            .query(&q)
             .bind(("query_vec", query_embedding.to_vec()))
             .bind(("limit", limit));
 
@@ -677,7 +718,9 @@ impl Repository {
             Some(_) => "SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM memory WHERE namespace = $ns ORDER BY score DESC LIMIT $limit",
             None => "SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM memory ORDER BY score DESC LIMIT $limit",
         };
-        let mut query = self.db.query(q)
+        let mut query = self
+            .db
+            .query(q)
             .bind(("query_vec", query_embedding.to_vec()))
             .bind(("limit", limit));
         if let Some(ns) = namespace {
@@ -761,7 +804,11 @@ impl Repository {
 
     /// BM25 full-text search over memory content.
     /// Optionally scoped by namespace.
-    pub async fn search_memories_by_keyword(&self, query: &str, namespace: Option<&str>) -> Result<Vec<Memory>> {
+    pub async fn search_memories_by_keyword(
+        &self,
+        query: &str,
+        namespace: Option<&str>,
+    ) -> Result<Vec<Memory>> {
         let q = match namespace {
             Some(_) => "SELECT *, search::score(1) AS relevance FROM memory WHERE content @1@ $query AND namespace = $ns ORDER BY relevance DESC",
             None => "SELECT *, search::score(1) AS relevance FROM memory WHERE content @1@ $query ORDER BY relevance DESC",
@@ -857,13 +904,19 @@ impl Repository {
             .await
             .map_err(storage_err)?;
         let rows: Vec<RelationEdgeRow> = response.take(0).map_err(storage_err)?;
-        Ok(rows.into_iter().filter_map(relation_from_edge_row).collect())
+        Ok(rows
+            .into_iter()
+            .filter_map(relation_from_edge_row)
+            .collect())
     }
 
     // ── Changefeed Queries ───────────────────────────────────────────
 
     /// Query recent changes to the entity table via changefeeds.
-    pub async fn entity_changes_since(&self, since: DateTime<Utc>) -> Result<Vec<serde_json::Value>> {
+    pub async fn entity_changes_since(
+        &self,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<serde_json::Value>> {
         let since_str = since.to_rfc3339();
         let mut response = self
             .db
@@ -876,7 +929,10 @@ impl Repository {
     }
 
     /// Query recent changes to the relates_to edge table via changefeeds.
-    pub async fn relation_changes_since(&self, since: DateTime<Utc>) -> Result<Vec<serde_json::Value>> {
+    pub async fn relation_changes_since(
+        &self,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<serde_json::Value>> {
         let mut response = self
             .db
             .query("SHOW CHANGES FOR TABLE relates_to SINCE $since")
@@ -912,7 +968,11 @@ impl Repository {
     }
 
     /// List recent episodes from a specific agent.
-    pub async fn list_episodes_by_agent(&self, agent_id: &str, limit: usize) -> Result<Vec<Episode>> {
+    pub async fn list_episodes_by_agent(
+        &self,
+        agent_id: &str,
+        limit: usize,
+    ) -> Result<Vec<Episode>> {
         let mut response = self
             .db
             .query("SELECT * FROM episode WHERE agent_id = $agent_id ORDER BY created_at DESC LIMIT $limit")

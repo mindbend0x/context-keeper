@@ -9,10 +9,20 @@ use context_keeper_test::harness::TestEnv;
 async fn test_namespace_isolation() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    env.ingest_as_agent("Alice works at Acme Corp", "chat", "agent-a", Some("project-alpha"))
-        .await?;
-    env.ingest_as_agent("Bob works at BigCo Inc", "chat", "agent-b", Some("project-beta"))
-        .await?;
+    env.ingest_as_agent(
+        "Alice works at Acme Corp",
+        "chat",
+        "agent-a",
+        Some("project-alpha"),
+    )
+    .await?;
+    env.ingest_as_agent(
+        "Bob works at BigCo Inc",
+        "chat",
+        "agent-b",
+        Some("project-beta"),
+    )
+    .await?;
 
     let alpha_entities = env
         .repo
@@ -35,10 +45,7 @@ async fn test_namespace_isolation() -> Result<()> {
         "Bob should NOT be in project-alpha"
     );
 
-    assert!(
-        beta_names.contains("Bob"),
-        "Bob should be in project-beta"
-    );
+    assert!(beta_names.contains("Bob"), "Bob should be in project-beta");
     assert!(
         !beta_names.contains("Alice"),
         "Alice should NOT be in project-beta"
@@ -65,10 +72,7 @@ async fn test_cross_namespace_global_search() -> Result<()> {
         all_names.contains("Alice"),
         "Global search should find Alice"
     );
-    assert!(
-        all_names.contains("Bob"),
-        "Global search should find Bob"
-    );
+    assert!(all_names.contains("Bob"), "Global search should find Bob");
     assert!(
         all_names.contains("Acme"),
         "Global search should find Acme from both namespaces"
@@ -96,7 +100,11 @@ async fn test_agent_provenance() -> Result<()> {
     );
 
     let claude_episodes = env.repo.list_episodes_by_agent("claude-agent", 10).await?;
-    assert_eq!(claude_episodes.len(), 1, "claude-agent should have 1 episode");
+    assert_eq!(
+        claude_episodes.len(),
+        1,
+        "claude-agent should have 1 episode"
+    );
     assert!(
         claude_episodes[0].content.contains("Bob"),
         "claude-agent's episode should contain Bob"
@@ -178,13 +186,22 @@ async fn test_namespace_scoped_name_search() -> Result<()> {
 async fn test_mixed_namespaced_and_global() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    env.ingest_text("GlobalEntity exists everywhere", "test").await?;
-    env.ingest_as_agent("ScopedEntity is in a namespace", "test", "agent-1", Some("scoped"))
+    env.ingest_text("GlobalEntity exists everywhere", "test")
         .await?;
+    env.ingest_as_agent(
+        "ScopedEntity is in a namespace",
+        "test",
+        "agent-1",
+        Some("scoped"),
+    )
+    .await?;
 
     let global = env.repo.get_all_active_entities().await?;
     let names: HashSet<String> = global.iter().map(|e| e.name.clone()).collect();
-    assert!(names.len() >= 2, "Should have entities from both global and scoped");
+    assert!(
+        names.len() >= 2,
+        "Should have entities from both global and scoped"
+    );
 
     let scoped = env
         .repo

@@ -1,15 +1,20 @@
-use std::path::Path;
-use std::sync::Arc;
 use anyhow::Result;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use context_keeper_core::{ingestion, models::{AgentInfo, Episode}, search::fuse_rrf, traits::*};
+use context_keeper_core::{
+    ingestion,
+    models::{AgentInfo, Episode},
+    search::fuse_rrf,
+    traits::*,
+};
 use context_keeper_rig::{
     embeddings::RigEmbedder,
     extraction::{RigEntityExtractor, RigRelationExtractor},
 };
 use context_keeper_surreal::{apply_schema, connect, Repository, StorageBackend, SurrealConfig};
 use dotenv::dotenv;
+use std::path::Path;
+use std::sync::Arc;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -18,7 +23,10 @@ use uuid::Uuid;
 /// with `~` expanded to the actual home directory.
 fn default_storage() -> String {
     match dirs::home_dir() {
-        Some(home) => format!("rocksdb:{}", home.join(".context-keeper").join("data").display()),
+        Some(home) => format!(
+            "rocksdb:{}",
+            home.join(".context-keeper").join("data").display()
+        ),
         None => "memory".to_string(),
     }
 }
@@ -39,7 +47,13 @@ struct Cli {
     api_url: Option<String>,
     #[arg(short = 'k', long, env = "OPENAI_API_KEY", global = true)]
     api_key: Option<String>,
-    #[arg(short = 'f', long, env = "DB_FILE_PATH", global = true, default_value = "context.sql")]
+    #[arg(
+        short = 'f',
+        long,
+        env = "DB_FILE_PATH",
+        global = true,
+        default_value = "context.sql"
+    )]
     db_file_path: String,
 
     /// Storage backend: "rocksdb:<path>" (default: ~/.context-keeper/data), "memory", or "remote:<ws_url>"
@@ -148,17 +162,33 @@ async fn main() -> Result<()> {
         (Some(api_url), Some(api_key), Some(emb_model), Some(ext_model)) => {
             info!("Using LLM-powered extraction");
             (
-                Arc::new(RigEmbedder::new(api_url, api_key, emb_model, embedding_dims)),
+                Arc::new(RigEmbedder::new(
+                    api_url,
+                    api_key,
+                    emb_model,
+                    embedding_dims,
+                )),
                 Arc::new(RigEntityExtractor::new(api_url, api_key, ext_model)),
                 Arc::new(RigRelationExtractor::new(api_url, api_key, ext_model)),
             )
         }
         _ => {
-            let set: Vec<_> = llm_fields.iter().filter(|(_, v)| v.is_some()).map(|(k, _)| *k).collect();
+            let set: Vec<_> = llm_fields
+                .iter()
+                .filter(|(_, v)| v.is_some())
+                .map(|(k, _)| *k)
+                .collect();
             if !set.is_empty() {
-                let missing: Vec<_> = llm_fields.iter().filter(|(_, v)| v.is_none()).map(|(k, _)| *k).collect();
-                warn!("Partial LLM config (have {}, missing {}) — falling back to mock extraction",
-                    set.join(", "), missing.join(", "));
+                let missing: Vec<_> = llm_fields
+                    .iter()
+                    .filter(|(_, v)| v.is_none())
+                    .map(|(k, _)| *k)
+                    .collect();
+                warn!(
+                    "Partial LLM config (have {}, missing {}) — falling back to mock extraction",
+                    set.join(", "),
+                    missing.join(", ")
+                );
             } else {
                 info!("No LLM config — using mock extraction (set OPENAI_API_URL, OPENAI_API_KEY, EMBEDDING_MODEL, EXTRACTION_MODEL for real LLM)");
             }

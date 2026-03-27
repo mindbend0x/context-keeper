@@ -5,8 +5,8 @@
 
 use async_trait::async_trait;
 use context_keeper_core::error::Result;
-use context_keeper_core::ContextKeeperError;
 use context_keeper_core::traits::QueryRewriter;
+use context_keeper_core::ContextKeeperError;
 use rig::providers::openai;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

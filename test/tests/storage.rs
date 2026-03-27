@@ -26,7 +26,11 @@ async fn test_entity_roundtrip_fidelity() -> Result<()> {
     };
     env.repo.upsert_entity(&entity).await?;
 
-    let fetched = env.repo.get_entity(entity.id).await?.expect("entity should exist");
+    let fetched = env
+        .repo
+        .get_entity(entity.id)
+        .await?
+        .expect("entity should exist");
     assert_eq!(fetched.name, entity.name);
     assert_eq!(fetched.entity_type, entity.entity_type);
     assert_eq!(fetched.summary, entity.summary);
@@ -56,7 +60,11 @@ async fn test_embedding_preservation() -> Result<()> {
     };
     env.repo.upsert_entity(&entity).await?;
 
-    let fetched = env.repo.get_entity(entity.id).await?.expect("entity should exist");
+    let fetched = env
+        .repo
+        .get_entity(entity.id)
+        .await?
+        .expect("entity should exist");
     assert_eq!(fetched.embedding.len(), EMBED_DIM);
 
     for (i, (orig, stored)) in embedding.iter().zip(fetched.embedding.iter()).enumerate() {
@@ -144,9 +152,7 @@ async fn test_memory_episode_link() -> Result<()> {
 #[tokio::test]
 async fn test_memory_entity_links() -> Result<()> {
     let env = TestEnv::new().await?;
-    let result = env
-        .ingest_text("Alice works at Acme Corp", "test")
-        .await?;
+    let result = env.ingest_text("Alice works at Acme Corp", "test").await?;
 
     assert!(!result.entities.is_empty());
     assert_eq!(result.memories.len(), 1);
@@ -193,8 +199,15 @@ async fn test_upsert_idempotency() -> Result<()> {
 
     let all = env.repo.get_all_active_entities().await?;
     let matching: Vec<_> = all.iter().filter(|e| e.id == id).collect();
-    assert_eq!(matching.len(), 1, "Should have exactly one entity after 3 upserts");
-    assert_eq!(matching[0].summary, "Version 3", "Should have the latest summary");
+    assert_eq!(
+        matching.len(),
+        1,
+        "Should have exactly one entity after 3 upserts"
+    );
+    assert_eq!(
+        matching[0].summary, "Version 3",
+        "Should have the latest summary"
+    );
 
     Ok(())
 }
@@ -266,22 +279,32 @@ async fn test_composite_entity_identity_coexistence() -> Result<()> {
 async fn test_negation_invalidates_entity() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    env.ingest_text_with_resolver("Alice works at Acme", "test", true).await?;
+    env.ingest_text_with_resolver("Alice works at Acme", "test", true)
+        .await?;
 
     let before = env.repo.find_entities_by_name("Alice", None, None).await?;
     assert_eq!(before.len(), 1, "Alice should exist after first ingestion");
     let original_id = before[0].id;
 
-    env.ingest_text_with_resolver("Alice left Acme", "test", true).await?;
+    env.ingest_text_with_resolver("Alice left Acme", "test", true)
+        .await?;
 
     let after = env.repo.find_entities_by_name("Alice", None, None).await?;
-    assert_eq!(after.len(), 1, "Should have one active Alice after negation");
+    assert_eq!(
+        after.len(),
+        1,
+        "Should have one active Alice after negation"
+    );
     assert_ne!(
         after[0].id, original_id,
         "New Alice entity should have a different ID than the invalidated one"
     );
 
-    let original = env.repo.get_entity(original_id).await?.expect("original should still exist in DB");
+    let original = env
+        .repo
+        .get_entity(original_id)
+        .await?
+        .expect("original should still exist in DB");
     assert!(
         original.valid_until.is_some(),
         "Original Alice entity should be soft-deleted (valid_until set)"
@@ -296,8 +319,10 @@ async fn test_negation_invalidates_entity() -> Result<()> {
 async fn test_invalidated_entities_excluded_from_active() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    env.ingest_text_with_resolver("Alice works at Acme", "test", true).await?;
-    env.ingest_text_with_resolver("Alice quit Acme", "test", true).await?;
+    env.ingest_text_with_resolver("Alice works at Acme", "test", true)
+        .await?;
+    env.ingest_text_with_resolver("Alice quit Acme", "test", true)
+        .await?;
 
     let all_active = env.repo.get_all_active_entities().await?;
     let active_alice: Vec<_> = all_active.iter().filter(|e| e.name == "Alice").collect();
@@ -320,7 +345,9 @@ async fn test_invalidated_entities_excluded_from_active() -> Result<()> {
 async fn test_relations_invalidated_with_entity() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    let r1 = env.ingest_text_with_resolver("Alice works at Acme", "test", true).await?;
+    let r1 = env
+        .ingest_text_with_resolver("Alice works at Acme", "test", true)
+        .await?;
 
     let alice_before: Vec<_> = r1.entities.iter().filter(|e| e.name == "Alice").collect();
     assert!(!alice_before.is_empty(), "Alice should be extracted");
@@ -332,7 +359,8 @@ async fn test_relations_invalidated_with_entity() -> Result<()> {
         "Alice should have relations after first ingestion"
     );
 
-    env.ingest_text_with_resolver("Alice left Acme", "test", true).await?;
+    env.ingest_text_with_resolver("Alice left Acme", "test", true)
+        .await?;
 
     let rels_after = env.repo.get_relations_for_entity(alice_id).await?;
     assert!(
@@ -349,14 +377,16 @@ async fn test_relations_invalidated_with_entity() -> Result<()> {
 async fn test_deduplication_updates_entity() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    env.ingest_text_with_resolver("Alice works at Acme", "test", true).await?;
+    env.ingest_text_with_resolver("Alice works at Acme", "test", true)
+        .await?;
 
     let before = env.repo.find_entities_by_name("Alice", None, None).await?;
     assert_eq!(before.len(), 1);
     let original_id = before[0].id;
     let original_summary = before[0].summary.clone();
 
-    env.ingest_text_with_resolver("Alice leads engineering at Acme", "test", true).await?;
+    env.ingest_text_with_resolver("Alice leads engineering at Acme", "test", true)
+        .await?;
 
     let after = env.repo.find_entities_by_name("Alice", None, None).await?;
     assert_eq!(
@@ -443,16 +473,26 @@ async fn test_invalidate_relations_for_entity() -> Result<()> {
     env.repo.create_relation(&rel2).await?;
 
     let before = env.repo.get_relations_for_entity(alice.id).await?;
-    assert_eq!(before.len(), 2, "Alice should have 2 relations before invalidation");
+    assert_eq!(
+        before.len(),
+        2,
+        "Alice should have 2 relations before invalidation"
+    );
 
     let count = env.repo.invalidate_relations_for_entity(alice.id).await?;
     assert_eq!(count, 2, "Should invalidate 2 relations");
 
     let after = env.repo.get_relations_for_entity(alice.id).await?;
-    assert!(after.is_empty(), "Alice should have no active relations after invalidation");
+    assert!(
+        after.is_empty(),
+        "Alice should have no active relations after invalidation"
+    );
 
     let bob_rels = env.repo.get_relations_for_entity(bob.id).await?;
-    assert!(bob_rels.is_empty(), "Bob's relation to Alice should also be invalidated");
+    assert!(
+        bob_rels.is_empty(),
+        "Bob's relation to Alice should also be invalidated"
+    );
 
     Ok(())
 }
@@ -462,7 +502,8 @@ async fn test_invalidate_relations_for_entity() -> Result<()> {
 #[tokio::test]
 async fn test_export_import_consistency() -> Result<()> {
     let env = TestEnv::new().await?;
-    env.ingest_text("Alice works at Acme Corp in Berlin", "test").await?;
+    env.ingest_text("Alice works at Acme Corp in Berlin", "test")
+        .await?;
 
     let original_entities = env.repo.get_all_active_entities().await?;
     let original_episodes = env.repo.list_recent_episodes(100).await?;
@@ -557,7 +598,10 @@ async fn test_relation_dedup_canonical_types() -> Result<()> {
         valid_until: None,
     };
     let created = env.repo.create_relation(&rel2).await?;
-    assert!(!created, "duplicate canonical type should merge, not create");
+    assert!(
+        !created,
+        "duplicate canonical type should merge, not create"
+    );
 
     let rels = env.repo.get_relations_for_entity(alice.id).await?;
     assert_eq!(rels.len(), 1, "only one relation should exist after dedup");
@@ -625,7 +669,11 @@ async fn test_symmetric_relation_dedup() -> Result<()> {
     assert!(!created, "reverse symmetric relation should merge");
 
     let rels = env.repo.get_relations_for_entity(alice.id).await?;
-    assert_eq!(rels.len(), 1, "only one relation should exist for symmetric dedup");
+    assert_eq!(
+        rels.len(),
+        1,
+        "only one relation should exist for symmetric dedup"
+    );
     assert_eq!(rels[0].confidence, 80, "confidence should be averaged");
 
     Ok(())
