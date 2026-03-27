@@ -39,7 +39,9 @@ pub struct EntityUpdate {
 #[derive(Debug, Serialize)]
 pub struct EntityInvalidation {
     pub name: String,
+    pub entity_type: String,
     pub reason: String,
+    pub invalidated_id: Uuid,
 }
 
 const DEFAULT_MIN_CONFIDENCE: u8 = 50;
@@ -47,7 +49,9 @@ const DEFAULT_MIN_CONFIDENCE: u8 = 50;
 const NEGATION_MARKERS: &[&str] = &[
     "no longer",
     "not anymore",
+    "no more",
     "former",
+    "formerly",
     "previously",
     "used to",
     "left",
@@ -55,14 +59,24 @@ const NEGATION_MARKERS: &[&str] = &[
     "resigned",
     "departed",
     "was replaced",
+    "was fired",
+    "was terminated",
+    "retired from",
+    "moved away",
+    "moved from",
+    "switched from",
+    "changed from",
+    "stopped",
+    "ended",
+    "cancelled",
+    "divorced",
+    "separated from",
     "ex-",
     "moved to",
     "transferred",
     "switched to",
     "replaced by",
     "no longer at",
-    "ended",
-    "stopped",
     "fired",
     "terminated",
     "retired",
@@ -170,12 +184,18 @@ pub async fn ingest(
         let embedding = embedder.embed(&ext.name).await?;
 
         if let Some(resolver) = entity_resolver {
-            // Try exact name + type match first
             if let Some(existing) = resolver.find_existing(&ext.name, &ext.entity_type, ns).await? {
                 if let Some(reason) = detect_contradiction(&existing.summary, &ext.summary) {
+                    tracing::info!(
+                        entity = %ext.name,
+                        reason = %reason,
+                        "Contradiction detected — invalidating old entity"
+                    );
                     diff.entities_invalidated.push(EntityInvalidation {
                         name: ext.name.clone(),
+                        entity_type: ext.entity_type.to_string(),
                         reason: reason.clone(),
+                        invalidated_id: existing.id,
                     });
                     diff.entity_ids_to_invalidate_relations.push(existing.id);
                     entities.push(Entity {
@@ -212,7 +232,6 @@ pub async fn ingest(
                 continue;
             }
 
-            // Try fuzzy / vector similarity match for alias resolution
             let similar = resolver.find_similar(&ext.name, &embedding, 0.85, ns).await?;
             if let Some(best) = similar.first() {
                 let merged = merge_summaries(&best.summary, &ext.summary);

@@ -144,6 +144,8 @@ pub struct MockEntityExtractor;
 #[async_trait]
 impl EntityExtractor for MockEntityExtractor {
     async fn extract_entities(&self, text: &str) -> Result<Vec<ExtractedEntity>> {
+        let trimmed: String = text.chars().take(80).collect();
+        let context = trimmed.trim();
         let entities: Vec<ExtractedEntity> = text
             .split_whitespace()
             .filter(|w| {
@@ -156,7 +158,7 @@ impl EntityExtractor for MockEntityExtractor {
                 ExtractedEntity {
                     name: w.to_string(),
                     entity_type,
-                    summary: format!("Entity: {}", w),
+                    summary: format!("{} — {}", w, context),
                 }
             })
             .collect();
@@ -252,14 +254,18 @@ mod tests {
     #[tokio::test]
     async fn test_mock_entity_extractor() {
         let extractor = MockEntityExtractor;
-        let entities = extractor
-            .extract_entities("Alice met Bob at the Park")
-            .await
-            .unwrap();
+        let text = "Alice met Bob at the Park";
+        let entities = extractor.extract_entities(text).await.unwrap();
         let names: Vec<&str> = entities.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"Alice"));
         assert!(names.contains(&"Bob"));
         assert!(names.contains(&"Park"));
+
+        let alice = entities.iter().find(|e| e.name == "Alice").unwrap();
+        assert!(
+            alice.summary.contains(text),
+            "Summary should include input context"
+        );
     }
 
     #[tokio::test]

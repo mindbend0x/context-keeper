@@ -201,9 +201,10 @@ async fn main() -> Result<()> {
             .await?;
 
             for inv in &result.diff.entities_invalidated {
-                let existing = repo.find_entities_by_name(&inv.name, ns).await?;
-                for entity in existing {
-                    repo.invalidate_entity(entity.id).await?;
+                repo.invalidate_entity(inv.invalidated_id).await?;
+                let relations = repo.get_relations_for_entity(inv.invalidated_id).await?;
+                for rel in &relations {
+                    repo.invalidate_relation(rel.id).await?;
                 }
             }
 

@@ -239,6 +239,8 @@ fn relation_from_edge_row(r: RelationEdgeRow) -> Option<Relation> {
 impl EntityResolver for Repository {
     async fn find_existing(&self, name: &str, entity_type: &EntityType, _namespace: Option<&str>) -> Result<Option<Entity>> {
         let etype_str = entity_type.to_string();
+        // Resolution is namespace-agnostic: (name, entity_type) uniquely identifies an entity
+        // across all namespaces so the same real-world entity isn't duplicated per namespace.
         let q = "SELECT * FROM entity WHERE name = $name AND entity_type = $etype AND valid_until IS NONE LIMIT 1";
         let mut response = self.db.query(q)
             .bind(("name", name.to_string()))
@@ -539,7 +541,7 @@ impl Repository {
             .bind(("now", now))
             .await
             .map_err(storage_err)?;
-        let affected: Vec<RelationEdgeRow> = response.take(0).map_err(storage_err)?;
+        let affected: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
         Ok(affected.len())
     }
 
