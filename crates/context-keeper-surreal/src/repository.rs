@@ -237,19 +237,14 @@ fn relation_from_edge_row(r: RelationEdgeRow) -> Option<Relation> {
 
 #[async_trait]
 impl EntityResolver for Repository {
-    async fn find_existing(&self, name: &str, entity_type: &EntityType, namespace: Option<&str>) -> Result<Option<Entity>> {
+    async fn find_existing(&self, name: &str, entity_type: &EntityType, _namespace: Option<&str>) -> Result<Option<Entity>> {
         let etype_str = entity_type.to_string();
-        let q = match namespace {
-            Some(_) => "SELECT * FROM entity WHERE name = $name AND entity_type = $etype AND namespace = $ns AND valid_until IS NONE LIMIT 1",
-            None => "SELECT * FROM entity WHERE name = $name AND entity_type = $etype AND valid_until IS NONE LIMIT 1",
-        };
-        let mut query = self.db.query(q)
+        let q = "SELECT * FROM entity WHERE name = $name AND entity_type = $etype AND valid_until IS NONE LIMIT 1";
+        let mut response = self.db.query(q)
             .bind(("name", name.to_string()))
-            .bind(("etype", etype_str));
-        if let Some(ns) = namespace {
-            query = query.bind(("ns", ns.to_string()));
-        }
-        let mut response = query.await.map_err(storage_err)?;
+            .bind(("etype", etype_str))
+            .await
+            .map_err(storage_err)?;
         let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().next().and_then(entity_from_row))
     }

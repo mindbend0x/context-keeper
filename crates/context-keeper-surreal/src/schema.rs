@@ -76,13 +76,11 @@ DEFINE INDEX IF NOT EXISTS episode_content_ft ON episode FIELDS content
 -- ── Composite identity index ─────────────────────────────────────────
 -- Entity identity is (name, entity_type). "Alice (Person)" and
 -- "Alice (Organization)" are distinct graph nodes.
--- Namespace further scopes: same (name, type) in different namespaces
--- are separate entities. Uniqueness enforced by the EntityResolver
--- at the application level because SurrealDB UNIQUE indexes treat
--- NONE (null namespace) values as distinct.
+-- The UNIQUE constraint prevents duplicate (name, entity_type) pairs
+-- at the DB level.
 
 DEFINE INDEX IF NOT EXISTS entity_name_idx ON entity FIELDS name;
-DEFINE INDEX IF NOT EXISTS entity_identity_idx ON entity FIELDS name, entity_type, namespace;
+DEFINE INDEX IF NOT EXISTS entity_identity_idx ON entity FIELDS name, entity_type UNIQUE;
 
 -- ── Entity type index for type-filtered queries ──────────────────────
 

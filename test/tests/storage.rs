@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
-use context_keeper_core::{models::*, traits::*};
+use context_keeper_core::models::*;
+use context_keeper_core::traits::*;
 use context_keeper_test::harness::{TestEnv, EMBED_DIM};
 use uuid::Uuid;
 
@@ -194,6 +195,65 @@ async fn test_upsert_idempotency() -> Result<()> {
     let matching: Vec<_> = all.iter().filter(|e| e.id == id).collect();
     assert_eq!(matching.len(), 1, "Should have exactly one entity after 3 upserts");
     assert_eq!(matching[0].summary, "Version 3", "Should have the latest summary");
+
+    Ok(())
+}
+
+// ── Composite entity identity: (name, entity_type) ───────────────────────
+// "Alice (Person)" and "Alice (Organization)" are distinct graph nodes.
+
+#[tokio::test]
+async fn test_composite_entity_identity_coexistence() -> Result<()> {
+    let env = TestEnv::new().await?;
+
+    let alice_person = Entity {
+        id: Uuid::new_v4(),
+        name: "Alice".to_string(),
+        entity_type: EntityType::Person,
+        summary: "Software engineer".to_string(),
+        embedding: env.embedder.embed("Alice person").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+        namespace: None,
+        created_by_agent: None,
+    };
+    let alice_org = Entity {
+        id: Uuid::new_v4(),
+        name: "Alice".to_string(),
+        entity_type: EntityType::Organization,
+        summary: "A startup company".to_string(),
+        embedding: env.embedder.embed("Alice org").await?,
+        valid_from: Utc::now(),
+        valid_until: None,
+        namespace: None,
+        created_by_agent: None,
+    };
+
+    env.repo.upsert_entity(&alice_person).await?;
+    env.repo.upsert_entity(&alice_org).await?;
+
+    let all_alice = env.repo.find_entities_by_name("Alice", None).await?;
+    assert_eq!(
+        all_alice.len(),
+        2,
+        "Two distinct Alice entities (Person vs Organization) should coexist"
+    );
+
+    let persons = env
+        .repo
+        .find_entities_by_name_and_type("Alice", Some(&EntityType::Person), None)
+        .await?;
+    assert_eq!(persons.len(), 1);
+    assert_eq!(persons[0].entity_type, EntityType::Person);
+    assert_eq!(persons[0].summary, "Software engineer");
+
+    let orgs = env
+        .repo
+        .find_entities_by_name_and_type("Alice", Some(&EntityType::Organization), None)
+        .await?;
+    assert_eq!(orgs.len(), 1);
+    assert_eq!(orgs[0].entity_type, EntityType::Organization);
+    assert_eq!(orgs[0].summary, "A startup company");
 
     Ok(())
 }

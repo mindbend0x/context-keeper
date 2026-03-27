@@ -42,7 +42,7 @@ SELECT * FROM entity WHERE valid_from <= $at AND (valid_until IS NONE OR valid_u
 - Relations use SurrealDB `TYPE RELATION` with `in`/`out` fields
 - Vector index: HNSW on `entity.embedding`
 - Full-text index: BM25 on `entity.summary` and `entity.name`
-- Unique constraint: `(name, entity_type, namespace)` on entity
+- Unique constraint: `(name, entity_type)` on entity (DB-level UNIQUE index)
 
 ## Namespace Scoping
 

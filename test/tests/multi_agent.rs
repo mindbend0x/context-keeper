@@ -138,6 +138,9 @@ async fn test_entity_namespace_propagation() -> Result<()> {
 }
 
 // ── Namespace-scoped name search ───────────────────────────────────────────
+// Entity identity is (name, entity_type). When the same entity (name + type)
+// is ingested from two namespaces, the resolver finds the existing entity
+// globally and updates it rather than creating a duplicate.
 
 #[tokio::test]
 async fn test_namespace_scoped_name_search() -> Result<()> {
@@ -148,23 +151,22 @@ async fn test_namespace_scoped_name_search() -> Result<()> {
     env.ingest_as_agent("Alice is a manager", "test", "agent-b", Some("team-b"))
         .await?;
 
+    let global = env.repo.find_entities_by_name("Alice", None).await?;
+    assert_eq!(
+        global.len(),
+        1,
+        "Alice should be a single global entity under composite identity, got {}",
+        global.len()
+    );
+
     let team_a = env
         .repo
         .find_entities_by_name("Alice", Some("team-a"))
         .await?;
-    let team_b = env
-        .repo
-        .find_entities_by_name("Alice", Some("team-b"))
-        .await?;
-
-    assert_eq!(team_a.len(), 1, "Should find Alice in team-a");
-    assert_eq!(team_b.len(), 1, "Should find Alice in team-b");
-
-    let global = env.repo.find_entities_by_name("Alice", None).await?;
-    assert!(
-        global.len() >= 2,
-        "Global search should find Alice in both namespaces, got {}",
-        global.len()
+    assert_eq!(
+        team_a.len(),
+        1,
+        "Alice should remain in its original namespace (team-a)"
     );
 
     Ok(())
