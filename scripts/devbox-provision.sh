@@ -71,6 +71,7 @@ ufw default deny incoming
 ufw default allow outgoing
 ufw allow ssh
 ufw allow $MCP_PORT/tcp comment "Context Keeper MCP HTTP"
+ufw allow 4000/tcp comment "Devbox MCP Server (remote access)"
 
 # Allow SurrealDB port only if you want external access (optional)
 # ufw allow 8000/tcp comment "SurrealDB"

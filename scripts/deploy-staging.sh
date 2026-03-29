@@ -15,13 +15,21 @@
 set -euo pipefail
 
 # ── Configuration ────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SSH_KEY="$REPO_ROOT/.keys/devbox_ed25519"
 DEVBOX_HOST="${DEVBOX_HOST:-root@37.27.205.25}"
 DEVBOX_APP_DIR="/opt/context-keeper"
 COMPOSE_FILE="docker-compose.staging.yml"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+SSH_OPTS="-o StrictHostKeyChecking=accept-new"
+if [ -f "$SSH_KEY" ]; then
+    SSH_OPTS="$SSH_OPTS -i $SSH_KEY"
+fi
+
 ssh_cmd() {
-    ssh -o StrictHostKeyChecking=accept-new "$DEVBOX_HOST" "$@"
+    ssh $SSH_OPTS "$DEVBOX_HOST" "$@"
 }
 
 log() {
@@ -62,7 +70,8 @@ case "${1:-deploy}" in
             --exclude='.claude/' \
             --exclude='node_modules/' \
             --exclude='.env' \
-            -e "ssh -o StrictHostKeyChecking=accept-new" \
+            --exclude='.keys/' \
+            -e "ssh $SSH_OPTS" \
             ./ \
             "$DEVBOX_HOST:$DEVBOX_APP_DIR/"
 
@@ -83,8 +92,9 @@ case "${1:-deploy}" in
         echo "  Deployment complete!"
         echo "============================================"
         echo ""
-        echo "  MCP Server:  http://$DEVBOX_IP:3000"
-        echo "  SurrealDB:   ws://localhost:8000 (internal only)"
+        echo "  CK MCP Server:     http://$DEVBOX_IP:3000"
+        echo "  Devbox MCP Server: http://$DEVBOX_IP:4000/mcp"
+        echo "  SurrealDB:         ws://localhost:8000 (internal only)"
         echo ""
         echo "  Useful commands:"
         echo "    ./scripts/deploy-staging.sh --logs     # Tail logs"
