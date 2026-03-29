@@ -86,7 +86,7 @@ case "${1:-deploy}" in
         sleep 5
         ssh_cmd "cd $DEVBOX_APP_DIR && docker compose -f $COMPOSE_FILE ps"
 
-        DEVBOX_IP=$(echo "$DEVBOX_HOST" | grep -oP '[\d.]+')
+        DEVBOX_IP=$(echo "$DEVBOX_HOST" | sed 's/.*@//')
         echo ""
         echo "============================================"
         echo "  Deployment complete!"

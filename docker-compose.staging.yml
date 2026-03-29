@@ -13,19 +13,14 @@
 services:
   # ── SurrealDB ──────────────────────────────────────────────────────────────
   surrealdb:
-    image: surrealdb/surrealdb:v2
+    image: surrealdb/surrealdb:v3
+    user: "0"
     command: start --user root --pass root rocksdb:/data/srdb
     volumes:
       - surrealdb-data:/data
     ports:
       - "127.0.0.1:8000:8000"   # Only expose locally — MCP server connects internally
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
 
   # ── Context Keeper MCP Server ──────────────────────────────────────────────
   context-keeper-mcp:
@@ -46,9 +41,11 @@ services:
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
       EMBEDDING_DIMS: "${EMBEDDING_DIMS:-1536}"
       EXTRACTION_MODEL: "${EXTRACTION_MODEL:-gpt-4o-mini}"
+      # SurrealDB auth (must match --user/--pass on surrealdb service)
+      SURREAL_USER: "root"
+      SURREAL_PASS: "root"
     depends_on:
-      surrealdb:
-        condition: service_healthy
+      - surrealdb
     restart: unless-stopped
 
   # ── Devbox MCP Server (remote access for Cowork/Claude sessions) ─────────
