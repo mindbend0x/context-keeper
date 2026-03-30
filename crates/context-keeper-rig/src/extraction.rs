@@ -1,7 +1,7 @@
 //! Rig-powered entity and relation extraction.
 //!
-//! These types implement the core `EntityExtractor` and `RelationExtractor` traits
-//! using Rig's `agent().prompt()` with structured JSON schema output.
+//! Uses Rig's `agent().prompt()` to get raw LLM output, then parses JSON
+//! ourselves for maximum tolerance of malformed responses from OSS models.
 //!
 //! Includes retry logic with exponential backoff and output validation to reject
 //! malformed extraction results.
@@ -16,15 +16,17 @@ use context_keeper_core::traits::{
     EntityExtractor, ExtractedEntity, ExtractedRelation, RelationExtractor,
 };
 use context_keeper_core::ContextKeeperError;
+use rig::client::CompletionClient;
+use rig::completion::Prompt;
 use rig::providers::openai;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::time::Duration;
 
 const ENTITY_EXTRACTION_PROMPT: &str = "\
 Extract named entities from the text. Classify each entity as one of: \
 person, organization, location, event, product, service, concept, file, other. \
-Return JSON array of {name, entity_type, summary}.";
+Return ONLY a JSON object with an \"entities\" array of {\"name\", \"entity_type\", \"summary\"}. \
+No markdown, no explanation — just the JSON object.";
 
 const RELATION_EXTRACTION_PROMPT: &str = "\
 Extract relations between the given entities. \
@@ -42,15 +44,15 @@ Choose the most specific type that fits: \
 - related_to: ONLY use when no other type fits. \
 Avoid defaulting to related_to when a more specific type applies. \
 Assign a confidence score from 0 to 100. \
-Return JSON array of {subject, predicate, object, confidence}.";
+Return ONLY a JSON object with a \"relations\" array of {\"subject\", \"predicate\", \"object\", \"confidence\"}. \
+No markdown, no explanation — just the JSON object.";
 
 const DEFAULT_MAX_RETRIES: u32 = 3;
 const INITIAL_BACKOFF_MS: u64 = 100;
 
 /// Tolerant intermediate types for LLM deserialization.
-/// Some models (especially OSS) return null for fields — these types absorb that
-/// and get filtered/converted to the strict core types in validation.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+/// All fields are Option so nulls and missing fields are absorbed.
+#[derive(Debug, Clone, Deserialize)]
 struct RawExtractedEntity {
     #[serde(default)]
     pub name: Option<String>,
@@ -60,7 +62,7 @@ struct RawExtractedEntity {
     pub summary: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize)]
 struct RawExtractedRelation {
     #[serde(default)]
     pub subject: Option<String>,
@@ -70,18 +72,6 @@ struct RawExtractedRelation {
     pub object: Option<String>,
     #[serde(default)]
     pub confidence: Option<u8>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-struct RigExtractedEntities {
-    #[serde(default)]
-    entities: Vec<RawExtractedEntity>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-struct RigExtractedRelations {
-    #[serde(default)]
-    relations: Vec<RawExtractedRelation>,
 }
 
 /// Convert raw LLM output to strict core types, dropping entries with missing required fields.
@@ -115,6 +105,97 @@ fn coerce_relations(raw: Vec<RawExtractedRelation>) -> Vec<ExtractedRelation> {
         .collect()
 }
 
+/// Extract a JSON object from raw LLM text that may contain markdown fences or preamble.
+fn extract_json_str(raw: &str) -> &str {
+    let trimmed = raw.trim();
+
+    // Strip markdown code fences
+    if let Some(rest) = trimmed.strip_prefix("```json") {
+        if let Some(inner) = rest.strip_suffix("```") {
+            return inner.trim();
+        }
+    }
+    if let Some(rest) = trimmed.strip_prefix("```") {
+        if let Some(inner) = rest.strip_suffix("```") {
+            return inner.trim();
+        }
+    }
+
+    // Find the first '{' and last '}' to extract the JSON object
+    if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
+        if start < end {
+            return &trimmed[start..=end];
+        }
+    }
+
+    trimmed
+}
+
+/// Parse entities from a JSON string, tolerating nulls at any level.
+fn parse_entities(json_str: &str) -> std::result::Result<Vec<RawExtractedEntity>, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {e}"))?;
+
+    // Try {"entities": [...]} wrapper
+    let arr = if let Some(arr) = value.get("entities").and_then(|v| v.as_array()) {
+        arr.clone()
+    } else if let Some(arr) = value.as_array() {
+        // Bare array
+        arr.clone()
+    } else {
+        return Err(format!(
+            "Expected object with 'entities' array or bare array, got: {}",
+            &json_str[..json_str.len().min(200)]
+        ));
+    };
+
+    // Deserialize each element individually, skipping nulls and failures
+    let entities: Vec<RawExtractedEntity> = arr
+        .into_iter()
+        .filter(|v| !v.is_null())
+        .filter_map(|v| match serde_json::from_value::<RawExtractedEntity>(v.clone()) {
+            Ok(e) => Some(e),
+            Err(e) => {
+                tracing::warn!(error = %e, value = %v, "Skipping malformed entity element");
+                None
+            }
+        })
+        .collect();
+
+    Ok(entities)
+}
+
+/// Parse relations from a JSON string, tolerating nulls at any level.
+fn parse_relations(json_str: &str) -> std::result::Result<Vec<RawExtractedRelation>, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {e}"))?;
+
+    let arr = if let Some(arr) = value.get("relations").and_then(|v| v.as_array()) {
+        arr.clone()
+    } else if let Some(arr) = value.as_array() {
+        arr.clone()
+    } else {
+        return Err(format!(
+            "Expected object with 'relations' array or bare array, got: {}",
+            &json_str[..json_str.len().min(200)]
+        ));
+    };
+
+    let relations: Vec<RawExtractedRelation> = arr
+        .into_iter()
+        .filter(|v| !v.is_null())
+        .filter_map(|v| match serde_json::from_value::<RawExtractedRelation>(v.clone()) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                tracing::warn!(error = %e, value = %v, "Skipping malformed relation element");
+                None
+            }
+        })
+        .collect();
+
+    Ok(relations)
+}
+
 /// Retry configuration for LLM extraction calls.
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
@@ -131,7 +212,7 @@ impl Default for RetryConfig {
     }
 }
 
-/// Rig-backed entity extractor using LLM structured output.
+/// Rig-backed entity extractor using raw prompt + manual JSON parsing.
 pub struct RigEntityExtractor {
     pub system_prompt: String,
     pub model: String,
@@ -175,6 +256,12 @@ impl EntityExtractor for RigEntityExtractor {
             "Starting entity extraction"
         );
 
+        let agent = self
+            .client
+            .agent(&self.model)
+            .preamble(&self.system_prompt)
+            .build();
+
         for attempt in 0..=self.retry_config.max_retries {
             if attempt > 0 {
                 let backoff = self.retry_config.initial_backoff * 4u32.pow(attempt - 1);
@@ -186,20 +273,34 @@ impl EntityExtractor for RigEntityExtractor {
                 tokio::time::sleep(backoff).await;
             }
 
-            let builder = self.client.extractor::<RigExtractedEntities>(&self.model);
-
-            match builder
-                .preamble(&self.system_prompt)
-                .build()
-                .extract(text)
-                .await
-            {
-                Ok(values) => {
-                    tracing::debug!(
-                        raw_count = values.entities.len(),
-                        "Entity extraction raw response"
+            // Get raw text from LLM
+            let raw_response: String = match agent.prompt(text).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(
+                        attempt,
+                        model = %self.model,
+                        error = %e,
+                        "Entity extraction LLM call failed"
                     );
-                    let coerced = coerce_entities(values.entities);
+                    last_err = Some(format!("LLM call failed: {e}"));
+                    continue;
+                }
+            };
+
+            tracing::debug!(
+                attempt,
+                response_len = raw_response.len(),
+                response_preview = %&raw_response[..raw_response.len().min(500)],
+                "Entity extraction raw LLM response"
+            );
+
+            // Parse JSON ourselves with null tolerance
+            let json_str = extract_json_str(&raw_response);
+            match parse_entities(json_str) {
+                Ok(raw_entities) => {
+                    tracing::debug!(raw_count = raw_entities.len(), "Parsed raw entities");
+                    let coerced = coerce_entities(raw_entities);
                     let validated = validate_entities(coerced);
                     return Ok(validated);
                 }
@@ -208,15 +309,15 @@ impl EntityExtractor for RigEntityExtractor {
                         attempt,
                         model = %self.model,
                         error = %e,
-                        error_debug = ?e,
-                        "Entity extraction attempt failed"
+                        response_preview = %&raw_response[..raw_response.len().min(500)],
+                        "Entity extraction JSON parse failed"
                     );
                     last_err = Some(e);
                 }
             }
         }
 
-        let err_msg = last_err.as_ref().map(|e| e.to_string()).unwrap_or_default();
+        let err_msg = last_err.unwrap_or_default();
         tracing::error!(
             model = %self.model,
             attempts = self.retry_config.max_retries + 1,
@@ -233,7 +334,7 @@ impl EntityExtractor for RigEntityExtractor {
     }
 }
 
-/// Rig-backed relation extractor using LLM structured output.
+/// Rig-backed relation extractor using raw prompt + manual JSON parsing.
 pub struct RigRelationExtractor {
     pub system_prompt: String,
     pub model: String,
@@ -282,6 +383,18 @@ impl RelationExtractor for RigRelationExtractor {
             "Starting relation extraction"
         );
 
+        let preamble = [
+            self.system_prompt.clone(),
+            format!("Entities: {}", entity_names.join(", ")),
+        ]
+        .join("\n");
+
+        let agent = self
+            .client
+            .agent(&self.model)
+            .preamble(&preamble)
+            .build();
+
         for attempt in 0..=self.retry_config.max_retries {
             if attempt > 0 {
                 let backoff = self.retry_config.initial_backoff * 4u32.pow(attempt - 1);
@@ -293,21 +406,32 @@ impl RelationExtractor for RigRelationExtractor {
                 tokio::time::sleep(backoff).await;
             }
 
-            let builder = self.client.extractor::<RigExtractedRelations>(&self.model);
-
-            let preamble = [
-                self.system_prompt.clone(),
-                format!("Entities: {}", entity_names.join(", ")),
-            ]
-            .join("\n");
-
-            match builder.preamble(&preamble).build().extract(text).await {
-                Ok(values) => {
-                    tracing::debug!(
-                        raw_count = values.relations.len(),
-                        "Relation extraction raw response"
+            let raw_response: String = match agent.prompt(text).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(
+                        attempt,
+                        model = %self.model,
+                        error = %e,
+                        "Relation extraction LLM call failed"
                     );
-                    let coerced = coerce_relations(values.relations);
+                    last_err = Some(format!("LLM call failed: {e}"));
+                    continue;
+                }
+            };
+
+            tracing::debug!(
+                attempt,
+                response_len = raw_response.len(),
+                response_preview = %&raw_response[..raw_response.len().min(500)],
+                "Relation extraction raw LLM response"
+            );
+
+            let json_str = extract_json_str(&raw_response);
+            match parse_relations(json_str) {
+                Ok(raw_relations) => {
+                    tracing::debug!(raw_count = raw_relations.len(), "Parsed raw relations");
+                    let coerced = coerce_relations(raw_relations);
                     let validated = validate_relations(coerced, &entity_names);
                     return Ok(validated);
                 }
@@ -316,15 +440,15 @@ impl RelationExtractor for RigRelationExtractor {
                         attempt,
                         model = %self.model,
                         error = %e,
-                        error_debug = ?e,
-                        "Relation extraction attempt failed"
+                        response_preview = %&raw_response[..raw_response.len().min(500)],
+                        "Relation extraction JSON parse failed"
                     );
                     last_err = Some(e);
                 }
             }
         }
 
-        let err_msg = last_err.as_ref().map(|e| e.to_string()).unwrap_or_default();
+        let err_msg = last_err.unwrap_or_default();
         tracing::error!(
             model = %self.model,
             attempts = self.retry_config.max_retries + 1,
@@ -507,5 +631,54 @@ mod tests {
         let config = RetryConfig::default();
         assert_eq!(config.max_retries, 3);
         assert_eq!(config.initial_backoff, Duration::from_millis(100));
+    }
+
+    #[test]
+    fn test_extract_json_str_plain() {
+        let input = r#"{"entities": []}"#;
+        assert_eq!(extract_json_str(input), input);
+    }
+
+    #[test]
+    fn test_extract_json_str_markdown_fenced() {
+        let input = "```json\n{\"entities\": []}\n```";
+        assert_eq!(extract_json_str(input), r#"{"entities": []}"#);
+    }
+
+    #[test]
+    fn test_extract_json_str_with_preamble() {
+        let input = "Here are the entities:\n{\"entities\": []}";
+        assert_eq!(extract_json_str(input), r#"{"entities": []}"#);
+    }
+
+    #[test]
+    fn test_parse_entities_with_nulls() {
+        let json = r#"{"entities": [{"name": "Alice", "entity_type": "person", "summary": "A person"}, null, {"name": "Bob", "entity_type": "person", "summary": "Another person"}]}"#;
+        let parsed = parse_entities(json).unwrap();
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].name.as_deref(), Some("Alice"));
+        assert_eq!(parsed[1].name.as_deref(), Some("Bob"));
+    }
+
+    #[test]
+    fn test_parse_entities_bare_array() {
+        let json = r#"[{"name": "Alice", "entity_type": "person", "summary": "A person"}]"#;
+        let parsed = parse_entities(json).unwrap();
+        assert_eq!(parsed.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_entities_null_fields() {
+        let json = r#"{"entities": [{"name": "Alice", "entity_type": null, "summary": null}]}"#;
+        let parsed = parse_entities(json).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert!(parsed[0].entity_type.is_none());
+    }
+
+    #[test]
+    fn test_parse_relations_with_nulls() {
+        let json = r#"{"relations": [null, {"subject": "Alice", "predicate": "works_at", "object": "Acme", "confidence": 90}]}"#;
+        let parsed = parse_relations(json).unwrap();
+        assert_eq!(parsed.len(), 1);
     }
 }

@@ -86,6 +86,8 @@ MCP_TRANSPORT      — stdio (default), http
 MCP_HTTP_PORT      — default 3000
 ```
 
+See [.env.example](.env.example) and [.env.staging.example](.env.staging.example) for a complete list of environment variables.
+
 ## Code Style
 
 - Use `thiserror` for error types (migrating from `anyhow` — see ADR-001 R3)

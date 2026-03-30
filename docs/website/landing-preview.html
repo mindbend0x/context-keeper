@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Context Keeper — Landing Page Preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ck-bg: #0a0a0b;
+  --ck-surface: #1a1a1e;
+  --ck-surface-alt: #131316;
+  --ck-border: #27272a;
+  --ck-border-hover: rgba(251, 146, 60, 0.3);
+  --ck-text-primary: #fafafa;
+  --ck-text-secondary: #a1a1aa;
+  --ck-text-muted: #71717a;
+  --ck-glow: rgba(251, 146, 60, 0.06);
+  --ck-glow-strong: rgba(251, 146, 60, 0.12);
+  --ck-accent: #fb923c;
+  --ck-accent-bg: rgba(251, 146, 60, 0.08);
+  --ck-accent-border: rgba(251, 146, 60, 0.2);
+  --ck-tag-bg: #18181b;
+  --ck-code-bg: rgba(17, 17, 19, 0.8);
+  --ck-grid-line: rgba(251, 146, 60, 0.04);
+  --ck-hero-glow-1: rgba(251, 146, 60, 0.12);
+  --ck-hero-glow-2: rgba(234, 179, 8, 0.06);
+  --ck-gradient-start: #fb923c;
+  --ck-gradient-mid: #f97316;
+  --ck-gradient-end: #eab308;
+  --ck-dot-color: #4ade80;
+  --ck-btn-primary-bg: #f97316;
+  --ck-btn-primary-text: #000000;
+  --ck-btn-primary-hover: #fb923c;
+  --ck-btn-secondary-text: #a1a1aa;
+  --ck-btn-secondary-border: #27272a;
+  --ck-btn-secondary-hover-text: #fafafa;
+  --ck-btn-secondary-hover-border: #71717a;
+  --ck-install-bg: rgba(17, 17, 19, 0.8);
+  --ck-install-border: #27272a;
+  --ck-install-text: #a1a1aa;
+  --ck-stat-border: #1e1e22;
+  --ck-cta-border: #1e1e22;
+  --ck-cta-glow: rgba(251, 146, 60, 0.06);
+  --ck-arrow-bg: #0a0a0b;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--ck-bg);
+  color: var(--ck-text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; text-decoration: none; }
+
+/* ── Navbar ── */
+.navbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  background: rgba(10, 10, 11, 0.85);
+  border-bottom: 1px solid #1e1e22;
+  padding: 0 2rem;
+  height: 60px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.navbar-brand {
+  font-family: var(--font-mono);
+  font-weight: 600; font-size: 0.95rem;
+  letter-spacing: -0.02em; color: var(--ck-text-primary);
+}
+.navbar-links { display: flex; gap: 1.5rem; align-items: center; }
+.navbar-links a {
+  font-size: 0.9rem; color: var(--ck-text-secondary);
+  transition: color 0.15s;
+}
+.navbar-links a:hover { color: var(--ck-accent); }
+
+/* ── Hero ── */
+.hero-landing {
+  position: relative; overflow: hidden;
+  padding: 9rem 2rem 5rem; text-align: center;
+  background: var(--ck-bg);
+}
+.hero-landing::before {
+  content: ''; position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -20%, var(--ck-hero-glow-1) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, var(--ck-hero-glow-2) 0%, transparent 50%);
+  pointer-events: none;
+}
+.hero-landing::after {
+  content: ''; position: absolute; inset: 0;
+  background-image:
+    linear-gradient(var(--ck-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ck-grid-line) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 20%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 20%, transparent 70%);
+  pointer-events: none;
+  animation: grid-drift 20s linear infinite;
+}
+@keyframes grid-drift { 0% { transform: translateY(0); } 100% { transform: translateY(64px); } }
+.hero-landing > * { position: relative; z-index: 1; }
+
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  font-family: var(--font-mono); font-size: 0.78rem;
+  color: var(--ck-accent);
+  background: var(--ck-accent-bg);
+  border: 1px solid var(--ck-accent-border);
+  padding: 0.35rem 1rem; border-radius: 100px;
+  margin-bottom: 1.5rem;
+}
+.dot {
+  width: 6px; height: 6px;
+  background: var(--ck-dot-color);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--ck-dot-color);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.hero-title {
+  font-size: 3.5rem; font-weight: 700;
+  line-height: 1.08; letter-spacing: -0.04em;
+  margin-bottom: 1.25rem; max-width: 800px; margin-left: auto; margin-right: auto;
+}
+.gradient-animated {
+  background: linear-gradient(135deg, var(--ck-gradient-start) 0%, var(--ck-gradient-mid) 25%, var(--ck-gradient-end) 50%, var(--ck-gradient-mid) 75%, var(--ck-gradient-start) 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 4s ease-in-out infinite;
+}
+@keyframes shimmer { 0%, 100% { background-position: 0% center; } 50% { background-position: 200% center; } }
+
+.hero-sub {
+  font-size: 1.2rem; color: var(--ck-text-secondary);
+  max-width: 600px; margin: 0 auto 2.5rem; line-height: 1.6;
+}
+.hero-actions {
+  display: flex; gap: 0.75rem; justify-content: center;
+  flex-wrap: wrap; margin-bottom: 2.5rem;
+}
+.hero-install {
+  max-width: 480px; margin: 0 auto;
+  background: var(--ck-install-bg);
+  border: 1px solid var(--ck-install-border);
+  border-radius: 8px; padding: 0.75rem 1.25rem;
+  font-family: var(--font-mono); font-size: 0.85rem;
+  color: var(--ck-install-text);
+  display: flex; align-items: center; justify-content: center; gap: 0.75rem;
+}
+.hero-install .prompt { color: var(--ck-accent); }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-family: var(--font-mono); font-size: 0.9rem; font-weight: 500;
+  padding: 0.7rem 1.6rem; border-radius: 8px;
+  text-decoration: none; transition: all 0.15s;
+  border: 1px solid transparent; cursor: pointer;
+}
+.btn-primary { background: var(--ck-btn-primary-bg); color: var(--ck-btn-primary-text); }
+.btn-primary:hover { background: var(--ck-btn-primary-hover); }
+.btn-secondary { background: transparent; color: var(--ck-btn-secondary-text); border-color: var(--ck-btn-secondary-border); }
+.btn-secondary:hover { color: var(--ck-btn-secondary-hover-text); border-color: var(--ck-btn-secondary-hover-border); }
+
+/* ── Sections ── */
+.landing-section { max-width: 1200px; margin: 0 auto; padding: 5rem 2rem; }
+.section-label {
+  font-family: var(--font-mono); font-size: 0.75rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--ck-accent); margin-bottom: 0.75rem; text-align: center;
+}
+.section-title {
+  font-size: 1.85rem; font-weight: 700; letter-spacing: -0.03em;
+  text-align: center; margin-bottom: 1rem;
+}
+.section-desc {
+  text-align: center; max-width: 600px; margin: 0 auto 2.5rem;
+  color: var(--ck-text-secondary); font-size: 1.05rem;
+}
+
+/* ── Pipeline ── */
+.pipeline { display: flex; align-items: stretch; gap: 0; margin: 2rem 0; }
+.pipeline-step {
+  flex: 1; text-align: center; padding: 1.5rem 1rem;
+  position: relative; border: 1px solid var(--ck-border);
+  background: var(--ck-surface);
+}
+.pipeline-step:first-child { border-radius: 10px 0 0 10px; }
+.pipeline-step:last-child { border-radius: 0 10px 10px 0; }
+.pipeline-step + .pipeline-step { border-left: none; }
+.step-num {
+  font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600;
+  color: var(--ck-accent); background: var(--ck-accent-bg);
+  width: 28px; height: 28px; display: inline-flex;
+  align-items: center; justify-content: center;
+  border-radius: 50%; margin-bottom: 0.75rem;
+}
+.pipeline-step h4 { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.4rem 0; }
+.pipeline-step p { font-size: 0.82rem; color: var(--ck-text-muted); margin: 0; line-height: 1.4; }
+.pipeline-arrow {
+  position: absolute; right: -9px; top: 50%; transform: translateY(-50%);
+  z-index: 2; width: 18px; height: 18px;
+  background: var(--ck-arrow-bg); border: 1px solid var(--ck-border);
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  color: var(--ck-accent); font-size: 0.6rem;
+}
+
+/* ── Use-case grid ── */
+.usecase-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem; margin: 2rem 0; }
+.usecase-card {
+  background: var(--ck-surface); border: 1px solid var(--ck-border);
+  border-radius: 10px; padding: 1.75rem;
+  transition: border-color 0.2s, box-shadow 0.3s;
+}
+.usecase-card:hover { border-color: var(--ck-border-hover); box-shadow: 0 0 24px var(--ck-glow); }
+.usecase-card .icon { font-size: 1.5rem; margin-bottom: 0.75rem; }
+.usecase-card h3 { font-size: 1rem; font-weight: 600; margin: 0 0 0.5rem 0; }
+.usecase-card p { font-size: 0.9rem; color: var(--ck-text-secondary); margin: 0 0 0.75rem 0; line-height: 1.55; }
+.usecase-tag {
+  font-family: var(--font-mono); font-size: 0.7rem;
+  color: var(--ck-text-muted); background: var(--ck-tag-bg);
+  padding: 0.2rem 0.55rem; border-radius: 4px;
+  display: inline-block; margin-right: 0.25rem;
+}
+
+/* ── Feature grid ── */
+.feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; }
+.feature-card {
+  background: var(--ck-surface); border: 1px solid var(--ck-border);
+  border-radius: 10px; padding: 1.75rem;
+  transition: border-color 0.2s, box-shadow 0.3s, transform 0.2s;
+}
+.feature-card:hover { border-color: var(--ck-border-hover); box-shadow: 0 4px 24px var(--ck-glow); transform: translateY(-2px); }
+.feature-card .icon { font-size: 1.5rem; margin-bottom: 0.75rem; }
+.feature-card h3 { font-size: 1rem; font-weight: 600; margin: 0 0 0.5rem 0; font-family: var(--font-mono); }
+.feature-card p { font-size: 0.9rem; color: var(--ck-text-secondary); margin: 0; line-height: 1.55; }
+
+/* ── Stats ── */
+.stats-row {
+  display: flex; justify-content: center; gap: 3rem;
+  margin: 3rem 0 0; padding: 2rem 0;
+  border-top: 1px solid var(--ck-stat-border); flex-wrap: wrap;
+}
+.stat { text-align: center; }
+.stat-value { font-family: var(--font-mono); font-size: 1.85rem; font-weight: 700; }
+.stat-label { font-size: 0.82rem; color: var(--ck-text-muted); margin-top: 0.2rem; }
+
+/* ── Architecture ── */
+.arch-visual { max-width: 640px; margin: 2.5rem auto; padding: 2rem 1rem; }
+.arch-row { display: flex; justify-content: center; gap: 1.5rem; }
+.arch-connectors { display: flex; justify-content: center; height: 48px; overflow: visible; }
+.arch-connectors svg { max-width: 600px; width: 100%; }
+.arch-node {
+  display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
+  padding: 1.25rem 1.75rem; border-radius: 12px;
+  border: 1px solid var(--ck-border); background: var(--ck-surface);
+  transition: border-color 0.2s, box-shadow 0.3s, transform 0.2s;
+  min-width: 160px; text-align: center;
+}
+.arch-node:hover { border-color: var(--ck-border-hover); box-shadow: 0 4px 20px var(--ck-glow); transform: translateY(-2px); }
+.arch-node-icon { font-size: 1.5rem; margin-bottom: 0.25rem; }
+.arch-node-name { font-family: var(--font-mono); font-size: 0.9rem; font-weight: 600; color: var(--ck-accent); }
+.arch-node-sub { font-size: 0.72rem; color: var(--ck-text-muted); white-space: nowrap; }
+.arch-core { border-color: var(--ck-accent-border); background: var(--ck-accent-bg); min-width: 280px; }
+.arch-core .arch-node-name { font-size: 1rem; }
+
+/* ── Tool cards ── */
+.tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem; margin: 2rem 0; }
+.tool-card {
+  background: var(--ck-surface); border: 1px solid var(--ck-border);
+  border-radius: 10px; padding: 1.5rem;
+  transition: border-color 0.2s, box-shadow 0.3s;
+}
+.tool-card:hover { border-color: var(--ck-border-hover); box-shadow: 0 0 20px var(--ck-glow); }
+.tool-card h3 { font-family: var(--font-mono); font-size: 0.95rem; font-weight: 600; margin: 0 0 0.5rem 0; }
+.tool-card h3::before { content: '$ '; color: var(--ck-accent); opacity: 0.5; }
+.tool-card p { font-size: 0.88rem; color: var(--ck-text-secondary); margin: 0; line-height: 1.5; }
+
+/* ── Quick Start ── */
+.quickstart-code {
+  max-width: 680px; margin: 0 auto; text-align: left;
+}
+.quickstart-code pre {
+  background: var(--ck-surface); border: 1px solid var(--ck-border);
+  border-radius: 10px; padding: 1.5rem; overflow-x: auto;
+  font-family: var(--font-mono); font-size: 0.85rem;
+  color: var(--ck-text-secondary); line-height: 1.6;
+}
+
+/* ── CTA ── */
+.cta-band {
+  text-align: center; padding: 5rem 2rem;
+  border-top: 1px solid var(--ck-cta-border);
+  position: relative; overflow: hidden;
+}
+.cta-band::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse 60% 100% at 50% 100%, var(--ck-cta-glow) 0%, transparent 60%);
+  pointer-events: none;
+}
+.cta-band > * { position: relative; z-index: 1; }
+
+/* ── Footer ── */
+.footer {
+  background: var(--ck-bg); border-top: 1px solid #1e1e22;
+  padding: 3rem 2rem 2rem;
+}
+.footer-grid { display: flex; gap: 4rem; max-width: 1200px; margin: 0 auto; flex-wrap: wrap; }
+.footer-col h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem; }
+.footer-col ul { list-style: none; padding: 0; }
+.footer-col li { margin-bottom: 0.5rem; }
+.footer-col a { font-size: 0.88rem; color: var(--ck-text-secondary); transition: color 0.15s; }
+.footer-col a:hover { color: var(--ck-accent); }
+.footer-copy {
+  max-width: 1200px; margin: 2rem auto 0;
+  padding-top: 1.5rem; border-top: 1px solid #1e1e22;
+  font-size: 0.82rem; color: var(--ck-text-muted); text-align: center;
+}
+
+/* ── Scroll reveal ── */
+.reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.7s ease, transform 0.7s ease; }
+.reveal.visible { opacity: 1; transform: translateY(0); }
+
+/* ── Responsive ── */
+@media (max-width: 900px) { .feature-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) {
+  .feature-grid { grid-template-columns: 1fr; }
+  .usecase-grid { grid-template-columns: 1fr; }
+  .pipeline { flex-direction: column; }
+  .pipeline-step { border-radius: 0 !important; border-left: 1px solid var(--ck-border) !important; }
+  .pipeline-step:first-child { border-radius: 10px 10px 0 0 !important; }
+  .pipeline-step:last-child { border-radius: 0 0 10px 10px !important; }
+  .pipeline-step + .pipeline-step { border-top: none; }
+  .pipeline-arrow { display: none; }
+  .hero-title { font-size: 2.2rem; }
+  .hero-sub { font-size: 1rem; }
+  .hero-actions { flex-direction: column; align-items: center; }
+  .btn { width: 100%; max-width: 320px; justify-content: center; }
+  .arch-row { flex-direction: column; align-items: center; gap: 0.75rem; }
+  .arch-connectors { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar">
+  <span class="navbar-brand">Context Keeper</span>
+  <div class="navbar-links">
+    <a href="#">Docs</a>
+    <a href="https://github.com/0x313/context-keeper" target="_blank">GitHub ↗</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero-landing">
+  <div style="max-width:800px;margin:0 auto">
+    <div class="hero-badge"><span class="dot"></span> Open source · MIT License</div>
+    <h1 class="hero-title">Persistent memory for<br><span class="gradient-animated">AI agents</span></h1>
+    <p class="hero-sub">A temporal knowledge graph that gives MCP-compatible assistants the ability to remember. Entities, relationships, and how they change over time — searchable, snapshotable, and built in Rust.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="#">Get Started</a>
+      <a class="btn btn-secondary" href="https://github.com/0x313/context-keeper" target="_blank">View on GitHub</a>
+    </div>
+    <div class="hero-install">
+      <span class="prompt">$</span>
+      <code>cargo install context-keeper-mcp</code>
+      <span style="font-size:0.7rem;color:var(--ck-text-muted);margin-left:0.25rem">(soon)</span>
+    </div>
+  </div>
+</section>
+
+<!-- Problem -->
+<section class="landing-section reveal" style="padding-bottom:1rem">
+  <div style="max-width:720px;margin:0 auto;text-align:center">
+    <div class="section-label">The Problem</div>
+    <h2 class="section-title">AI assistants forget everything</h2>
+    <p class="section-desc">Every conversation starts from zero. Your agent doesn't know what it learned yesterday, can't track how facts change over time, and has no way to connect related information across sessions. Context windows are a cache, not a memory.</p>
+  </div>
+</section>
+
+<!-- How it works -->
+<section class="landing-section reveal" id="how-it-works">
+  <div class="section-label">How It Works</div>
+  <h2 class="section-title">From text to temporal knowledge graph</h2>
+  <p class="section-desc">Every piece of text your agent ingests becomes structured, searchable knowledge with a timeline.</p>
+  <div class="pipeline">
+    <div class="pipeline-step"><div class="step-num">1</div><h4>Ingest</h4><p>Agent sends text via add_memory. Source is tagged (chat, document, code).</p><div class="pipeline-arrow">→</div></div>
+    <div class="pipeline-step"><div class="step-num">2</div><h4>Extract</h4><p>LLM extracts entities (people, orgs, concepts) and relationships between them.</p><div class="pipeline-arrow">→</div></div>
+    <div class="pipeline-step"><div class="step-num">3</div><h4>Embed</h4><p>Vector embeddings generated for semantic search. BM25 index updated for keywords.</p><div class="pipeline-arrow">→</div></div>
+    <div class="pipeline-step"><div class="step-num">4</div><h4>Store</h4><p>Entities upserted with temporal bounds. Relations merged. Graph evolves over time.</p></div>
+  </div>
+  <div class="section-label" style="margin-top:2.5rem">Then, when the agent needs to remember</div>
+  <div class="pipeline">
+    <div class="pipeline-step"><div class="step-num">A</div><h4>Search</h4><p>Hybrid vector + keyword search fused with Reciprocal Rank Fusion (RRF).</p><div class="pipeline-arrow">→</div></div>
+    <div class="pipeline-step"><div class="step-num">B</div><h4>Expand</h4><p>LLM rewrites the query into semantic variants, each searched independently.</p><div class="pipeline-arrow">→</div></div>
+    <div class="pipeline-step"><div class="step-num">C</div><h4>Traverse</h4><p>Follow entity relationships through the graph. See who connects to what.</p><div class="pipeline-arrow">→</div></div>
+    <div class="pipeline-step"><div class="step-num">D</div><h4>Snapshot</h4><p>Query the graph at any point in time. See what was true last Tuesday.</p></div>
+  </div>
+</section>
+
+<!-- Use Cases -->
+<section class="landing-section reveal" id="use-cases">
+  <div class="section-label">Use Cases</div>
+  <h2 class="section-title">Built for agents that need to remember</h2>
+  <div class="usecase-grid">
+    <div class="usecase-card"><div class="icon">💬</div><h3>Conversational Memory</h3><p>Give your chat agent persistent memory across sessions. It remembers preferences, past decisions, and context without stuffing everything into the prompt.</p><span class="usecase-tag">Claude Desktop</span><span class="usecase-tag">Cursor</span></div>
+    <div class="usecase-card"><div class="icon">📚</div><h3>Knowledge Base for RAG</h3><p>Ingest documents, meeting notes, and wikis into a structured graph. Hybrid search retrieves better context than vector-only RAG.</p><span class="usecase-tag">retrieval-augmented generation</span></div>
+    <div class="usecase-card"><div class="icon">🔍</div><h3>Codebase Intelligence</h3><p>Feed your agent context about your codebase: who owns what, architectural decisions, dependency relationships.</p><span class="usecase-tag">developer tools</span></div>
+    <div class="usecase-card"><div class="icon">⏳</div><h3>Temporal Audit Trail</h3><p>Track how facts change over time. When did Alice move teams? Snapshot any point in time and diff it against the present.</p><span class="usecase-tag">compliance</span><span class="usecase-tag">change tracking</span></div>
+    <div class="usecase-card"><div class="icon">🤖</div><h3>Multi-Agent Shared Memory</h3><p>Run Context Keeper over HTTP and let multiple agents read and write to the same knowledge graph.</p><span class="usecase-tag">HTTP transport</span><span class="usecase-tag">Docker</span></div>
+    <div class="usecase-card"><div class="icon">🧩</div><h3>Personal Knowledge Graph</h3><p>Build a structured map of your notes, contacts, and projects. Search by concept, not just keywords.</p><span class="usecase-tag">personal productivity</span></div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="landing-section reveal" id="features">
+  <div class="section-label">Features</div>
+  <h2 class="section-title">What makes it different</h2>
+  <div class="feature-grid">
+    <div class="feature-card"><div class="icon">🕰️</div><h3>Temporal Knowledge Graph</h3><p>Every entity and relation carries valid_from / valid_until timestamps. Point-in-time snapshots let you query the graph at any moment.</p></div>
+    <div class="feature-card"><div class="icon">🔎</div><h3>Hybrid Search + RRF</h3><p>HNSW vector similarity and BM25 keyword search, fused with Reciprocal Rank Fusion (K=60). LLM-powered query expansion.</p></div>
+    <div class="feature-card"><div class="icon">🔗</div><h3>MCP Native</h3><p>6 tools, browsable entity resources, and 3 prompt templates. Works with Claude Desktop, Cursor, and any MCP-compatible client.</p></div>
+    <div class="feature-card"><div class="icon">⚙️</div><h3>Trait-Based Architecture</h3><p>Core defines pure traits for embedders, extractors, and query rewriters. Swap providers without touching the pipeline.</p></div>
+    <div class="feature-card"><div class="icon">💾</div><h3>SurrealDB All-in-One</h3><p>One database for documents, graph edges, vector indexes, and full-text search. No middleware glue.</p></div>
+    <div class="feature-card"><div class="icon">🐳</div><h3>Ship Anywhere</h3><p>Run as an MCP server (stdio or HTTP), a CLI tool, or a Docker container. RocksDB persistence by default.</p></div>
+  </div>
+  <div class="stats-row">
+    <div class="stat"><div class="stat-value">5</div><div class="stat-label">Rust crates</div></div>
+    <div class="stat"><div class="stat-value">10</div><div class="stat-label">MCP tools</div></div>
+    <div class="stat"><div class="stat-value">35+</div><div class="stat-label">DB operations</div></div>
+    <div class="stat"><div class="stat-value">0</div><div class="stat-label">API keys to test</div></div>
+  </div>
+</section>
+
+<!-- Architecture -->
+<section class="landing-section reveal" id="architecture">
+  <div class="section-label">Architecture</div>
+  <h2 class="section-title">Five-crate Rust workspace</h2>
+  <p class="section-desc">Pure logic in core. LLM integrations in rig. Storage in surreal. CLI and MCP are thin binaries that wire it together.</p>
+  <div class="arch-visual">
+    <div class="arch-row">
+      <div class="arch-node"><span class="arch-node-icon">⌨️</span><span class="arch-node-name">cli</span><span class="arch-node-sub">Developer CLI</span></div>
+      <div class="arch-node"><span class="arch-node-icon">🔌</span><span class="arch-node-name">mcp</span><span class="arch-node-sub">MCP server</span></div>
+    </div>
+    <div class="arch-connectors">
+      <svg width="100%" height="48" viewBox="0 0 600 48" preserveAspectRatio="xMidYMid meet">
+        <line x1="150" y1="0" x2="300" y2="44" stroke="var(--ck-accent)" stroke-width="2" stroke-dasharray="6 4" opacity="0.5"/>
+        <line x1="450" y1="0" x2="300" y2="44" stroke="var(--ck-accent)" stroke-width="2" stroke-dasharray="6 4" opacity="0.5"/>
+      </svg>
+    </div>
+    <div class="arch-row">
+      <div class="arch-node arch-core"><span class="arch-node-icon">⚙️</span><span class="arch-node-name">core</span><span class="arch-node-sub">Models · Pipeline · Search · Traits</span></div>
+    </div>
+    <div class="arch-connectors">
+      <svg width="100%" height="48" viewBox="0 0 600 48" preserveAspectRatio="xMidYMid meet">
+        <line x1="200" y1="4" x2="200" y2="44" stroke="var(--ck-accent)" stroke-width="2" stroke-dasharray="6 4" opacity="0.5"/>
+        <line x1="400" y1="4" x2="400" y2="44" stroke="var(--ck-accent)" stroke-width="2" stroke-dasharray="6 4" opacity="0.5"/>
+      </svg>
+    </div>
+    <div class="arch-row">
+      <div class="arch-node"><span class="arch-node-icon">🧠</span><span class="arch-node-name">rig</span><span class="arch-node-sub">LLM integrations</span></div>
+      <div class="arch-node"><span class="arch-node-icon">💾</span><span class="arch-node-name">surreal</span><span class="arch-node-sub">SurrealDB · 35+ methods</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- MCP Tools -->
+<section class="landing-section reveal" id="mcp-tools">
+  <div class="section-label">MCP Interface</div>
+  <h2 class="section-title">10 tools your agent can call</h2>
+  <div class="tools-grid">
+    <div class="tool-card"><h3>add_memory</h3><p>Ingest text, extract entities and relations, store everything with embeddings. Returns a diff of what changed.</p></div>
+    <div class="tool-card"><h3>search_memory</h3><p>Hybrid vector + keyword search with RRF fusion. Filter by entity type.</p></div>
+    <div class="tool-card"><h3>expand_search</h3><p>LLM rewrites your query into semantic variants, searches each, and merges results.</p></div>
+    <div class="tool-card"><h3>get_entity</h3><p>Look up any entity by name. Get its type, summary, temporal bounds, and relationships.</p></div>
+    <div class="tool-card"><h3>snapshot</h3><p>Point-in-time graph state. Pass a timestamp, get back every entity and relation.</p></div>
+    <div class="tool-card"><h3>list_recent</h3><p>The N most recent memories, ordered by creation time.</p></div>
+    <div class="tool-card"><h3>list_agents</h3><p>See which AI agents have contributed to the graph, with namespaces and episode counts.</p></div>
+    <div class="tool-card"><h3>list_namespaces</h3><p>List all namespaces in the graph with entity counts for multi-tenant visibility.</p></div>
+    <div class="tool-card"><h3>agent_activity</h3><p>Audit a specific agent's recent contributions by agent_id.</p></div>
+    <div class="tool-card"><h3>cross_namespace_search</h3><p>Search across all namespaces globally, ignoring namespace scoping.</p></div>
+  </div>
+  <div style="text-align:center;margin-top:1.5rem">
+    <a class="btn btn-secondary" href="#">Full MCP Reference →</a>
+  </div>
+</section>
+
+<!-- Quick Start -->
+<section class="landing-section reveal" id="quickstart">
+  <div class="section-label">Quick Start</div>
+  <h2 class="section-title">Three commands to memory</h2>
+  <div class="quickstart-code">
+    <pre><code># Install
+cargo install context-keeper-mcp
+
+# Add to your MCP client config (Claude Desktop, Cursor, etc.)
+{
+  "mcpServers": {
+    "context-keeper": {
+      "command": "context-keeper-mcp"
+    }
+  }
+}
+
+# Or test with the CLI
+cargo install context-keeper-cli
+context-keeper add --text "Alice is a senior engineer at Acme Corp"
+context-keeper search --query "Who works at Acme?"</code></pre>
+  </div>
+  <div style="text-align:center;margin-top:1.5rem">
+    <a class="btn btn-primary" href="#">Full Getting Started Guide →</a>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-band reveal">
+  <h2 class="section-title">Ready to give your agent a memory?</h2>
+  <p class="section-desc" style="margin-bottom:1.5rem">Open source. Rust-fast. Drop it into any MCP client.</p>
+  <div class="hero-actions">
+    <a class="btn btn-primary" href="#">Get Started</a>
+    <a class="btn btn-secondary" href="https://github.com/0x313/context-keeper" target="_blank">Star on GitHub</a>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="footer-grid">
+    <div class="footer-col">
+      <h4>Docs</h4>
+      <ul><li><a href="#">Getting Started</a></li><li><a href="#">Architecture</a></li><li><a href="#">MCP Reference</a></li></ul>
+    </div>
+    <div class="footer-col">
+      <h4>Reference</h4>
+      <ul><li><a href="#">CLI</a></li><li><a href="#">Configuration</a></li><li><a href="#">ADR-001</a></li></ul>
+    </div>
+    <div class="footer-col">
+      <h4>Community</h4>
+      <ul><li><a href="https://github.com/0x313/context-keeper" target="_blank">GitHub ↗</a></li><li><a href="#">Contributing</a></li></ul>
+    </div>
+  </div>
+  <div class="footer-copy">Copyright © 2026 Context Keeper Contributors. MIT License.</div>
+</footer>
+
+<script>
+// Scroll reveal
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+}, { threshold: 0.08 });
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>
