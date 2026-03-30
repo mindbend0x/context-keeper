@@ -168,6 +168,13 @@ impl EntityExtractor for RigEntityExtractor {
     async fn extract_entities(&self, text: &str) -> Result<Vec<ExtractedEntity>> {
         let mut last_err = None;
 
+        tracing::debug!(
+            model = %self.model,
+            text_len = text.len(),
+            text_preview = %&text[..text.len().min(200)],
+            "Starting entity extraction"
+        );
+
         for attempt in 0..=self.retry_config.max_retries {
             if attempt > 0 {
                 let backoff = self.retry_config.initial_backoff * 4u32.pow(attempt - 1);
@@ -188,21 +195,40 @@ impl EntityExtractor for RigEntityExtractor {
                 .await
             {
                 Ok(values) => {
+                    tracing::debug!(
+                        raw_count = values.entities.len(),
+                        "Entity extraction raw response"
+                    );
                     let coerced = coerce_entities(values.entities);
                     let validated = validate_entities(coerced);
                     return Ok(validated);
                 }
                 Err(e) => {
-                    tracing::warn!(attempt, error = %e, "Entity extraction attempt failed");
+                    tracing::warn!(
+                        attempt,
+                        model = %self.model,
+                        error = %e,
+                        error_debug = ?e,
+                        "Entity extraction attempt failed"
+                    );
                     last_err = Some(e);
                 }
             }
         }
 
+        let err_msg = last_err.as_ref().map(|e| e.to_string()).unwrap_or_default();
+        tracing::error!(
+            model = %self.model,
+            attempts = self.retry_config.max_retries + 1,
+            last_error = %err_msg,
+            text_len = text.len(),
+            "Entity extraction exhausted all retries"
+        );
+
         Err(ContextKeeperError::ExtractionFailed(format!(
             "entity extraction failed after {} attempts: {}",
             self.retry_config.max_retries + 1,
-            last_err.map(|e| e.to_string()).unwrap_or_default()
+            err_msg
         )))
     }
 }
@@ -249,6 +275,13 @@ impl RelationExtractor for RigRelationExtractor {
         let entity_names: Vec<String> = entities.iter().map(|e| e.name.clone()).collect();
         let mut last_err = None;
 
+        tracing::debug!(
+            model = %self.model,
+            entity_count = entities.len(),
+            entities = ?entity_names,
+            "Starting relation extraction"
+        );
+
         for attempt in 0..=self.retry_config.max_retries {
             if attempt > 0 {
                 let backoff = self.retry_config.initial_backoff * 4u32.pow(attempt - 1);
@@ -270,21 +303,40 @@ impl RelationExtractor for RigRelationExtractor {
 
             match builder.preamble(&preamble).build().extract(text).await {
                 Ok(values) => {
+                    tracing::debug!(
+                        raw_count = values.relations.len(),
+                        "Relation extraction raw response"
+                    );
                     let coerced = coerce_relations(values.relations);
                     let validated = validate_relations(coerced, &entity_names);
                     return Ok(validated);
                 }
                 Err(e) => {
-                    tracing::warn!(attempt, error = %e, "Relation extraction attempt failed");
+                    tracing::warn!(
+                        attempt,
+                        model = %self.model,
+                        error = %e,
+                        error_debug = ?e,
+                        "Relation extraction attempt failed"
+                    );
                     last_err = Some(e);
                 }
             }
         }
 
+        let err_msg = last_err.as_ref().map(|e| e.to_string()).unwrap_or_default();
+        tracing::error!(
+            model = %self.model,
+            attempts = self.retry_config.max_retries + 1,
+            last_error = %err_msg,
+            entity_count = entities.len(),
+            "Relation extraction exhausted all retries"
+        );
+
         Err(ContextKeeperError::ExtractionFailed(format!(
             "relation extraction failed after {} attempts: {}",
             self.retry_config.max_retries + 1,
-            last_err.map(|e| e.to_string()).unwrap_or_default()
+            err_msg
         )))
     }
 }
