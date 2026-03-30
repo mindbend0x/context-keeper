@@ -7,10 +7,10 @@ const config: Config = {
   tagline: "Persistent memory for AI agents",
   favicon: "img/favicon.ico",
 
-  url: "https://contextkeeper.dev",
-  baseUrl: "/",
+  url: "https://mindbend0x.github.io",
+  baseUrl: "/context-keeper/",
 
-  organizationName: "0x313",
+  organizationName: "mindbend0x",
   projectName: "context-keeper",
 
   onBrokenLinks: "throw",
