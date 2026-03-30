@@ -68,6 +68,14 @@ struct Cli {
     #[arg(long, env = "CK_AGENT_ID", global = true)]
     agent_id: Option<String>,
 
+    /// SurrealDB root username (for remote connections)
+    #[arg(long, env = "SURREAL_USER", global = true)]
+    surreal_user: Option<String>,
+
+    /// SurrealDB root password (for remote connections)
+    #[arg(long, env = "SURREAL_PASS", global = true)]
+    surreal_pass: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -124,6 +132,8 @@ async fn main() -> Result<()> {
     let config = SurrealConfig {
         embedding_dimensions: embedding_dims,
         storage: parse_storage_backend(&cli.storage),
+        username: cli.surreal_user,
+        password: cli.surreal_pass,
         ..SurrealConfig::default()
     };
 

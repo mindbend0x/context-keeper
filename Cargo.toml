@@ -5,6 +5,7 @@ members = [
     "crates/context-keeper-surreal",
     "crates/context-keeper-mcp",
     "crates/context-keeper-cli",
+    "crates/context-keeper-bench",
     "test",
 ]
 resolver = "2"

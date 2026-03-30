@@ -16,6 +16,7 @@ COPY crates/context-keeper-surreal/Cargo.toml crates/context-keeper-surreal/Carg
 COPY crates/context-keeper-mcp/Cargo.toml crates/context-keeper-mcp/Cargo.toml
 COPY crates/context-keeper-cli/Cargo.toml crates/context-keeper-cli/Cargo.toml
 COPY test/Cargo.toml test/Cargo.toml
+COPY crates/context-keeper-bench/Cargo.toml crates/context-keeper-bench/Cargo.toml
 
 # Create stub source files so cargo can resolve the workspace
 RUN mkdir -p crates/context-keeper-core/src && echo "" > crates/context-keeper-core/src/lib.rs \
@@ -23,6 +24,9 @@ RUN mkdir -p crates/context-keeper-core/src && echo "" > crates/context-keeper-c
     && mkdir -p crates/context-keeper-surreal/src && echo "" > crates/context-keeper-surreal/src/lib.rs \
     && mkdir -p crates/context-keeper-mcp/src && echo "fn main() {}" > crates/context-keeper-mcp/src/main.rs \
     && mkdir -p crates/context-keeper-cli/src && echo "fn main() {}" > crates/context-keeper-cli/src/main.rs \
+    && mkdir -p crates/context-keeper-bench/src && echo "" > crates/context-keeper-bench/src/lib.rs \
+    && mkdir -p crates/context-keeper-bench/benches && echo "fn main() {}" > crates/context-keeper-bench/benches/ingestion.rs \
+    && echo "fn main() {}" > crates/context-keeper-bench/benches/search.rs \
     && mkdir -p test/src && echo "" > test/src/lib.rs
 
 # Pre-build dependencies (cached layer)

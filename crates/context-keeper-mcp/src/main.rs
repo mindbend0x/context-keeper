@@ -72,6 +72,14 @@ struct Cli {
     /// Comma-separated list of valid bearer tokens for HTTP auth. Empty = no auth.
     #[arg(long, env = "MCP_AUTH_TOKENS")]
     auth_tokens: Option<String>,
+
+    /// SurrealDB root username (for remote connections)
+    #[arg(long, env = "SURREAL_USER")]
+    surreal_user: Option<String>,
+
+    /// SurrealDB root password (for remote connections)
+    #[arg(long, env = "SURREAL_PASS")]
+    surreal_pass: Option<String>,
 }
 
 fn parse_storage_backend(s: &str) -> StorageBackend {
@@ -122,6 +130,8 @@ async fn main() -> Result<()> {
     let config = SurrealConfig {
         embedding_dimensions: embedding_dims,
         storage: parse_storage_backend(&cli.storage),
+        username: cli.surreal_user,
+        password: cli.surreal_pass,
         ..SurrealConfig::default()
     };
 

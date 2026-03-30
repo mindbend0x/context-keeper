@@ -2,6 +2,7 @@ use context_keeper_core::error::Result;
 use context_keeper_core::models::DistanceMetric;
 use context_keeper_core::ContextKeeperError;
 use surrealdb::engine::any::Any;
+use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
 
 /// Storage backend for SurrealDB.
@@ -21,6 +22,9 @@ pub struct SurrealConfig {
     pub embedding_dimensions: usize,
     pub distance_metric: DistanceMetric,
     pub storage: StorageBackend,
+    /// Root credentials for remote connections (optional for embedded).
+    pub username: Option<String>,
+    pub password: Option<String>,
 }
 
 impl Default for SurrealConfig {
@@ -31,6 +35,8 @@ impl Default for SurrealConfig {
             embedding_dimensions: 1536,
             distance_metric: DistanceMetric::default(),
             storage: StorageBackend::Memory,
+            username: None,
+            password: None,
         }
     }
 }
@@ -57,6 +63,21 @@ pub async fn connect(config: &SurrealConfig) -> Result<Surreal<Any>> {
     let db = surrealdb::engine::any::connect(&endpoint)
         .await
         .map_err(|e| ContextKeeperError::StorageError(e.to_string()))?;
+
+    // Authenticate for remote connections
+    if matches!(&config.storage, StorageBackend::Remote(_)) {
+        if let (Some(user), Some(pass)) = (&config.username, &config.password) {
+            tracing::info!("Authenticating with root credentials");
+            db.signin(Root {
+                username: user.to_string(),
+                password: pass.to_string(),
+            })
+            .await
+            .map_err(|e| ContextKeeperError::StorageError(format!("Authentication failed: {}", e)))?;
+        } else {
+            tracing::warn!("Remote connection without credentials — anonymous access may be denied");
+        }
+    }
 
     db.use_ns(&config.namespace)
         .use_db(&config.database)
