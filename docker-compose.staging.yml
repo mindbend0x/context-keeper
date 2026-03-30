@@ -1,0 +1,78 @@
+# =============================================================================
+# docker-compose.staging.yml — Staging deployment for Hetzner devbox
+#
+# Runs the full stack: SurrealDB (standalone) + Context Keeper MCP server.
+# Uses the remote storage backend so SurrealDB data persists independently.
+#
+# Usage:
+#   docker compose -f docker-compose.staging.yml up -d
+#   docker compose -f docker-compose.staging.yml logs -f
+#   docker compose -f docker-compose.staging.yml down
+# =============================================================================
+
+services:
+  # ── SurrealDB ──────────────────────────────────────────────────────────────
+  surrealdb:
+    image: surrealdb/surrealdb:v3
+    user: "0"
+    command: start --user root --pass root rocksdb:/data/srdb
+    volumes:
+      - surrealdb-data:/data
+    ports:
+      - "127.0.0.1:8000:8000"   # Only expose locally — MCP server connects internally
+    restart: unless-stopped
+
+  # ── Context Keeper MCP Server ──────────────────────────────────────────────
+  context-keeper-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "0.0.0.0:3000:3000"     # Publicly accessible MCP HTTP endpoint
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Connect to the standalone SurrealDB via WebSocket
+      STORAGE_BACKEND: "remote:ws://surrealdb:8000"
+      # MCP transport
+      MCP_TRANSPORT: "http"
+      MCP_HTTP_PORT: "3000"
+      # LLM configuration — from .env, with fallback defaults
+      OPENAI_API_URL: "${OPENAI_API_URL:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
+      EMBEDDING_DIMS: "${EMBEDDING_DIMS:-1536}"
+      EXTRACTION_MODEL: "${EXTRACTION_MODEL:-gpt-4o-mini}"
+      # Optional: separate endpoint for embeddings (falls back to OPENAI_API_URL/KEY)
+      EMBEDDING_API_URL: "${EMBEDDING_API_URL:-}"
+      EMBEDDING_API_KEY: "${EMBEDDING_API_KEY:-}"
+      # Auth
+      MCP_AUTH_TOKENS: "${MCP_AUTH_TOKENS:-}"
+      # SurrealDB auth (must match --user/--pass on surrealdb service)
+      SURREAL_USER: "root"
+      SURREAL_PASS: "root"
+    depends_on:
+      - surrealdb
+    restart: unless-stopped
+
+  # ── Devbox MCP Server (remote access for Cowork/Claude sessions) ─────────
+  devbox-mcp:
+    build:
+      context: ./devbox-mcp
+      dockerfile: Dockerfile
+    ports:
+      - "0.0.0.0:4000:4000"
+    environment:
+      DEVBOX_MCP_PORT: "4000"
+    volumes:
+      # Mount Docker socket so it can manage containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount the app directory so it can read/write project files
+      - /opt/context-keeper:/opt/context-keeper
+      # Mount logs for debugging
+      - /var/log:/var/log:ro
+    restart: unless-stopped
+
+volumes:
+  surrealdb-data:

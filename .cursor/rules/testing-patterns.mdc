@@ -1,0 +1,47 @@
+---
+description: Testing conventions for Context Keeper
+globs: test/**/*.rs
+alwaysApply: false
+---
+
+# Testing Patterns
+
+## Integration Test Structure
+
+Tests live in `test/tests/`. Each file covers one domain:
+
+| File | Domain |
+|------|--------|
+| `extraction.rs` | Entity/relation extraction pipeline |
+| `search.rs` | Hybrid search and RRF fusion |
+| `storage.rs` | Repository CRUD operations |
+| `temporal.rs` | Point-in-time queries, invalidation |
+| `end_to_end.rs` | Full ingest → search round-trips |
+| `multi_agent.rs` | Multi-agent and namespace isolation |
+
+## Test Setup
+
+Every integration test creates an in-memory SurrealDB instance:
+
+```rust
+let config = SurrealConfig { storage: StorageBackend::Memory, ..Default::default() };
+let db = connect(&config).await?;
+apply_schema(&db, &config).await?;
+let repo = Repository::new(db);
+```
+
+Use `MockEmbedder`, `MockEntityExtractor`, `MockRelationExtractor` from core — no API keys needed.
+
+## Assertions
+
+- Search result order: assert the expected entity appears in top-N, not exact position
+- Entity counts: use exact assertions after controlled ingestion
+- Temporal: assert `valid_until` is `Some` after invalidation, `None` for active entities
+
+## Running
+
+```bash
+cargo test                         # All workspace tests
+cargo test -p context-keeper-test  # Integration tests only
+cargo test -p context-keeper-core  # Unit tests in core
+```

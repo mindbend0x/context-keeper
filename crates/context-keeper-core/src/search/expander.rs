@@ -1,5 +1,5 @@
+use crate::error::Result;
 use crate::traits::QueryRewriter;
-use anyhow::Result;
 
 /// Expands search queries to improve recall when initial results are sparse.
 ///
@@ -19,11 +19,7 @@ impl QueryExpander {
     }
 
     /// Generate expanded query variants using the rewriter.
-    pub async fn expand(
-        &self,
-        query: &str,
-        rewriter: &dyn QueryRewriter,
-    ) -> Result<Vec<String>> {
+    pub async fn expand(&self, query: &str, rewriter: &dyn QueryRewriter) -> Result<Vec<String>> {
         tracing::info!(query, "Expanding search query");
         let variants = rewriter.rewrite(query).await?;
         tracing::info!(count = variants.len(), "Generated query variants");

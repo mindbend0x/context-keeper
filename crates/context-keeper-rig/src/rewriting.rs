@@ -3,9 +3,10 @@
 //! Implements the core `QueryRewriter` trait using Rig's LLM completions
 //! to generate semantic variants of a search query.
 
-use anyhow::Result;
 use async_trait::async_trait;
+use context_keeper_core::error::Result;
 use context_keeper_core::traits::QueryRewriter;
+use context_keeper_core::ContextKeeperError;
 use rig::providers::openai;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -50,7 +51,8 @@ impl QueryRewriter for RigQueryRewriter {
             .preamble(QUERY_REWRITE_PROMPT)
             .build()
             .extract(query)
-            .await?;
+            .await
+            .map_err(|e| ContextKeeperError::ExtractionFailed(e.to_string()))?;
 
         Ok(result.variants)
     }

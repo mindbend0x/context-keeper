@@ -1,6 +1,8 @@
-use anyhow::Result;
+use context_keeper_core::error::Result;
 use context_keeper_core::models::DistanceMetric;
-use surrealdb::engine::local::{Db, Mem, RocksDb};
+use context_keeper_core::ContextKeeperError;
+use surrealdb::engine::any::Any;
+use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
 
 /// Storage backend for SurrealDB.
@@ -9,9 +11,6 @@ pub enum StorageBackend {
     Memory,
     RocksDb(String),
     /// Remote SurrealDB server via WebSocket (e.g. `ws://localhost:8000`).
-    /// Requires the `protocol-ws` feature on the `surrealdb` crate and a
-    /// refactor of Repository to use `Surreal<Any>`. Currently unimplemented;
-    /// use RocksDb with a Docker volume for containerized deployments.
     Remote(String),
 }
 
@@ -23,6 +22,9 @@ pub struct SurrealConfig {
     pub embedding_dimensions: usize,
     pub distance_metric: DistanceMetric,
     pub storage: StorageBackend,
+    /// Root credentials for remote connections (optional for embedded).
+    pub username: Option<String>,
+    pub password: Option<String>,
 }
 
 impl Default for SurrealConfig {
@@ -33,35 +35,54 @@ impl Default for SurrealConfig {
             embedding_dimensions: 1536,
             distance_metric: DistanceMetric::default(),
             storage: StorageBackend::Memory,
+            username: None,
+            password: None,
         }
     }
 }
 
 /// Connect to SurrealDB using the configured storage backend.
-pub async fn connect(config: &SurrealConfig) -> Result<Surreal<Db>> {
-    let db = match &config.storage {
+///
+/// Supports in-memory, RocksDB, and remote WebSocket connections via `Surreal<Any>`.
+pub async fn connect(config: &SurrealConfig) -> Result<Surreal<Any>> {
+    let endpoint = match &config.storage {
         StorageBackend::Memory => {
             tracing::info!("Connecting to in-memory SurrealDB");
-            Surreal::new::<Mem>(()).await?
+            "mem://".to_string()
         }
         StorageBackend::RocksDb(path) => {
             tracing::info!(path = %path, "Connecting to RocksDB SurrealDB");
-            Surreal::new::<RocksDb>(path.as_str()).await?
+            format!("rocksdb:{}", path)
         }
         StorageBackend::Remote(url) => {
-            // Remote connections require refactoring Repository to use Surreal<Any>
-            // instead of Surreal<Db>. For now, use RocksDb with a Docker volume.
-            anyhow::bail!(
-                "Remote storage backend ({}) is not yet implemented. \
-                 Use 'rocksdb:<path>' with a Docker volume for containerized deployments.",
-                url
-            );
+            tracing::info!(url = %url, "Connecting to remote SurrealDB");
+            url.clone()
         }
     };
 
+    let db = surrealdb::engine::any::connect(&endpoint)
+        .await
+        .map_err(|e| ContextKeeperError::StorageError(e.to_string()))?;
+
+    // Authenticate for remote connections
+    if matches!(&config.storage, StorageBackend::Remote(_)) {
+        if let (Some(user), Some(pass)) = (&config.username, &config.password) {
+            tracing::info!("Authenticating with root credentials");
+            db.signin(Root {
+                username: user.to_string(),
+                password: pass.to_string(),
+            })
+            .await
+            .map_err(|e| ContextKeeperError::StorageError(format!("Authentication failed: {}", e)))?;
+        } else {
+            tracing::warn!("Remote connection without credentials — anonymous access may be denied");
+        }
+    }
+
     db.use_ns(&config.namespace)
         .use_db(&config.database)
-        .await?;
+        .await
+        .map_err(|e| ContextKeeperError::StorageError(e.to_string()))?;
 
     tracing::info!(
         ns = %config.namespace,
@@ -72,11 +93,14 @@ pub async fn connect(config: &SurrealConfig) -> Result<Surreal<Db>> {
 }
 
 /// Create an embedded in-memory SurrealDB instance (convenience wrapper).
-pub async fn connect_memory(config: &SurrealConfig) -> Result<Surreal<Db>> {
-    let db = Surreal::new::<Mem>(()).await?;
+pub async fn connect_memory(config: &SurrealConfig) -> Result<Surreal<Any>> {
+    let db = surrealdb::engine::any::connect("mem://")
+        .await
+        .map_err(|e| ContextKeeperError::StorageError(e.to_string()))?;
     db.use_ns(&config.namespace)
         .use_db(&config.database)
-        .await?;
+        .await
+        .map_err(|e| ContextKeeperError::StorageError(e.to_string()))?;
     tracing::info!(
         ns = %config.namespace,
         db = %config.database,

@@ -8,22 +8,29 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use context_keeper_core::{
     ingestion,
-    models::Episode,
+    models::{AgentInfo, Episode},
     search::{fuse_rrf, QueryExpander},
     traits::{Embedder, EntityExtractor, EntityResolver, QueryRewriter, RelationExtractor},
+    ContextKeeperError,
 };
 use context_keeper_surreal::Repository;
 use rmcp::{
-    handler::server::{
-        router::tool::ToolRouter,
-        wrapper::Parameters,
-    },
-    model::*, schemars, tool, tool_handler, tool_router,
-    ErrorData as McpError, RoleServer, ServerHandler,
+    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    model::*,
+    schemars,
     service::RequestContext,
+    tool, tool_handler, tool_router, ErrorData as McpError, RoleServer, ServerHandler,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+fn to_mcp(err: ContextKeeperError) -> McpError {
+    match err {
+        ContextKeeperError::EntityNotFound(msg) => McpError::resource_not_found(msg, None),
+        ContextKeeperError::ValidationError(msg) => McpError::invalid_params(msg, None),
+        other => McpError::internal_error(other.to_string(), None),
+    }
+}
 
 // ── Input schemas ────────────────────────────────────────────────────────
 
@@ -33,6 +40,14 @@ pub struct AddMemoryInput {
     pub text: String,
     #[schemars(description = "Source label for the episode (e.g. 'chat', 'document')")]
     pub source: Option<String>,
+    #[schemars(
+        description = "Namespace to scope this memory to (e.g. 'project-alpha'). Omit for the default global namespace."
+    )]
+    pub namespace: Option<String>,
+    #[schemars(description = "Identifier of the agent adding this memory (e.g. 'cursor-agent-1')")]
+    pub agent_id: Option<String>,
+    #[schemars(description = "Human-readable name of the agent")]
+    pub agent_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -41,8 +56,12 @@ pub struct SearchMemoryInput {
     pub query: String,
     #[schemars(description = "Maximum number of results to return (default: 5)")]
     pub limit: Option<usize>,
-    #[schemars(description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other")]
+    #[schemars(
+        description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other"
+    )]
     pub entity_type: Option<String>,
+    #[schemars(description = "Namespace to search within. Omit to search all namespaces.")]
+    pub namespace: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -51,19 +70,27 @@ pub struct ExpandSearchInput {
     pub query: String,
     #[schemars(description = "Maximum number of results to return (default: 10)")]
     pub limit: Option<usize>,
-    #[schemars(description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other")]
+    #[schemars(
+        description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other"
+    )]
     pub entity_type: Option<String>,
+    #[schemars(description = "Namespace to search within. Omit to search all namespaces.")]
+    pub namespace: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetEntityInput {
     #[schemars(description = "The exact name of the entity to look up")]
     pub name: String,
+    #[schemars(description = "Namespace to look up in. Omit to search all namespaces.")]
+    pub namespace: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SnapshotInput {
-    #[schemars(description = "ISO 8601 timestamp for the point-in-time snapshot (e.g. '2025-01-15T12:00:00Z')")]
+    #[schemars(
+        description = "ISO 8601 timestamp for the point-in-time snapshot (e.g. '2025-01-15T12:00:00Z')"
+    )]
     pub timestamp: String,
 }
 
@@ -71,6 +98,26 @@ pub struct SnapshotInput {
 pub struct ListRecentInput {
     #[schemars(description = "Maximum number of recent memories to return (default: 10)")]
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AgentActivityInput {
+    #[schemars(description = "The agent_id to look up activity for")]
+    pub agent_id: String,
+    #[schemars(description = "Maximum number of recent episodes to return (default: 20)")]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CrossNamespaceSearchInput {
+    #[schemars(description = "The search query string")]
+    pub query: String,
+    #[schemars(description = "Maximum number of results to return (default: 10)")]
+    pub limit: Option<usize>,
+    #[schemars(
+        description = "Filter by entity type: person, organization, location, event, product, service, concept, file, other"
+    )]
+    pub entity_type: Option<String>,
 }
 
 // ── Serializable response types ──────────────────────────────────────────
@@ -83,6 +130,7 @@ struct AddMemoryResponse {
     relations_created: usize,
     relations_merged: usize,
     relations_pruned: usize,
+    relations_invalidated: usize,
     memories_created: usize,
     entity_names: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -187,17 +235,26 @@ impl ContextKeeperServer {
     /// Ingest a piece of text into the knowledge graph. Extracts entities and
     /// relations via LLM, generates embeddings, and stores everything in the
     /// graph database.
-    #[tool(description = "Add a memory to the knowledge graph. Ingests text, extracts entities and relations, and stores everything with embeddings for later retrieval. Returns a diff of what was created, updated, or invalidated.")]
+    #[tool(
+        description = "Add a memory to the knowledge graph. Ingests text, extracts entities and relations, and stores everything with embeddings for later retrieval. Returns a diff of what was created, updated, or invalidated."
+    )]
     async fn add_memory(
         &self,
         Parameters(input): Parameters<AddMemoryInput>,
     ) -> Result<String, McpError> {
         let source = input.source.unwrap_or_else(|| "mcp".to_string());
+        let agent = input.agent_id.map(|id| AgentInfo {
+            agent_id: id,
+            agent_name: input.agent_name,
+            machine_id: None,
+        });
         let episode = Episode {
             id: Uuid::new_v4(),
             content: input.text,
             source,
             session_id: None,
+            agent,
+            namespace: input.namespace,
             created_at: Utc::now(),
         };
 
@@ -211,57 +268,39 @@ impl ContextKeeperServer {
             None,
         )
         .await
-        .map_err(|e| McpError::internal_error(format!("Ingestion failed: {e}"), None))?;
+        .map_err(to_mcp)?;
 
-        // Invalidate entities that had contradictions
         for inv in &result.diff.entities_invalidated {
-            let existing = self
-                .repo
-                .find_entities_by_name(&inv.name)
+            self.repo
+                .invalidate_entity(inv.invalidated_id)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Entity lookup failed: {e}"), None))?;
-            for entity in existing {
-                self.repo
-                    .invalidate_entity(entity.id)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(
-                            format!("Failed to invalidate entity: {e}"),
-                            None,
-                        )
-                    })?;
-            }
+                .map_err(to_mcp)?;
         }
 
-        // Persist everything
-        self.repo
-            .create_episode(&episode)
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to create episode: {e}"), None))?;
+        let mut relations_invalidated = 0usize;
+        for entity_id in &result.diff.entity_ids_to_invalidate_relations {
+            relations_invalidated += self
+                .repo
+                .invalidate_relations_for_entity(*entity_id)
+                .await
+                .map_err(to_mcp)?;
+        }
+
+        self.repo.create_episode(&episode).await.map_err(to_mcp)?;
 
         for entity in &result.entities {
-            self.repo
-                .upsert_entity(entity)
-                .await
-                .map_err(|e| McpError::internal_error(format!("Failed to upsert entity: {e}"), None))?;
+            self.repo.upsert_entity(entity).await.map_err(to_mcp)?;
         }
 
         let mut relations_merged = 0usize;
         for relation in &result.relations {
-            let created = self
-                .repo
-                .create_relation(relation)
-                .await
-                .map_err(|e| McpError::internal_error(format!("Failed to create relation: {e}"), None))?;
+            let created = self.repo.create_relation(relation).await.map_err(to_mcp)?;
             if !created {
                 relations_merged += 1;
             }
         }
         for memory in &result.memories {
-            self.repo
-                .create_memory(memory)
-                .await
-                .map_err(|e| McpError::internal_error(format!("Failed to create memory: {e}"), None))?;
+            self.repo.create_memory(memory).await.map_err(to_mcp)?;
         }
 
         let response = AddMemoryResponse {
@@ -271,6 +310,7 @@ impl ContextKeeperServer {
             relations_created: result.diff.relations_created,
             relations_merged,
             relations_pruned: result.diff.relations_pruned,
+            relations_invalidated,
             memories_created: result.memories.len(),
             entity_names: result.entities.iter().map(|e| e.name.clone()).collect(),
             updates: result
@@ -300,31 +340,30 @@ impl ContextKeeperServer {
 
     /// Search the knowledge graph using hybrid vector + keyword search with
     /// Reciprocal Rank Fusion.
-    #[tool(description = "Search memories and entities in the knowledge graph using hybrid vector similarity and BM25 keyword search, fused with Reciprocal Rank Fusion. Optionally filter by entity_type.")]
+    #[tool(
+        description = "Search memories and entities in the knowledge graph using hybrid vector similarity and BM25 keyword search, fused with Reciprocal Rank Fusion. Optionally filter by entity_type."
+    )]
     async fn search_memory(
         &self,
         Parameters(input): Parameters<SearchMemoryInput>,
     ) -> Result<String, McpError> {
         let limit = input.limit.unwrap_or(5);
         let type_filter = input.entity_type.as_deref();
+        let ns = input.namespace.as_deref();
 
-        let query_embedding = self
-            .embedder
-            .embed(&input.query)
-            .await
-            .map_err(|e| McpError::internal_error(format!("Embedding failed: {e}"), None))?;
+        let query_embedding = self.embedder.embed(&input.query).await.map_err(to_mcp)?;
 
         let vector_results = self
             .repo
-            .search_entities_by_vector(&query_embedding, limit, type_filter)
+            .search_entities_by_vector(&query_embedding, limit, type_filter, ns)
             .await
-            .map_err(|e| McpError::internal_error(format!("Vector search failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let keyword_results = self
             .repo
-            .search_entities_by_keyword(&input.query, type_filter)
+            .search_entities_by_keyword(&input.query, type_filter, ns)
             .await
-            .map_err(|e| McpError::internal_error(format!("Keyword search failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let fused = fuse_rrf(vec![
             vector_results.into_iter().map(|(e, _)| e).collect(),
@@ -350,39 +389,38 @@ impl ContextKeeperServer {
 
     /// Run query expansion to improve recall when initial search results are
     /// sparse. Generates semantic variants of the query and searches each.
-    #[tool(description = "Expand a search query into semantic variants using LLM rewriting, then search each variant and merge results with RRF for improved recall. Optionally filter by entity_type.")]
+    #[tool(
+        description = "Expand a search query into semantic variants using LLM rewriting, then search each variant and merge results with RRF for improved recall. Optionally filter by entity_type."
+    )]
     async fn expand_search(
         &self,
         Parameters(input): Parameters<ExpandSearchInput>,
     ) -> Result<String, McpError> {
         let limit = input.limit.unwrap_or(10);
         let type_filter = input.entity_type.as_deref();
+        let ns = input.namespace.as_deref();
         let expander = QueryExpander::new(3);
 
         let variants = expander
             .expand(&input.query, self.query_rewriter.as_ref())
             .await
-            .map_err(|e| McpError::internal_error(format!("Query expansion failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let mut ranked_lists = Vec::new();
         for variant in &variants {
-            let query_embedding = self
-                .embedder
-                .embed(variant)
-                .await
-                .map_err(|e| McpError::internal_error(format!("Embedding failed: {e}"), None))?;
+            let query_embedding = self.embedder.embed(variant).await.map_err(to_mcp)?;
 
             let vector_results = self
                 .repo
-                .search_entities_by_vector(&query_embedding, limit, type_filter)
+                .search_entities_by_vector(&query_embedding, limit, type_filter, ns)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Vector search failed: {e}"), None))?;
+                .map_err(to_mcp)?;
 
             let keyword_results = self
                 .repo
-                .search_entities_by_keyword(variant, type_filter)
+                .search_entities_by_keyword(variant, type_filter, ns)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Keyword search failed: {e}"), None))?;
+                .map_err(to_mcp)?;
 
             ranked_lists.push(vector_results.into_iter().map(|(e, _)| e).collect());
             ranked_lists.push(keyword_results);
@@ -408,16 +446,18 @@ impl ContextKeeperServer {
     }
 
     /// Look up an entity by name and return its details including relationships.
-    #[tool(description = "Get detailed information about a named entity, including its type, summary, temporal bounds, and all active relationships.")]
+    #[tool(
+        description = "Get detailed information about a named entity, including its type, summary, temporal bounds, and all active relationships."
+    )]
     async fn get_entity(
         &self,
         Parameters(input): Parameters<GetEntityInput>,
     ) -> Result<String, McpError> {
         let entities = self
             .repo
-            .find_entities_by_name(&input.name)
+            .find_entities_by_name(&input.name, None, input.namespace.as_deref())
             .await
-            .map_err(|e| McpError::internal_error(format!("Entity lookup failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         if entities.is_empty() {
             return Ok(format!("No entity found with name '{}'", input.name));
@@ -429,7 +469,7 @@ impl ContextKeeperServer {
                 .repo
                 .get_relations_for_entity(entity.id)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Relation lookup failed: {e}"), None))?;
+                .map_err(to_mcp)?;
 
             details.push(EntityDetail {
                 name: entity.name.clone(),
@@ -454,7 +494,9 @@ impl ContextKeeperServer {
     }
 
     /// Query the knowledge graph state at a specific point in time.
-    #[tool(description = "Get a point-in-time snapshot of the knowledge graph at a specific timestamp, showing all entities and relations that were active at that moment.")]
+    #[tool(
+        description = "Get a point-in-time snapshot of the knowledge graph at a specific timestamp, showing all entities and relations that were active at that moment."
+    )]
     async fn snapshot(
         &self,
         Parameters(input): Parameters<SnapshotInput>,
@@ -464,17 +506,9 @@ impl ContextKeeperServer {
             .parse()
             .map_err(|e| McpError::invalid_params(format!("Invalid timestamp: {e}"), None))?;
 
-        let entities = self
-            .repo
-            .entities_at(at)
-            .await
-            .map_err(|e| McpError::internal_error(format!("Snapshot query failed: {e}"), None))?;
+        let entities = self.repo.entities_at(at).await.map_err(to_mcp)?;
 
-        let relations = self
-            .repo
-            .relations_at(at)
-            .await
-            .map_err(|e| McpError::internal_error(format!("Snapshot query failed: {e}"), None))?;
+        let relations = self.repo.relations_at(at).await.map_err(to_mcp)?;
 
         let response = SnapshotResponse {
             timestamp: at.to_rfc3339(),
@@ -495,7 +529,9 @@ impl ContextKeeperServer {
     }
 
     /// List the most recently added memories.
-    #[tool(description = "List the N most recently added memories from the knowledge graph, ordered by creation time.")]
+    #[tool(
+        description = "List the N most recently added memories from the knowledge graph, ordered by creation time."
+    )]
     async fn list_recent(
         &self,
         Parameters(input): Parameters<ListRecentInput>,
@@ -506,13 +542,127 @@ impl ContextKeeperServer {
             .repo
             .list_recent_memories(limit)
             .await
-            .map_err(|e| McpError::internal_error(format!("Query failed: {e}"), None))?;
+            .map_err(to_mcp)?;
 
         let items: Vec<MemoryItem> = memories
             .iter()
             .map(|m| MemoryItem {
                 content: m.content.clone(),
                 created_at: m.created_at.to_rfc3339(),
+            })
+            .collect();
+
+        serde_json::to_string_pretty(&items)
+            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
+    }
+
+    /// List all agents that have contributed memories to the knowledge graph.
+    #[tool(
+        description = "List all AI agents that have contributed to the knowledge graph, including their namespaces and episode counts. Useful for multi-agent setups to see who has been writing memories."
+    )]
+    async fn list_agents(&self) -> Result<String, McpError> {
+        let agents = self.repo.list_agents().await.map_err(to_mcp)?;
+
+        if agents.is_empty() {
+            return Ok("No agents have contributed to the knowledge graph yet.".to_string());
+        }
+
+        serde_json::to_string_pretty(&agents)
+            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
+    }
+
+    /// List all namespaces in the knowledge graph.
+    #[tool(
+        description = "List all namespaces in the knowledge graph with entity counts. Namespaces partition the graph so different projects or teams can have isolated memory spaces."
+    )]
+    async fn list_namespaces(&self) -> Result<String, McpError> {
+        let namespaces = self.repo.list_namespaces().await.map_err(to_mcp)?;
+
+        if namespaces.is_empty() {
+            return Ok(
+                "No namespaces found. All data is in the default (global) namespace.".to_string(),
+            );
+        }
+
+        serde_json::to_string_pretty(&namespaces)
+            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
+    }
+
+    /// Show recent activity from a specific agent.
+    #[tool(
+        description = "Show recent episodes ingested by a specific agent, identified by agent_id. Useful for auditing what a particular agent has been contributing."
+    )]
+    async fn agent_activity(
+        &self,
+        Parameters(input): Parameters<AgentActivityInput>,
+    ) -> Result<String, McpError> {
+        let limit = input.limit.unwrap_or(20);
+        let episodes = self
+            .repo
+            .list_episodes_by_agent(&input.agent_id, limit)
+            .await
+            .map_err(to_mcp)?;
+
+        if episodes.is_empty() {
+            return Ok(format!("No activity found for agent '{}'", input.agent_id));
+        }
+
+        let items: Vec<serde_json::Value> = episodes
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "content": e.content,
+                    "source": e.source,
+                    "namespace": e.namespace,
+                    "created_at": e.created_at.to_rfc3339(),
+                })
+            })
+            .collect();
+
+        serde_json::to_string_pretty(&items)
+            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
+    }
+
+    /// Search across all namespaces regardless of the caller's default namespace.
+    #[tool(
+        description = "Search the entire knowledge graph across all namespaces using hybrid vector + keyword search. Unlike search_memory, this always searches globally, ignoring namespace scoping."
+    )]
+    async fn cross_namespace_search(
+        &self,
+        Parameters(input): Parameters<CrossNamespaceSearchInput>,
+    ) -> Result<String, McpError> {
+        let limit = input.limit.unwrap_or(10);
+        let type_filter = input.entity_type.as_deref();
+
+        let query_embedding = self.embedder.embed(&input.query).await.map_err(to_mcp)?;
+
+        let vector_results = self
+            .repo
+            .search_entities_by_vector(&query_embedding, limit, type_filter, None)
+            .await
+            .map_err(to_mcp)?;
+
+        let keyword_results = self
+            .repo
+            .search_entities_by_keyword(&input.query, type_filter, None)
+            .await
+            .map_err(to_mcp)?;
+
+        let fused = fuse_rrf(vec![
+            vector_results.into_iter().map(|(e, _)| e).collect(),
+            keyword_results,
+        ]);
+
+        let items: Vec<SearchResultItem> = fused
+            .iter()
+            .take(limit)
+            .filter_map(|r| {
+                r.entity.as_ref().map(|e| SearchResultItem {
+                    name: e.name.clone(),
+                    entity_type: e.entity_type.to_string(),
+                    summary: e.summary.clone(),
+                    score: r.score,
+                })
             })
             .collect();
 
@@ -539,10 +689,13 @@ impl ServerHandler for ContextKeeperServer {
                 website_url: None,
             },
             instructions: Some(
-                "Context Keeper is a temporal knowledge graph memory system. \
-                 Use add_memory to store information, search_memory or expand_search \
-                 to retrieve it, get_entity for detailed entity lookups, snapshot for \
-                 point-in-time queries, and list_recent for recent memories."
+                "Context Keeper is a temporal knowledge graph memory system for multi-agent collaboration. \
+                 Use add_memory to store information (with optional namespace and agent_id for provenance), \
+                 search_memory or expand_search to retrieve it, get_entity for detailed entity lookups, \
+                 snapshot for point-in-time queries, and list_recent for recent memories. \
+                 For multi-agent workflows: list_agents shows contributing agents, list_namespaces \
+                 shows available scopes, agent_activity shows a specific agent's contributions, and \
+                 cross_namespace_search searches globally across all namespaces."
                     .into(),
             ),
         }
@@ -555,23 +708,18 @@ impl ServerHandler for ContextKeeperServer {
         _request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
-        let mut resources: Vec<Resource> = vec![
-            RawResource {
-                uri: "memory://recent".into(),
-                name: "recent-memories".into(),
-                title: None,
-                description: Some("The 20 most recently added memories".into()),
-                mime_type: Some("application/json".into()),
-                size: None,
-                icons: None,
-            }.no_annotation(),
-        ];
+        let mut resources: Vec<Resource> = vec![RawResource {
+            uri: "memory://recent".into(),
+            name: "recent-memories".into(),
+            title: None,
+            description: Some("The 20 most recently added memories".into()),
+            mime_type: Some("application/json".into()),
+            size: None,
+            icons: None,
+        }
+        .no_annotation()];
 
-        let entities = self
-            .repo
-            .get_all_active_entities()
-            .await
-            .map_err(|e| McpError::internal_error(format!("Failed to list entities: {e}"), None))?;
+        let entities = self.repo.get_all_active_entities().await.map_err(to_mcp)?;
 
         for entity in &entities {
             resources.push(
@@ -583,7 +731,8 @@ impl ServerHandler for ContextKeeperServer {
                     mime_type: Some("application/json".into()),
                     size: None,
                     icons: None,
-                }.no_annotation(),
+                }
+                .no_annotation(),
             );
         }
 
@@ -599,18 +748,19 @@ impl ServerHandler for ContextKeeperServer {
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, McpError> {
         Ok(ListResourceTemplatesResult {
-            resource_templates: vec![
-                ResourceTemplate {
-                    raw: RawResourceTemplate {
-                        uri_template: "memory://entity/{name}".into(),
-                        name: "entity-detail".into(),
-                        title: Some("Entity Detail".into()),
-                        description: Some("Get detailed information about a named entity including relationships".into()),
-                        mime_type: Some("application/json".into()),
-                    },
-                    annotations: None,
+            resource_templates: vec![ResourceTemplate {
+                raw: RawResourceTemplate {
+                    uri_template: "memory://entity/{name}".into(),
+                    name: "entity-detail".into(),
+                    title: Some("Entity Detail".into()),
+                    description: Some(
+                        "Get detailed information about a named entity including relationships"
+                            .into(),
+                    ),
+                    mime_type: Some("application/json".into()),
                 },
-            ],
+                annotations: None,
+            }],
             next_cursor: None,
         })
     }
@@ -623,11 +773,7 @@ impl ServerHandler for ContextKeeperServer {
         let uri = &request.uri;
 
         if uri == "memory://recent" {
-            let memories = self
-                .repo
-                .list_recent_memories(20)
-                .await
-                .map_err(|e| McpError::internal_error(format!("Query failed: {e}"), None))?;
+            let memories = self.repo.list_recent_memories(20).await.map_err(to_mcp)?;
 
             let items: Vec<MemoryItem> = memories
                 .iter()
@@ -637,8 +783,9 @@ impl ServerHandler for ContextKeeperServer {
                 })
                 .collect();
 
-            let text = serde_json::to_string_pretty(&items)
-                .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))?;
+            let text = serde_json::to_string_pretty(&items).map_err(|e| {
+                McpError::internal_error(format!("Serialization failed: {e}"), None)
+            })?;
 
             return Ok(ReadResourceResult {
                 contents: vec![ResourceContents::text(text, uri)],
@@ -648,9 +795,9 @@ impl ServerHandler for ContextKeeperServer {
         if let Some(name) = uri.strip_prefix("memory://entity/") {
             let entities = self
                 .repo
-                .find_entities_by_name(name)
+                .find_entities_by_name(name, None, None)
                 .await
-                .map_err(|e| McpError::internal_error(format!("Entity lookup failed: {e}"), None))?;
+                .map_err(to_mcp)?;
 
             if entities.is_empty() {
                 return Err(McpError::resource_not_found(
@@ -665,7 +812,7 @@ impl ServerHandler for ContextKeeperServer {
                     .repo
                     .get_relations_for_entity(entity.id)
                     .await
-                    .map_err(|e| McpError::internal_error(format!("Relation lookup failed: {e}"), None))?;
+                    .map_err(to_mcp)?;
 
                 details.push(EntityDetail {
                     name: entity.name.clone(),
@@ -685,8 +832,9 @@ impl ServerHandler for ContextKeeperServer {
                 });
             }
 
-            let text = serde_json::to_string_pretty(&details)
-                .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))?;
+            let text = serde_json::to_string_pretty(&details).map_err(|e| {
+                McpError::internal_error(format!("Serialization failed: {e}"), None)
+            })?;
 
             return Ok(ReadResourceResult {
                 contents: vec![ResourceContents::text(text, uri)],
@@ -724,7 +872,10 @@ impl ServerHandler for ContextKeeperServer {
                     Some(vec![PromptArgument {
                         name: "since".into(),
                         title: None,
-                        description: Some("ISO 8601 date/time to look back from (e.g. '2025-01-15T00:00:00Z')".into()),
+                        description: Some(
+                            "ISO 8601 date/time to look back from (e.g. '2025-01-15T00:00:00Z')"
+                                .into(),
+                        ),
                         required: Some(true),
                     }]),
                 ),

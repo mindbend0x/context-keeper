@@ -1,15 +1,20 @@
-use std::path::Path;
-use std::sync::Arc;
 use anyhow::Result;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use context_keeper_core::{ingestion, models::Episode, search::fuse_rrf, traits::*};
+use context_keeper_core::{
+    ingestion,
+    models::{AgentInfo, Episode},
+    search::fuse_rrf,
+    traits::*,
+};
 use context_keeper_rig::{
     embeddings::RigEmbedder,
     extraction::{RigEntityExtractor, RigRelationExtractor},
 };
 use context_keeper_surreal::{apply_schema, connect, Repository, StorageBackend, SurrealConfig};
 use dotenv::dotenv;
+use std::path::Path;
+use std::sync::Arc;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -18,7 +23,10 @@ use uuid::Uuid;
 /// with `~` expanded to the actual home directory.
 fn default_storage() -> String {
     match dirs::home_dir() {
-        Some(home) => format!("rocksdb:{}", home.join(".context-keeper").join("data").display()),
+        Some(home) => format!(
+            "rocksdb:{}",
+            home.join(".context-keeper").join("data").display()
+        ),
         None => "memory".to_string(),
     }
 }
@@ -39,12 +47,41 @@ struct Cli {
     api_url: Option<String>,
     #[arg(short = 'k', long, env = "OPENAI_API_KEY", global = true)]
     api_key: Option<String>,
-    #[arg(short = 'f', long, env = "DB_FILE_PATH", global = true, default_value = "context.sql")]
+
+    /// Override API URL for embeddings (falls back to OPENAI_API_URL)
+    #[arg(long, env = "EMBEDDING_API_URL", global = true)]
+    embedding_api_url: Option<String>,
+    /// Override API key for embeddings (falls back to OPENAI_API_KEY)
+    #[arg(long, env = "EMBEDDING_API_KEY", global = true)]
+    embedding_api_key: Option<String>,
+    #[arg(
+        short = 'f',
+        long,
+        env = "DB_FILE_PATH",
+        global = true,
+        default_value = "context.sql"
+    )]
     db_file_path: String,
 
-    /// Storage backend: "rocksdb:<path>" (default: ~/.context-keeper/data) or "memory"
+    /// Storage backend: "rocksdb:<path>" (default: ~/.context-keeper/data), "memory", or "remote:<ws_url>"
     #[arg(long, env = "STORAGE_BACKEND", global = true, default_value_t = default_storage())]
     storage: String,
+
+    /// Namespace to scope operations to (omit for global/default)
+    #[arg(long, env = "CK_NAMESPACE", global = true)]
+    namespace: Option<String>,
+
+    /// Agent identifier for provenance tracking
+    #[arg(long, env = "CK_AGENT_ID", global = true)]
+    agent_id: Option<String>,
+
+    /// SurrealDB root username (for remote connections)
+    #[arg(long, env = "SURREAL_USER", global = true)]
+    surreal_user: Option<String>,
+
+    /// SurrealDB root password (for remote connections)
+    #[arg(long, env = "SURREAL_PASS", global = true)]
+    surreal_pass: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -81,6 +118,8 @@ enum Commands {
 fn parse_storage_backend(s: &str) -> StorageBackend {
     if let Some(path) = s.strip_prefix("rocksdb:") {
         StorageBackend::RocksDb(path.to_string())
+    } else if let Some(url) = s.strip_prefix("remote:") {
+        StorageBackend::Remote(url.to_string())
     } else {
         StorageBackend::Memory
     }
@@ -89,7 +128,10 @@ fn parse_storage_backend(s: &str) -> StorageBackend {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("context_keeper=info,warn")),
+        )
         .init();
 
     let _ = dotenv();
@@ -100,6 +142,8 @@ async fn main() -> Result<()> {
     let config = SurrealConfig {
         embedding_dimensions: embedding_dims,
         storage: parse_storage_backend(&cli.storage),
+        username: cli.surreal_user,
+        password: cli.surreal_pass,
         ..SurrealConfig::default()
     };
 
@@ -125,6 +169,10 @@ async fn main() -> Result<()> {
         ("EXTRACTION_MODEL", cli.extraction_model_name.as_deref()),
     ];
 
+    // Embedding URL/key can be overridden separately (e.g., OpenAI for embeddings, HuggingFace for extraction)
+    let emb_api_url = cli.embedding_api_url.as_deref().or(cli.api_url.as_deref());
+    let emb_api_key = cli.embedding_api_key.as_deref().or(cli.api_key.as_deref());
+
     let (embedder, entity_extractor, relation_extractor): (
         Arc<dyn Embedder>,
         Arc<dyn EntityExtractor>,
@@ -136,19 +184,36 @@ async fn main() -> Result<()> {
         cli.extraction_model_name.as_deref(),
     ) {
         (Some(api_url), Some(api_key), Some(emb_model), Some(ext_model)) => {
-            info!("Using LLM-powered extraction");
+            let emb_url = emb_api_url.unwrap_or(api_url);
+            let emb_key = emb_api_key.unwrap_or(api_key);
+            info!(
+                extraction_url = api_url,
+                embedding_url = emb_url,
+                "Using LLM-powered extraction"
+            );
             (
-                Arc::new(RigEmbedder::new(api_url, api_key, emb_model, embedding_dims)),
+                Arc::new(RigEmbedder::new(emb_url, emb_key, emb_model, embedding_dims)),
                 Arc::new(RigEntityExtractor::new(api_url, api_key, ext_model)),
                 Arc::new(RigRelationExtractor::new(api_url, api_key, ext_model)),
             )
         }
         _ => {
-            let set: Vec<_> = llm_fields.iter().filter(|(_, v)| v.is_some()).map(|(k, _)| *k).collect();
+            let set: Vec<_> = llm_fields
+                .iter()
+                .filter(|(_, v)| v.is_some())
+                .map(|(k, _)| *k)
+                .collect();
             if !set.is_empty() {
-                let missing: Vec<_> = llm_fields.iter().filter(|(_, v)| v.is_none()).map(|(k, _)| *k).collect();
-                warn!("Partial LLM config (have {}, missing {}) — falling back to mock extraction",
-                    set.join(", "), missing.join(", "));
+                let missing: Vec<_> = llm_fields
+                    .iter()
+                    .filter(|(_, v)| v.is_none())
+                    .map(|(k, _)| *k)
+                    .collect();
+                warn!(
+                    "Partial LLM config (have {}, missing {}) — falling back to mock extraction",
+                    set.join(", "),
+                    missing.join(", ")
+                );
             } else {
                 info!("No LLM config — using mock extraction (set OPENAI_API_URL, OPENAI_API_KEY, EMBEDDING_MODEL, EXTRACTION_MODEL for real LLM)");
             }
@@ -160,13 +225,22 @@ async fn main() -> Result<()> {
         }
     };
 
+    let ns = cli.namespace.as_deref();
+
     match cli.command {
         Commands::Add { text, source } => {
+            let agent = cli.agent_id.as_ref().map(|id| AgentInfo {
+                agent_id: id.clone(),
+                agent_name: None,
+                machine_id: None,
+            });
             let episode = Episode {
                 id: Uuid::new_v4(),
                 content: text,
                 source,
                 session_id: None,
+                agent,
+                namespace: cli.namespace.clone(),
                 created_at: Utc::now(),
             };
 
@@ -182,9 +256,10 @@ async fn main() -> Result<()> {
             .await?;
 
             for inv in &result.diff.entities_invalidated {
-                let existing = repo.find_entities_by_name(&inv.name).await?;
-                for entity in existing {
-                    repo.invalidate_entity(entity.id).await?;
+                repo.invalidate_entity(inv.invalidated_id).await?;
+                let relations = repo.get_relations_for_entity(inv.invalidated_id).await?;
+                for rel in &relations {
+                    repo.invalidate_relation(rel.id).await?;
                 }
             }
 
@@ -215,9 +290,9 @@ async fn main() -> Result<()> {
         Commands::Search { query, limit } => {
             let query_embedding = embedder.embed(&query).await?;
             let vector_results = repo
-                .search_entities_by_vector(&query_embedding, limit, None)
+                .search_entities_by_vector(&query_embedding, limit, None, ns)
                 .await?;
-            let keyword_results = repo.search_entities_by_keyword(&query, None).await?;
+            let keyword_results = repo.search_entities_by_keyword(&query, None, ns).await?;
 
             let fused = fuse_rrf(vec![
                 vector_results.into_iter().map(|(e, _)| e).collect(),
@@ -242,7 +317,7 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Entity { name } => {
-            let entities = repo.find_entities_by_name(&name).await?;
+            let entities = repo.find_entities_by_name(&name, None, ns).await?;
             if entities.is_empty() {
                 info!("No entity found with name '{}'", name);
             } else {

@@ -5,6 +5,7 @@ members = [
     "crates/context-keeper-surreal",
     "crates/context-keeper-mcp",
     "crates/context-keeper-cli",
+    "crates/context-keeper-bench",
     "test",
 ]
 resolver = "2"
@@ -47,7 +48,7 @@ thiserror = "2"
 async-trait = "0.1"
 
 # Database
-surrealdb = { version = "3.0.4", features = ["kv-mem", "kv-rocksdb"] }
+surrealdb = { version = "3.0.4", features = ["kv-mem", "kv-rocksdb", "protocol-ws"] }
 
 # CLI
 clap = { version = "4", features = ["derive", "env"] }

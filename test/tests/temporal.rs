@@ -19,6 +19,8 @@ async fn test_snapshot_before_creation() -> Result<()> {
         embedding: env.embedder.embed("FutureEntity").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     env.repo.upsert_entity(&entity).await?;
 
@@ -47,6 +49,8 @@ async fn test_snapshot_at_creation() -> Result<()> {
         embedding: env.embedder.embed("PastEntity").await?,
         valid_from: created,
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     env.repo.upsert_entity(&entity).await?;
 
@@ -74,6 +78,8 @@ async fn test_snapshot_after_invalidation() -> Result<()> {
         embedding: env.embedder.embed("Expired").await?,
         valid_from: Utc::now() - Duration::days(10),
         valid_until: Some(Utc::now() - Duration::days(5)),
+        namespace: None,
+        created_by_agent: None,
     };
     env.repo.upsert_entity(&entity).await?;
 
@@ -111,6 +117,8 @@ async fn test_temporal_entity_evolution() -> Result<()> {
         embedding: env.embedder.embed("Alice").await?,
         valid_from: t0,
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     env.repo.upsert_entity(&v1).await?;
 
@@ -128,6 +136,8 @@ async fn test_temporal_entity_evolution() -> Result<()> {
         embedding: env.embedder.embed("Alice").await?,
         valid_from: t1,
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     env.repo.upsert_entity(&v2).await?;
 
@@ -159,6 +169,8 @@ async fn test_temporal_relation_lifecycle() -> Result<()> {
         embedding: env.embedder.embed("Alice").await?,
         valid_from: Utc::now() - Duration::days(30),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     let acme = Entity {
         id: Uuid::new_v4(),
@@ -168,6 +180,8 @@ async fn test_temporal_relation_lifecycle() -> Result<()> {
         embedding: env.embedder.embed("Acme").await?,
         valid_from: Utc::now() - Duration::days(30),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     env.repo.upsert_entity(&alice).await?;
     env.repo.upsert_entity(&acme).await?;
@@ -185,7 +199,9 @@ async fn test_temporal_relation_lifecycle() -> Result<()> {
 
     let before_invalidation = env.repo.relations_at(Utc::now()).await?;
     assert!(
-        before_invalidation.iter().any(|r| r.relation_type == RelationType::WorksAt),
+        before_invalidation
+            .iter()
+            .any(|r| r.relation_type == RelationType::WorksAt),
         "Relation should exist before invalidation"
     );
 
@@ -213,6 +229,8 @@ async fn test_staleness_ordering() -> Result<()> {
             embedding: vec![],
             valid_from: Utc::now() - Duration::days(100),
             valid_until: None,
+            namespace: None,
+            created_by_agent: None,
         },
         Entity {
             id: Uuid::new_v4(),
@@ -222,6 +240,8 @@ async fn test_staleness_ordering() -> Result<()> {
             embedding: vec![],
             valid_from: Utc::now() - Duration::days(30),
             valid_until: None,
+            namespace: None,
+            created_by_agent: None,
         },
         Entity {
             id: Uuid::new_v4(),
@@ -231,6 +251,8 @@ async fn test_staleness_ordering() -> Result<()> {
             embedding: vec![],
             valid_from: Utc::now() - Duration::days(1),
             valid_until: None,
+            namespace: None,
+            created_by_agent: None,
         },
     ];
 
@@ -264,6 +286,8 @@ async fn test_staleness_fresh_entity() -> Result<()> {
         embedding: vec![],
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
 
     let score = staleness_score(&entity);

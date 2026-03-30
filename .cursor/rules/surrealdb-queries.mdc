@@ -1,0 +1,49 @@
+---
+description: SurrealDB query patterns for the context-keeper-surreal crate
+globs: crates/context-keeper-surreal/**/*.rs
+alwaysApply: false
+---
+
+# SurrealDB Query Patterns
+
+## Parameter Binding
+
+Always use parameter binding — never interpolate values into query strings:
+
+```rust
+// ✅ Correct
+db.query("SELECT * FROM entity WHERE name = $name AND namespace = $ns")
+    .bind(("name", &name))
+    .bind(("ns", namespace))
+    .await?;
+
+// ❌ Never do this
+db.query(&format!("SELECT * FROM entity WHERE name = '{}'", name))
+    .await?;
+```
+
+## Temporal Queries
+
+Entities use soft deletes: `valid_from` / `valid_until`. Always filter for active records:
+
+```sql
+SELECT * FROM entity WHERE valid_until IS NONE AND name = $name
+```
+
+For point-in-time snapshots:
+
+```sql
+SELECT * FROM entity WHERE valid_from <= $at AND (valid_until IS NONE OR valid_until > $at)
+```
+
+## Schema Conventions
+
+- Tables: `entity`, `relation`, `memory`, `episode`
+- Relations use SurrealDB `TYPE RELATION` with `in`/`out` fields
+- Vector index: HNSW on `entity.embedding`
+- Full-text index: BM25 on `entity.summary` and `entity.name`
+- Unique constraint: `(name, entity_type)` on entity (DB-level UNIQUE index)
+
+## Namespace Scoping
+
+When `namespace` is `None`, query the global scope (unscoped entities). When `Some`, filter by exact match. Never use `namespace IS NONE OR namespace = $ns` — treat them as distinct scopes.

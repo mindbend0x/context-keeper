@@ -1,8 +1,8 @@
-use anyhow::Result;
 use chrono::Utc;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::error::Result;
 use crate::models::{Entity, Episode, Memory, Relation};
 use crate::traits::{Embedder, EntityExtractor, EntityResolver, RelationExtractor};
 
@@ -24,6 +24,9 @@ pub struct IngestionDiff {
     pub relations_created: usize,
     pub relations_merged: usize,
     pub relations_pruned: usize,
+    /// Entity IDs whose active relations should be invalidated (set `valid_until` to now).
+    /// Populated when a contradiction invalidates an entity — its stale relations must go too.
+    pub entity_ids_to_invalidate_relations: Vec<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -36,7 +39,9 @@ pub struct EntityUpdate {
 #[derive(Debug, Serialize)]
 pub struct EntityInvalidation {
     pub name: String,
+    pub entity_type: String,
     pub reason: String,
+    pub invalidated_id: Uuid,
 }
 
 const DEFAULT_MIN_CONFIDENCE: u8 = 50;
@@ -44,7 +49,9 @@ const DEFAULT_MIN_CONFIDENCE: u8 = 50;
 const NEGATION_MARKERS: &[&str] = &[
     "no longer",
     "not anymore",
+    "no more",
     "former",
+    "formerly",
     "previously",
     "used to",
     "left",
@@ -52,12 +59,40 @@ const NEGATION_MARKERS: &[&str] = &[
     "resigned",
     "departed",
     "was replaced",
+    "was fired",
+    "was terminated",
+    "retired from",
+    "moved away",
+    "moved from",
+    "switched from",
+    "changed from",
+    "stopped",
+    "ended",
+    "cancelled",
+    "divorced",
+    "separated from",
     "ex-",
+    "moved to",
+    "transferred",
+    "switched to",
+    "replaced by",
+    "no longer at",
+    "fired",
+    "terminated",
+    "retired",
+    "dissolved",
 ];
 
 /// Heuristic contradiction detection between old and new summaries.
+///
+/// Returns `Some(reason)` if the new summary contradicts the old one. Two
+/// signals are checked:
+/// 1. Presence of negation markers in the new summary.
+/// 2. Very low word overlap combined with any negation marker — indicates the
+///    entity's state has fundamentally changed.
 fn detect_contradiction(existing_summary: &str, new_summary: &str) -> Option<String> {
     let new_lower = new_summary.to_lowercase();
+
     for marker in NEGATION_MARKERS {
         if new_lower.contains(marker) {
             return Some(format!("Negation marker '{marker}' found in new summary"));
@@ -65,7 +100,8 @@ fn detect_contradiction(existing_summary: &str, new_summary: &str) -> Option<Str
     }
 
     let existing_lower = existing_summary.to_lowercase();
-    let existing_words: std::collections::HashSet<&str> = existing_lower.split_whitespace().collect();
+    let existing_words: std::collections::HashSet<&str> =
+        existing_lower.split_whitespace().collect();
     let new_words: std::collections::HashSet<&str> = new_lower.split_whitespace().collect();
     let overlap: usize = existing_words.intersection(&new_words).count();
     let total = existing_words.len().max(new_words.len());
@@ -74,7 +110,40 @@ fn detect_contradiction(existing_summary: &str, new_summary: &str) -> Option<Str
         return Some("Summaries share no common terms".to_string());
     }
 
+    // Low overlap + content-level negation markers in the combined text
+    if total > 3 {
+        let overlap_ratio = overlap as f64 / total as f64;
+        let combined = format!("{} {}", existing_lower, new_lower);
+        let has_negation_signal = NEGATION_MARKERS.iter().any(|m| combined.contains(m));
+        if overlap_ratio < 0.25 && has_negation_signal {
+            return Some(format!(
+                "Low word overlap ({:.0}%) with negation signal",
+                overlap_ratio * 100.0
+            ));
+        }
+    }
+
     None
+}
+
+/// Merge an existing entity summary with new information.
+///
+/// If the new summary adds information not present in the old one, the two
+/// are concatenated. If they are substantially the same, the new one wins.
+fn merge_summaries(existing: &str, new: &str) -> String {
+    let existing_lower = existing.to_lowercase();
+    let new_lower = new.to_lowercase();
+
+    let existing_words: std::collections::HashSet<&str> =
+        existing_lower.split_whitespace().collect();
+    let new_words: std::collections::HashSet<&str> = new_lower.split_whitespace().collect();
+
+    let novel_count = new_words.difference(&existing_words).count();
+    if novel_count > 0 && !existing.is_empty() && !new.is_empty() {
+        format!("{}; {}", existing, new)
+    } else {
+        new.to_string()
+    }
 }
 
 /// Process an episode through the ingestion pipeline.
@@ -98,10 +167,11 @@ pub async fn ingest(
     let min_conf = min_confidence.unwrap_or(DEFAULT_MIN_CONFIDENCE);
     let mut diff = IngestionDiff::default();
 
+    let ns = episode.namespace.as_deref();
+    let agent_id = episode.agent.as_ref().map(|a| a.agent_id.clone());
+
     // 1. Extract entities
-    let extracted = entity_extractor
-        .extract_entities(&episode.content)
-        .await?;
+    let extracted = entity_extractor.extract_entities(&episode.content).await?;
     tracing::info!(count = extracted.len(), "Extracted entities");
 
     // 2. Build Entity models, resolving against existing graph when possible
@@ -112,14 +182,23 @@ pub async fn ingest(
         let embedding = embedder.embed(&ext.name).await?;
 
         if let Some(resolver) = entity_resolver {
-            // Try exact name match first
-            if let Some(existing) = resolver.find_existing(&ext.name).await? {
+            if let Some(existing) = resolver
+                .find_existing(&ext.name, &ext.entity_type, ns)
+                .await?
+            {
                 if let Some(reason) = detect_contradiction(&existing.summary, &ext.summary) {
+                    tracing::info!(
+                        entity = %ext.name,
+                        reason = %reason,
+                        "Contradiction detected — invalidating old entity"
+                    );
                     diff.entities_invalidated.push(EntityInvalidation {
                         name: ext.name.clone(),
+                        entity_type: ext.entity_type.to_string(),
                         reason: reason.clone(),
+                        invalidated_id: existing.id,
                     });
-                    // The caller invalidates the old entity; we emit a fresh one
+                    diff.entity_ids_to_invalidate_relations.push(existing.id);
                     entities.push(Entity {
                         id: Uuid::new_v4(),
                         name: ext.name.clone(),
@@ -128,44 +207,55 @@ pub async fn ingest(
                         embedding,
                         valid_from: now,
                         valid_until: None,
+                        namespace: episode.namespace.clone(),
+                        created_by_agent: agent_id.clone(),
                     });
                     diff.entities_created.push(ext.name.clone());
                 } else {
-                    // Update existing entity summary and embedding
+                    let merged = merge_summaries(&existing.summary, &ext.summary);
                     diff.entities_updated.push(EntityUpdate {
                         name: ext.name.clone(),
                         old_summary: existing.summary.clone(),
-                        new_summary: ext.summary.clone(),
+                        new_summary: merged.clone(),
                     });
                     entities.push(Entity {
                         id: existing.id,
                         name: ext.name.clone(),
                         entity_type: ext.entity_type.clone(),
-                        summary: ext.summary.clone(),
+                        summary: merged,
                         embedding,
                         valid_from: existing.valid_from,
                         valid_until: None,
+                        namespace: existing
+                            .namespace
+                            .clone()
+                            .or_else(|| episode.namespace.clone()),
+                        created_by_agent: agent_id.clone().or(existing.created_by_agent.clone()),
                     });
                 }
                 continue;
             }
 
-            // Try fuzzy / vector similarity match for alias resolution
-            let similar = resolver.find_similar(&ext.name, &embedding, 0.85).await?;
+            let similar = resolver
+                .find_similar(&ext.name, &embedding, 0.85, ns)
+                .await?;
             if let Some(best) = similar.first() {
+                let merged = merge_summaries(&best.summary, &ext.summary);
                 diff.entities_updated.push(EntityUpdate {
                     name: ext.name.clone(),
                     old_summary: best.summary.clone(),
-                    new_summary: ext.summary.clone(),
+                    new_summary: merged.clone(),
                 });
                 entities.push(Entity {
                     id: best.id,
                     name: best.name.clone(),
                     entity_type: ext.entity_type.clone(),
-                    summary: ext.summary.clone(),
+                    summary: merged,
                     embedding,
                     valid_from: best.valid_from,
                     valid_until: None,
+                    namespace: best.namespace.clone().or_else(|| episode.namespace.clone()),
+                    created_by_agent: agent_id.clone().or(best.created_by_agent.clone()),
                 });
                 continue;
             }
@@ -181,6 +271,8 @@ pub async fn ingest(
             embedding,
             valid_from: now,
             valid_until: None,
+            namespace: episode.namespace.clone(),
+            created_by_agent: agent_id.clone(),
         });
     }
 
@@ -224,6 +316,8 @@ pub async fn ingest(
         source_episode_id: episode.id,
         entity_ids: entities.iter().map(|e| e.id).collect(),
         created_at: now,
+        namespace: episode.namespace.clone(),
+        created_by_agent: agent_id,
     };
 
     tracing::info!(

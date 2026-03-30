@@ -34,12 +34,21 @@ async fn main() -> Result<()> {
             content: text.to_string(),
             source: "quickstart".to_string(),
             session_id: None,
+            agent: None,
+            namespace: None,
             created_at: Utc::now(),
         };
 
         let resolver: &dyn EntityResolver = &repo;
-        let result =
-            ingestion::ingest(&episode, &embedder, &entity_extractor, &relation_extractor, Some(resolver), None).await?;
+        let result = ingestion::ingest(
+            &episode,
+            &embedder,
+            &entity_extractor,
+            &relation_extractor,
+            Some(resolver),
+            None,
+        )
+        .await?;
 
         repo.create_episode(&episode).await?;
         for entity in &result.entities {
@@ -64,8 +73,10 @@ async fn main() -> Result<()> {
     let query = "Acme";
     let query_embedding = embedder.embed(query).await?;
 
-    let vector_results = repo.search_entities_by_vector(&query_embedding, 5, None).await?;
-    let keyword_results = repo.search_entities_by_keyword(query, None).await?;
+    let vector_results = repo
+        .search_entities_by_vector(&query_embedding, 5, None, None)
+        .await?;
+    let keyword_results = repo.search_entities_by_keyword(query, None, None).await?;
 
     let fused = fuse_rrf(vec![
         vector_results.into_iter().map(|(e, _)| e).collect(),

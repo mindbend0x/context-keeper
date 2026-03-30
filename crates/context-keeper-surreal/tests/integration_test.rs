@@ -1,13 +1,9 @@
 use anyhow::Result;
 use chrono::{Duration, Utc};
 use context_keeper_core::{
-    ingestion,
-    models::*,
-    search::fuse_rrf,
-    temporal::staleness_score,
-    traits::*,
+    ingestion, models::*, search::fuse_rrf, temporal::staleness_score, traits::*,
 };
-use context_keeper_surreal::{connect_memory, apply_schema, Repository, SurrealConfig};
+use context_keeper_surreal::{apply_schema, connect_memory, Repository, SurrealConfig};
 use uuid::Uuid;
 
 /// Helper: create a fresh in-memory DB + repo with dim=8 for mock embeddings.
@@ -32,6 +28,8 @@ async fn test_episode_crud() -> Result<()> {
         content: "Alice met Bob at the park".to_string(),
         source: "test".to_string(),
         session_id: Some("s1".to_string()),
+        agent: None,
+        namespace: None,
         created_at: Utc::now(),
     };
 
@@ -64,6 +62,8 @@ async fn test_entity_crud() -> Result<()> {
         embedding: embedder.embed("Alice").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
 
     repo.upsert_entity(&entity).await?;
@@ -72,7 +72,7 @@ async fn test_entity_crud() -> Result<()> {
     assert!(fetched.is_some());
     assert_eq!(fetched.unwrap().name, "Alice");
 
-    let by_name = repo.find_entities_by_name("Alice").await?;
+    let by_name = repo.find_entities_by_name("Alice", None, None).await?;
     assert_eq!(by_name.len(), 1);
 
     Ok(())
@@ -94,6 +94,8 @@ async fn test_entity_upsert_updates_existing() -> Result<()> {
         embedding: embedder.embed("Alice v1").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&entity_v1).await?;
 
@@ -105,6 +107,8 @@ async fn test_entity_upsert_updates_existing() -> Result<()> {
         embedding: embedder.embed("Alice v2").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&entity_v2).await?;
 
@@ -131,6 +135,8 @@ async fn test_relation_lifecycle() -> Result<()> {
         embedding: embedder.embed("Alice").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     let bob = Entity {
         id: Uuid::new_v4(),
@@ -140,6 +146,8 @@ async fn test_relation_lifecycle() -> Result<()> {
         embedding: embedder.embed("Bob").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&alice).await?;
     repo.upsert_entity(&bob).await?;
@@ -183,6 +191,8 @@ async fn test_ingestion_pipeline() -> Result<()> {
         content: "Alice works at Acme Corp in Berlin".to_string(),
         source: "test".to_string(),
         session_id: None,
+        agent: None,
+        namespace: None,
         created_at: Utc::now(),
     };
 
@@ -237,12 +247,16 @@ async fn test_vector_search() -> Result<()> {
             embedding: embedder.embed(name).await?,
             valid_from: Utc::now(),
             valid_until: None,
+            namespace: None,
+            created_by_agent: None,
         };
         repo.upsert_entity(&entity).await?;
     }
 
     let query_embedding = embedder.embed("Rust").await?;
-    let results = repo.search_entities_by_vector(&query_embedding, 3, None).await?;
+    let results = repo
+        .search_entities_by_vector(&query_embedding, 3, None, None)
+        .await?;
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].0.name, "Rust");
     assert!((results[0].1 - 1.0).abs() < 0.01);
@@ -262,6 +276,8 @@ async fn test_memory_vector_search() -> Result<()> {
         content: "Rust is a systems programming language".to_string(),
         source: "test".to_string(),
         session_id: None,
+        agent: None,
+        namespace: None,
         created_at: Utc::now(),
     };
     repo.create_episode(&episode).await?;
@@ -273,11 +289,15 @@ async fn test_memory_vector_search() -> Result<()> {
         source_episode_id: episode.id,
         entity_ids: vec![],
         created_at: Utc::now(),
+        namespace: None,
+        created_by_agent: None,
     };
     repo.create_memory(&memory).await?;
 
     let query_embedding = embedder.embed("Rust fast memory safe").await?;
-    let results = repo.search_memories_by_vector(&query_embedding, 5).await?;
+    let results = repo
+        .search_memories_by_vector(&query_embedding, 5, None)
+        .await?;
     assert_eq!(results.len(), 1);
     assert!((results[0].1 - 1.0).abs() < 0.01);
 
@@ -299,14 +319,20 @@ async fn test_bm25_entity_search() -> Result<()> {
         embedding: embedder.embed("Kubernetes").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&entity).await?;
 
-    let results = repo.search_entities_by_keyword("Kubernetes", None).await?;
+    let results = repo
+        .search_entities_by_keyword("Kubernetes", None, None)
+        .await?;
     assert!(!results.is_empty());
     assert_eq!(results[0].name, "Kubernetes");
 
-    let results = repo.search_entities_by_keyword("orchestration", None).await?;
+    let results = repo
+        .search_entities_by_keyword("orchestration", None, None)
+        .await?;
     assert!(!results.is_empty());
 
     Ok(())
@@ -321,6 +347,8 @@ async fn test_bm25_episode_search() -> Result<()> {
         content: "The distributed database handles millions of transactions".to_string(),
         source: "test".to_string(),
         session_id: None,
+        agent: None,
+        namespace: None,
         created_at: Utc::now(),
     };
     repo.create_episode(&episode).await?;
@@ -348,6 +376,8 @@ async fn test_rrf_fusion_end_to_end() -> Result<()> {
             embedding: embedder.embed(name).await?,
             valid_from: Utc::now(),
             valid_until: None,
+            namespace: None,
+            created_by_agent: None,
         };
         repo.upsert_entity(&entity).await?;
         entities.push(entity);
@@ -380,6 +410,8 @@ async fn test_temporal_snapshot() -> Result<()> {
         embedding: embedder.embed("OldFact").await?,
         valid_from: past,
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&entity).await?;
 
@@ -406,6 +438,8 @@ fn test_staleness_computation() {
         embedding: vec![],
         valid_from: Utc::now() - Duration::days(5),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     let score = staleness_score(&entity);
     assert!((score - 5.0).abs() <= 1.0);
@@ -426,6 +460,8 @@ async fn test_graph_neighbors() -> Result<()> {
         embedding: embedder.embed("Alice").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     let bob = Entity {
         id: Uuid::new_v4(),
@@ -435,6 +471,8 @@ async fn test_graph_neighbors() -> Result<()> {
         embedding: embedder.embed("Bob").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     let charlie = Entity {
         id: Uuid::new_v4(),
@@ -444,6 +482,8 @@ async fn test_graph_neighbors() -> Result<()> {
         embedding: embedder.embed("Charlie").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&alice).await?;
     repo.upsert_entity(&bob).await?;
@@ -490,6 +530,8 @@ async fn test_memory_graph_edges() -> Result<()> {
         content: "Alice works at Acme".to_string(),
         source: "test".to_string(),
         session_id: None,
+        agent: None,
+        namespace: None,
         created_at: Utc::now(),
     };
     repo.create_episode(&episode).await?;
@@ -502,6 +544,8 @@ async fn test_memory_graph_edges() -> Result<()> {
         embedding: embedder.embed("AliceWorker").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&alice).await?;
 
@@ -512,6 +556,8 @@ async fn test_memory_graph_edges() -> Result<()> {
         source_episode_id: episode.id,
         entity_ids: vec![alice.id],
         created_at: Utc::now(),
+        namespace: None,
+        created_by_agent: None,
     };
     repo.create_memory(&memory).await?;
 
@@ -538,6 +584,8 @@ async fn test_relations_at_temporal() -> Result<()> {
         embedding: embedder.embed("AliceTemporal").await?,
         valid_from: now - Duration::days(10),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     let acme = Entity {
         id: Uuid::new_v4(),
@@ -547,6 +595,8 @@ async fn test_relations_at_temporal() -> Result<()> {
         embedding: embedder.embed("AcmeTemporal").await?,
         valid_from: now - Duration::days(10),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&alice).await?;
     repo.upsert_entity(&acme).await?;
@@ -563,7 +613,9 @@ async fn test_relations_at_temporal() -> Result<()> {
     repo.create_relation(&rel).await?;
 
     let rels = repo.relations_at(now).await?;
-    assert!(rels.iter().any(|r| r.relation_type == RelationType::WorksAt));
+    assert!(rels
+        .iter()
+        .any(|r| r.relation_type == RelationType::WorksAt));
 
     Ok(())
 }
@@ -583,6 +635,8 @@ async fn test_entity_type_filter() -> Result<()> {
         embedding: embedder.embed("AliceFilter").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     let acme = Entity {
         id: Uuid::new_v4(),
@@ -592,6 +646,8 @@ async fn test_entity_type_filter() -> Result<()> {
         embedding: embedder.embed("AcmeFilter").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&alice).await?;
     repo.upsert_entity(&acme).await?;
@@ -622,6 +678,8 @@ async fn test_symmetric_relation_dedup() -> Result<()> {
         embedding: embedder.embed("AliceSym").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     let bob = Entity {
         id: Uuid::new_v4(),
@@ -631,6 +689,8 @@ async fn test_symmetric_relation_dedup() -> Result<()> {
         embedding: embedder.embed("BobSym").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&alice).await?;
     repo.upsert_entity(&bob).await?;
@@ -661,7 +721,11 @@ async fn test_symmetric_relation_dedup() -> Result<()> {
     assert!(!created, "Reverse symmetric relation should be merged");
 
     let rels = repo.get_relations_for_entity(alice.id).await?;
-    assert_eq!(rels.len(), 1, "Should have exactly one relation after dedup");
+    assert_eq!(
+        rels.len(),
+        1,
+        "Should have exactly one relation after dedup"
+    );
     assert_eq!(rels[0].confidence, 85, "Confidence should be averaged");
 
     Ok(())

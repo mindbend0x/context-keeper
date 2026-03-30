@@ -18,7 +18,10 @@ async fn test_conversation_memory() -> Result<()> {
         ("We discussed the project timeline today", "chat"),
         ("Alice mentioned the Kubernetes migration plan", "chat"),
         ("Bob raised concerns about the database performance", "chat"),
-        ("The team decided to use SurrealDB for the new service", "chat"),
+        (
+            "The team decided to use SurrealDB for the new service",
+            "chat",
+        ),
         ("Final decision was to deploy on Friday", "chat"),
     ];
 
@@ -45,7 +48,10 @@ async fn test_conversation_memory() -> Result<()> {
     assert_eq!(memories.len(), 5, "Should have 5 memories from 5 episodes");
 
     let mem_vec = env.embedder.embed("Kubernetes").await?;
-    let mem_results = env.repo.search_memories_by_vector(&mem_vec, 5).await?;
+    let mem_results = env
+        .repo
+        .search_memories_by_vector(&mem_vec, 5, None)
+        .await?;
     assert!(
         !mem_results.is_empty(),
         "Should find memories related to Kubernetes via vector search"
@@ -60,23 +66,26 @@ async fn test_conversation_memory() -> Result<()> {
 async fn test_knowledge_graph_construction() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    env.ingest_text("Alice is the CTO of Acme Corp", "test").await?;
-    env.ingest_text("Bob is the CEO of Acme Corp", "test").await?;
-    env.ingest_text("Acme Corp is headquartered in Berlin", "test").await?;
+    env.ingest_text("Alice is the CTO of Acme Corp", "test")
+        .await?;
+    env.ingest_text("Bob is the CEO of Acme Corp", "test")
+        .await?;
+    env.ingest_text("Acme Corp is headquartered in Berlin", "test")
+        .await?;
 
     let entities = env.repo.get_all_active_entities().await?;
     let entity_names: HashSet<String> = entities.iter().map(|e| e.name.clone()).collect();
 
-    assert!(entity_names.contains("Alice"), "Alice should be in the graph");
+    assert!(
+        entity_names.contains("Alice"),
+        "Alice should be in the graph"
+    );
     assert!(entity_names.contains("Bob"), "Bob should be in the graph");
     assert!(entity_names.contains("Acme"), "Acme should be in the graph");
 
     let acme = entities.iter().find(|e| e.name == "Acme");
     if let Some(acme_entity) = acme {
-        let neighbors = env
-            .repo
-            .get_graph_neighbors(&[acme_entity.id], 1)
-            .await?;
+        let neighbors = env.repo.get_graph_neighbors(&[acme_entity.id], 1).await?;
         assert!(
             neighbors.len() > 1,
             "Acme should have graph neighbors, got {}",
@@ -93,15 +102,23 @@ async fn test_knowledge_graph_construction() -> Result<()> {
 async fn test_incremental_knowledge() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    env.ingest_text("Alice works at Acme Corp as an Engineer", "chat").await?;
-    env.ingest_text("Alice left Acme and joined BigCo as Director", "chat").await?;
+    env.ingest_text("Alice works at Acme Corp as an Engineer", "chat")
+        .await?;
+    env.ingest_text("Alice left Acme and joined BigCo as Director", "chat")
+        .await?;
 
     let entities = env.repo.get_all_active_entities().await?;
     let names: HashSet<String> = entities.iter().map(|e| e.name.clone()).collect();
 
     assert!(names.contains("Alice"));
-    assert!(names.contains("Acme"), "Acme should still exist from first episode");
-    assert!(names.contains("BigCo"), "BigCo should exist from second episode");
+    assert!(
+        names.contains("Acme"),
+        "Acme should still exist from first episode"
+    );
+    assert!(
+        names.contains("BigCo"),
+        "BigCo should exist from second episode"
+    );
 
     let memories = env.repo.list_recent_memories(10).await?;
     assert_eq!(memories.len(), 2, "Should have 2 memories from 2 episodes");
@@ -121,8 +138,10 @@ async fn test_incremental_knowledge() -> Result<()> {
 async fn test_cross_episode_entity_linking() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    env.ingest_text("Rust is a systems programming language", "docs").await?;
-    env.ingest_text("Rust has excellent memory safety guarantees", "docs").await?;
+    env.ingest_text_with_resolver("Rust is a systems programming language", "docs", true)
+        .await?;
+    env.ingest_text_with_resolver("Rust has excellent memory safety guarantees", "docs", true)
+        .await?;
 
     let entities = env.repo.get_all_active_entities().await?;
     let rust_entities: Vec<_> = entities.iter().filter(|e| e.name == "Rust").collect();
@@ -297,8 +316,14 @@ async fn test_full_pipeline_metrics_report() -> Result<()> {
     eprintln!("  Avg MRR:        {avg_mrr:.2}");
     eprintln!();
 
-    assert!(avg_f1 >= 0.5, "Aggregate F1 {avg_f1:.2} below threshold 0.5");
-    assert!(avg_mrr >= 0.5, "Aggregate MRR {avg_mrr:.2} below threshold 0.5");
+    assert!(
+        avg_f1 >= 0.5,
+        "Aggregate F1 {avg_f1:.2} below threshold 0.5"
+    );
+    assert!(
+        avg_mrr >= 0.5,
+        "Aggregate MRR {avg_mrr:.2} below threshold 0.5"
+    );
 
     Ok(())
 }

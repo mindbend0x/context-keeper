@@ -19,9 +19,7 @@ pub fn fuse_rrf(ranked_lists: Vec<Vec<Entity>>) -> Vec<SearchResult> {
 
     for list in ranked_lists {
         for (rank, entity) in list.into_iter().enumerate() {
-            let entry = scores
-                .entry(entity.id)
-                .or_insert((0.0, entity.clone()));
+            let entry = scores.entry(entity.id).or_insert((0.0, entity.clone()));
             entry.0 += rrf_score(rank);
         }
     }
@@ -35,7 +33,11 @@ pub fn fuse_rrf(ranked_lists: Vec<Vec<Entity>>) -> Vec<SearchResult> {
         })
         .collect();
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results
 }
 
@@ -54,6 +56,8 @@ mod tests {
             embedding: vec![],
             valid_from: Utc::now(),
             valid_until: None,
+            namespace: None,
+            created_by_agent: None,
         }
     }
 
@@ -84,12 +88,15 @@ mod tests {
         let e1 = make_entity("Alice");
         let e2 = make_entity("Bob");
         // Alice appears first in both lists → should get higher combined score
-        let results = fuse_rrf(vec![
-            vec![e1.clone(), e2.clone()],
-            vec![e1.clone()],
-        ]);
-        let alice = results.iter().find(|r| r.entity.as_ref().unwrap().name == "Alice").unwrap();
-        let bob = results.iter().find(|r| r.entity.as_ref().unwrap().name == "Bob").unwrap();
+        let results = fuse_rrf(vec![vec![e1.clone(), e2.clone()], vec![e1.clone()]]);
+        let alice = results
+            .iter()
+            .find(|r| r.entity.as_ref().unwrap().name == "Alice")
+            .unwrap();
+        let bob = results
+            .iter()
+            .find(|r| r.entity.as_ref().unwrap().name == "Bob")
+            .unwrap();
         assert!(alice.score > bob.score);
     }
 }

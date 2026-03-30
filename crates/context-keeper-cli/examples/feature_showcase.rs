@@ -32,7 +32,11 @@ fn banner(title: &str) {
 
 fn section(title: &str) {
     println!();
-    println!("  ┌─── {} {}", title, "─".repeat(50usize.saturating_sub(title.len())));
+    println!(
+        "  ┌─── {} {}",
+        title,
+        "─".repeat(50usize.saturating_sub(title.len()))
+    );
     println!("  │");
 }
 
@@ -104,11 +108,26 @@ async fn main() -> Result<()> {
     section("3 · Ingestion Pipeline");
 
     let episodes_text = vec![
-        ("conv-1", "Alice is a software engineer at Acme Corp in Berlin"),
-        ("conv-1", "Bob manages the Machine Learning team at Acme Corp"),
-        ("conv-2", "Charlie joined DataFlow Inc as a Data Scientist in Munich"),
-        ("conv-2", "Eve is the CTO of DataFlow Inc and mentors Charlie"),
-        ("conv-3", "Acme Corp acquired DataFlow Inc for its AI capabilities"),
+        (
+            "conv-1",
+            "Alice is a software engineer at Acme Corp in Berlin",
+        ),
+        (
+            "conv-1",
+            "Bob manages the Machine Learning team at Acme Corp",
+        ),
+        (
+            "conv-2",
+            "Charlie joined DataFlow Inc as a Data Scientist in Munich",
+        ),
+        (
+            "conv-2",
+            "Eve is the CTO of DataFlow Inc and mentors Charlie",
+        ),
+        (
+            "conv-3",
+            "Acme Corp acquired DataFlow Inc for its AI capabilities",
+        ),
     ];
 
     let mut all_entities: Vec<Entity> = Vec::new();
@@ -120,14 +139,22 @@ async fn main() -> Result<()> {
             content: text.to_string(),
             source: "showcase".into(),
             session_id: Some(session.to_string()),
+            agent: None,
+            namespace: None,
             created_at: Utc::now(),
         };
 
         tracing::info!(session = session, "Ingesting episode");
         let resolver: &dyn EntityResolver = &repo;
-        let result =
-            ingestion::ingest(&episode, &embedder, &entity_extractor, &relation_extractor, Some(resolver), None)
-                .await?;
+        let result = ingestion::ingest(
+            &episode,
+            &embedder,
+            &entity_extractor,
+            &relation_extractor,
+            Some(resolver),
+            None,
+        )
+        .await?;
 
         repo.create_episode(&episode).await?;
         for entity in &result.entities {
@@ -174,7 +201,7 @@ async fn main() -> Result<()> {
 
     tracing::info!(query, "Running HNSW vector search on entities");
     let vector_results = repo
-        .search_entities_by_vector(&query_embedding, 5, None)
+        .search_entities_by_vector(&query_embedding, 5, None, None)
         .await?;
 
     item(&format!("Query: \"{query}\""));
@@ -195,7 +222,9 @@ async fn main() -> Result<()> {
     let mem_embedding = embedder.embed(mem_query).await?;
 
     tracing::info!(query = mem_query, "Running HNSW vector search on memories");
-    let mem_results = repo.search_memories_by_vector(&mem_embedding, 3).await?;
+    let mem_results = repo
+        .search_memories_by_vector(&mem_embedding, 3, None)
+        .await?;
 
     item(&format!("Query: \"{mem_query}\"  (memory search)"));
     blank();
@@ -215,14 +244,17 @@ async fn main() -> Result<()> {
     let keyword = "Acme";
     tracing::info!(keyword, "Running BM25 keyword search");
 
-    let kw_entities = repo.search_entities_by_keyword(keyword, None).await?;
+    let kw_entities = repo.search_entities_by_keyword(keyword, None, None).await?;
     let kw_episodes = repo.search_episodes_by_keyword(keyword).await?;
 
     item(&format!("Keyword: \"{keyword}\""));
     blank();
     item(&format!("  Entities matched : {}", kw_entities.len()));
     for e in &kw_entities {
-        item(&format!("    · {} ({}): {}", e.name, e.entity_type, e.summary));
+        item(&format!(
+            "    · {} ({}): {}",
+            e.name, e.entity_type, e.summary
+        ));
     }
     blank();
     item(&format!("  Episodes matched : {}", kw_episodes.len()));
@@ -237,12 +269,17 @@ async fn main() -> Result<()> {
     let hybrid_query = "DataFlow";
     let hybrid_embedding = embedder.embed(hybrid_query).await?;
 
-    tracing::info!(query = hybrid_query, "Running hybrid search with RRF fusion");
+    tracing::info!(
+        query = hybrid_query,
+        "Running hybrid search with RRF fusion"
+    );
 
     let vec_hits = repo
-        .search_entities_by_vector(&hybrid_embedding, 5, None)
+        .search_entities_by_vector(&hybrid_embedding, 5, None, None)
         .await?;
-    let kw_hits = repo.search_entities_by_keyword(hybrid_query, None).await?;
+    let kw_hits = repo
+        .search_entities_by_keyword(hybrid_query, None, None)
+        .await?;
 
     item(&format!("Query: \"{hybrid_query}\""));
     item(&format!(
@@ -277,11 +314,15 @@ async fn main() -> Result<()> {
     let expander = QueryExpander::new(3);
     let sparse_query = "AI capabilities";
 
-    tracing::info!(query = sparse_query, threshold = 3, "Checking if expansion is needed");
+    tracing::info!(
+        query = sparse_query,
+        threshold = 3,
+        "Checking if expansion is needed"
+    );
 
     let sparse_embedding = embedder.embed(sparse_query).await?;
     let initial_results = repo
-        .search_entities_by_vector(&sparse_embedding, 5, None)
+        .search_entities_by_vector(&sparse_embedding, 5, None, None)
         .await?;
 
     item(&format!("Query: \"{sparse_query}\""));
@@ -304,14 +345,12 @@ async fn main() -> Result<()> {
 
     blank();
 
-    let mut expanded_lists: Vec<Vec<Entity>> = vec![initial_results
-        .into_iter()
-        .map(|(e, _)| e)
-        .collect()];
+    let mut expanded_lists: Vec<Vec<Entity>> =
+        vec![initial_results.into_iter().map(|(e, _)| e).collect()];
 
     for variant in &variants[1..] {
         let emb = embedder.embed(variant).await?;
-        let hits = repo.search_entities_by_vector(&emb, 5, None).await?;
+        let hits = repo.search_entities_by_vector(&emb, 5, None, None).await?;
         expanded_lists.push(hits.into_iter().map(|(e, _)| e).collect());
     }
 
@@ -344,6 +383,8 @@ async fn main() -> Result<()> {
         embedding: embedder.embed("Alice_Temporal StartupX").await?,
         valid_from: old_date,
         valid_until: Some(Utc::now() - Duration::days(10)),
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&alice_v1).await?;
 
@@ -355,6 +396,8 @@ async fn main() -> Result<()> {
         embedding: embedder.embed("Alice_Temporal MegaCorp").await?,
         valid_from: Utc::now() - Duration::days(10),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     repo.upsert_entity(&alice_v2).await?;
 
@@ -391,7 +434,10 @@ async fn main() -> Result<()> {
         past_entities.len()
     ));
     for e in &past_entities {
-        item(&format!("  · {} ({}): {}", e.name, e.entity_type, e.summary));
+        item(&format!(
+            "  · {} ({}): {}",
+            e.name, e.entity_type, e.summary
+        ));
     }
     blank();
 
@@ -401,7 +447,10 @@ async fn main() -> Result<()> {
         snapshot_now.len()
     ));
     for e in &snapshot_now {
-        item(&format!("  · {} ({}): {}", e.name, e.entity_type, e.summary));
+        item(&format!(
+            "  · {} ({}): {}",
+            e.name, e.entity_type, e.summary
+        ));
     }
 
     end_section();
@@ -433,17 +482,17 @@ async fn main() -> Result<()> {
 
     section("10 · Graph Traversal (entity neighbors)");
 
-    let acme_entities = repo.find_entities_by_name("Acme").await?;
+    let acme_entities = repo.find_entities_by_name("Acme", None, None).await?;
     if let Some(acme) = acme_entities.first() {
         tracing::info!(entity = %acme.name, "Fetching graph neighbors");
         let neighbors = repo.get_graph_neighbors(&[acme.id], 1).await?;
-        item(&format!(
-            "Neighbors of \"{}\" (1-hop):",
-            acme.name
-        ));
+        item(&format!("Neighbors of \"{}\" (1-hop):", acme.name));
         blank();
         for n in &neighbors {
-            item(&format!("  · {} ({}) — {}", n.name, n.entity_type, n.summary));
+            item(&format!(
+                "  · {} ({}) — {}",
+                n.name, n.entity_type, n.summary
+            ));
         }
         if neighbors.is_empty() {
             item("  (none found — graph edges depend on RELATE statements)");
@@ -455,10 +504,7 @@ async fn main() -> Result<()> {
     blank();
 
     let relations = repo.get_relations_for_entity(all_entities[0].id).await?;
-    item(&format!(
-        "Relations for \"{}\":",
-        all_entities[0].name
-    ));
+    item(&format!("Relations for \"{}\":", all_entities[0].name));
     for rel in &relations {
         let target = all_entities.iter().find(|e| e.id == rel.to_entity_id);
         let target_name = target.map(|e| e.name.as_str()).unwrap_or("?");
@@ -485,7 +531,10 @@ async fn main() -> Result<()> {
     let store_query = "Berlin engineer";
     let store_emb = embedder.embed(store_query).await?;
 
-    tracing::info!(query = store_query, "SurrealVectorStore top-k entity search");
+    tracing::info!(
+        query = store_query,
+        "SurrealVectorStore top-k entity search"
+    );
     let top_k = store.top_k_entities(&store_emb, 5).await?;
 
     item(&format!("Query: \"{store_query}\""));
@@ -508,11 +557,7 @@ async fn main() -> Result<()> {
     tracing::info!(count = memories.len(), "Listing recent memories");
 
     for (i, m) in memories.iter().enumerate() {
-        item(&format!(
-            "  {}. \"{:.70}\"",
-            i + 1,
-            m.content,
-        ));
+        item(&format!("  {}. \"{:.70}\"", i + 1, m.content,));
         item(&format!(
             "     entities: {}  ·  created: {}",
             m.entity_ids.len(),

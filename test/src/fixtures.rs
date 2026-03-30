@@ -16,7 +16,10 @@ pub struct QueryExpectation {
 
 impl Scenario {
     pub fn expected_entity_set(&self) -> HashSet<String> {
-        self.expected_entities.iter().map(|s| s.to_string()).collect()
+        self.expected_entities
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     }
 }
 
@@ -32,7 +35,9 @@ pub fn people_and_orgs() -> Scenario {
             ("Alice is the CTO of Acme Corp and Bob is the CEO", "test"),
             ("They work together in Berlin on Project Alpha", "test"),
         ],
-        expected_entities: vec!["Alice", "CTO", "Acme", "Bob", "CEO", "They", "Berlin", "Project", "Alpha"],
+        expected_entities: vec![
+            "Alice", "CTO", "Acme", "Bob", "CEO", "They", "Berlin", "Project", "Alpha",
+        ],
         expected_relations: vec![
             ("Alice", "CTO"),
             ("CTO", "Acme"),
@@ -65,15 +70,17 @@ pub fn technical_domain() -> Scenario {
     Scenario {
         name: "technical_domain",
         episodes: vec![
-            ("Rust uses LLVM for code generation and optimization", "docs"),
-            ("SurrealDB is written in Rust and supports HNSW indexes", "docs"),
+            (
+                "Rust uses LLVM for code generation and optimization",
+                "docs",
+            ),
+            (
+                "SurrealDB is written in Rust and supports HNSW indexes",
+                "docs",
+            ),
         ],
         expected_entities: vec!["Rust", "LLVM", "SurrealDB", "HNSW"],
-        expected_relations: vec![
-            ("Rust", "LLVM"),
-            ("SurrealDB", "Rust"),
-            ("Rust", "HNSW"),
-        ],
+        expected_relations: vec![("Rust", "LLVM"), ("SurrealDB", "Rust"), ("Rust", "HNSW")],
         queries: vec![
             QueryExpectation {
                 query: "Rust",
@@ -125,11 +132,7 @@ pub fn overlapping_context() -> Scenario {
 pub fn sparse_input() -> Scenario {
     Scenario {
         name: "sparse_input",
-        episodes: vec![
-            ("Hello", "test"),
-            ("ok", "test"),
-            ("Go", "test"),
-        ],
+        episodes: vec![("Hello", "test"), ("ok", "test"), ("Go", "test")],
         expected_entities: vec!["Hello", "Go"],
         expected_relations: vec![],
         queries: vec![],
@@ -140,17 +143,25 @@ pub fn sparse_input() -> Scenario {
 pub fn dense_input() -> Scenario {
     Scenario {
         name: "dense_input",
-        episodes: vec![
-            (
-                "Microsoft Azure and Amazon AWS compete with Google Cloud while Meta \
+        episodes: vec![(
+            "Microsoft Azure and Amazon AWS compete with Google Cloud while Meta \
                  builds React and Apple ships Swift for iOS development alongside Oracle \
                  maintaining Java",
-                "article",
-            ),
-        ],
+            "article",
+        )],
         expected_entities: vec![
-            "Microsoft", "Azure", "Amazon", "AWS", "Google", "Cloud", "Meta",
-            "React", "Apple", "Swift", "Oracle", "Java",
+            "Microsoft",
+            "Azure",
+            "Amazon",
+            "AWS",
+            "Google",
+            "Cloud",
+            "Meta",
+            "React",
+            "Apple",
+            "Swift",
+            "Oracle",
+            "Java",
         ],
         expected_relations: vec![
             ("Microsoft", "Azure"),

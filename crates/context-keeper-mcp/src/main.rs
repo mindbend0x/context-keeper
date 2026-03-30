@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use axum::{extract::Request, middleware, response::Response};
 use clap::Parser;
 use context_keeper_core::traits::*;
 use context_keeper_rig::{
@@ -10,8 +11,10 @@ use context_keeper_rig::{
 };
 use context_keeper_surreal::{apply_schema, connect, Repository, StorageBackend, SurrealConfig};
 use dotenv::dotenv;
+use rmcp::transport::{
+    streamable_http_server::session::local::LocalSessionManager, StreamableHttpService,
+};
 use rmcp::ServiceExt;
-use rmcp::transport::{StreamableHttpService, streamable_http_server::session::local::LocalSessionManager};
 use tracing_subscriber::EnvFilter;
 
 mod tools;
@@ -21,7 +24,10 @@ use tools::ContextKeeperServer;
 /// with `~` expanded to the actual home directory.
 fn default_storage() -> String {
     match dirs::home_dir() {
-        Some(home) => format!("rocksdb:{}", home.join(".context-keeper").join("data").display()),
+        Some(home) => format!(
+            "rocksdb:{}",
+            home.join(".context-keeper").join("data").display()
+        ),
         None => "memory".to_string(),
     }
 }
@@ -50,12 +56,37 @@ struct Cli {
     api_url: Option<String>,
     #[arg(short = 'k', long, env = "OPENAI_API_KEY", global = true)]
     api_key: Option<String>,
-    #[arg(short = 'f', long, env = "DB_FILE_PATH", global = true, default_value = "context.sql")]
+
+    /// Override API URL for embeddings (falls back to OPENAI_API_URL)
+    #[arg(long, env = "EMBEDDING_API_URL", global = true)]
+    embedding_api_url: Option<String>,
+    /// Override API key for embeddings (falls back to OPENAI_API_KEY)
+    #[arg(long, env = "EMBEDDING_API_KEY", global = true)]
+    embedding_api_key: Option<String>,
+    #[arg(
+        short = 'f',
+        long,
+        env = "DB_FILE_PATH",
+        global = true,
+        default_value = "context.sql"
+    )]
     db_file_path: String,
 
     /// Storage backend: "rocksdb:<path>" (default: ~/.context-keeper/data), "memory", or "remote:<ws_url>"
     #[arg(long, env = "STORAGE_BACKEND", default_value_t = default_storage())]
     storage: String,
+
+    /// Comma-separated list of valid bearer tokens for HTTP auth. Empty = no auth.
+    #[arg(long, env = "MCP_AUTH_TOKENS")]
+    auth_tokens: Option<String>,
+
+    /// SurrealDB root username (for remote connections)
+    #[arg(long, env = "SURREAL_USER")]
+    surreal_user: Option<String>,
+
+    /// SurrealDB root password (for remote connections)
+    #[arg(long, env = "SURREAL_PASS")]
+    surreal_pass: Option<String>,
 }
 
 fn parse_storage_backend(s: &str) -> StorageBackend {
@@ -68,10 +99,35 @@ fn parse_storage_backend(s: &str) -> StorageBackend {
     }
 }
 
+async fn bearer_auth(
+    valid_tokens: Arc<Vec<String>>,
+    req: Request,
+    next: middleware::Next,
+) -> Response {
+    if let Some(auth) = req.headers().get("authorization") {
+        if let Ok(auth_str) = auth.to_str() {
+            if let Some(token) = auth_str.strip_prefix("Bearer ") {
+                if valid_tokens.iter().any(|t| t == token) {
+                    return next.run(req).await;
+                }
+            }
+        }
+    }
+
+    Response::builder()
+        .status(401)
+        .header("www-authenticate", "Bearer")
+        .body(axum::body::Body::from("Unauthorized"))
+        .unwrap()
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("context_keeper=info,warn")),
+        )
         .init();
 
     let _ = dotenv();
@@ -84,6 +140,8 @@ async fn main() -> Result<()> {
     let config = SurrealConfig {
         embedding_dimensions: embedding_dims,
         storage: parse_storage_backend(&cli.storage),
+        username: cli.surreal_user,
+        password: cli.surreal_pass,
         ..SurrealConfig::default()
     };
 
@@ -109,6 +167,10 @@ async fn main() -> Result<()> {
     tracing::info!("SurrealDB initialized, repository ready");
 
     // Build LLM services
+    // Embedding URL/key can be overridden separately (e.g., OpenAI for embeddings, HuggingFace for extraction)
+    let emb_api_url = cli.embedding_api_url.as_deref().or(cli.api_url.as_deref());
+    let emb_api_key = cli.embedding_api_key.as_deref().or(cli.api_key.as_deref());
+
     let (embedder, entity_extractor, relation_extractor, query_rewriter): (
         Arc<dyn Embedder>,
         Arc<dyn EntityExtractor>,
@@ -121,9 +183,15 @@ async fn main() -> Result<()> {
         cli.extraction_model_name.as_deref(),
     ) {
         (Some(api_url), Some(api_key), Some(emb_model), Some(ext_model)) => {
-            tracing::info!("Using LLM-powered extraction");
+            let emb_url = emb_api_url.unwrap_or(api_url);
+            let emb_key = emb_api_key.unwrap_or(api_key);
+            tracing::info!(
+                extraction_url = api_url,
+                embedding_url = emb_url,
+                "Using LLM-powered extraction"
+            );
             (
-                Arc::new(RigEmbedder::new(api_url, api_key, emb_model, embedding_dims)),
+                Arc::new(RigEmbedder::new(emb_url, emb_key, emb_model, embedding_dims)),
                 Arc::new(RigEntityExtractor::new(api_url, api_key, ext_model)),
                 Arc::new(RigRelationExtractor::new(api_url, api_key, ext_model)),
                 Arc::new(RigQueryRewriter::new(api_url, api_key, ext_model)),
@@ -149,6 +217,16 @@ async fn main() -> Result<()> {
         query_rewriter,
     );
 
+    let valid_tokens: Arc<Vec<String>> = Arc::new(
+        cli.auth_tokens
+            .as_deref()
+            .unwrap_or("")
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+    );
+
     match cli.transport.as_str() {
         "stdio" => {
             tracing::info!("Serving MCP over stdio");
@@ -165,7 +243,19 @@ async fn main() -> Result<()> {
                 Default::default(),
             );
 
-            let router = axum::Router::new().nest_service("/mcp", http_service);
+            let router = if valid_tokens.is_empty() {
+                tracing::warn!("No auth tokens configured — HTTP endpoint is unauthenticated");
+                axum::Router::new().nest_service("/mcp", http_service)
+            } else {
+                tracing::info!(count = valid_tokens.len(), "Bearer token auth enabled");
+                let tokens = valid_tokens.clone();
+                axum::Router::new()
+                    .nest_service("/mcp", http_service)
+                    .layer(middleware::from_fn(move |req, next| {
+                        bearer_auth(tokens.clone(), req, next)
+                    }))
+            };
+
             let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
             tracing::info!("MCP HTTP server ready at http://{}/mcp", bind_addr);

@@ -41,13 +41,13 @@ impl From<&str> for EntityType {
     fn from(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "person" => Self::Person,
-            "organization" | "org" | "company" => Self::Organization,
+            "organization" | "org" | "company" | "firm" => Self::Organization,
             "location" | "place" | "city" | "country" => Self::Location,
             "event" => Self::Event,
-            "product" => Self::Product,
+            "product" | "tool" | "app" => Self::Product,
             "service" => Self::Service,
-            "concept" | "idea" | "topic" => Self::Concept,
-            "file" | "document" => Self::File,
+            "concept" | "idea" | "topic" | "technology" => Self::Concept,
+            "file" | "document" | "lib" | "library" | "crate" => Self::File,
             _ => Self::Other,
         }
     }
@@ -67,6 +67,7 @@ pub enum RelationType {
     WorksAt,
     LocatedIn,
     PartOf,
+    MemberOf,
     Uses,
     CreatedBy,
     Knows,
@@ -78,19 +79,17 @@ impl RelationType {
     /// Map free-form LLM predicates to the canonical set.
     pub fn canonicalize(raw: &str) -> Self {
         match raw.to_lowercase().replace(['-', ' '], "_").as_str() {
-            "works_at" | "employed_at" | "works_for" | "employee_of" | "employed_by" => {
-                Self::WorksAt
-            }
+            "works_at" | "employed_at" | "works_for" | "employee_of" | "employed_by"
+            | "reports_to" | "manages" => Self::WorksAt,
             "located_in" | "based_in" | "headquartered_in" | "lives_in" | "resides_in" => {
                 Self::LocatedIn
             }
-            "part_of" | "is_part_of" | "belongs_to" | "member_of" | "subset_of" => Self::PartOf,
-            "uses" | "utilizes" | "leverages" | "adopts" => Self::Uses,
+            "part_of" | "is_part_of" | "belongs_to" | "subset_of" => Self::PartOf,
+            "member_of" | "affiliated_with" => Self::MemberOf,
+            "uses" | "utilizes" | "leverages" | "adopts" | "employs" => Self::Uses,
             "created_by" | "authored_by" | "built_by" | "developed_by" | "founded_by"
-            | "invented_by" | "designed_by" => Self::CreatedBy,
-            "knows" | "met" | "collaborates_with" | "works_with" | "mentors" | "manages" => {
-                Self::Knows
-            }
+            | "invented_by" | "designed_by" | "built" | "authored" | "created" => Self::CreatedBy,
+            "knows" | "met" | "collaborates_with" | "works_with" | "mentors" => Self::Knows,
             "depends_on" | "requires" | "needs" | "relies_on" => Self::DependsOn,
             "related_to" => Self::RelatedTo,
             _ => Self::RelatedTo,
@@ -108,6 +107,7 @@ impl fmt::Display for RelationType {
             Self::WorksAt => "works_at",
             Self::LocatedIn => "located_in",
             Self::PartOf => "part_of",
+            Self::MemberOf => "member_of",
             Self::Uses => "uses",
             Self::CreatedBy => "created_by",
             Self::Knows => "knows",
@@ -130,6 +130,21 @@ impl Default for RelationType {
     }
 }
 
+// ── Agent identity ──────────────────────────────────────────────────────
+
+/// Identifies the agent and machine that produced a piece of data.
+///
+/// Enables multi-agent provenance tracking when multiple AI assistants
+/// share a single Context Keeper instance.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AgentInfo {
+    pub agent_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<String>,
+}
+
 // ── Core domain types ───────────────────────────────────────────────────
 
 /// A raw input unit representing a single piece of information ingested into the system.
@@ -139,6 +154,10 @@ pub struct Episode {
     pub content: String,
     pub source: String,
     pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -152,6 +171,10 @@ pub struct Entity {
     pub embedding: Vec<f64>,
     pub valid_from: DateTime<Utc>,
     pub valid_until: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by_agent: Option<String>,
 }
 
 /// A directed graph edge between two entities with temporal bounds.
@@ -182,6 +205,10 @@ pub struct Memory {
     pub source_episode_id: Uuid,
     pub entity_ids: Vec<Uuid>,
     pub created_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by_agent: Option<String>,
 }
 
 /// Result returned from hybrid search operations.
@@ -233,5 +260,240 @@ impl DistanceMetric {
             Self::Hamming => "vector::distance::hamming",
             Self::Minkowski => "vector::distance::minkowski",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── EntityType alias coverage ──────────────────────────────────────
+
+    #[test]
+    fn entity_type_from_canonical_names() {
+        assert_eq!(EntityType::from("person"), EntityType::Person);
+        assert_eq!(EntityType::from("organization"), EntityType::Organization);
+        assert_eq!(EntityType::from("location"), EntityType::Location);
+        assert_eq!(EntityType::from("event"), EntityType::Event);
+        assert_eq!(EntityType::from("product"), EntityType::Product);
+        assert_eq!(EntityType::from("service"), EntityType::Service);
+        assert_eq!(EntityType::from("concept"), EntityType::Concept);
+        assert_eq!(EntityType::from("file"), EntityType::File);
+        assert_eq!(EntityType::from("unknown_type"), EntityType::Other);
+    }
+
+    #[test]
+    fn entity_type_organization_aliases() {
+        for alias in ["org", "company", "firm", "Organization", "COMPANY"] {
+            assert_eq!(
+                EntityType::from(alias),
+                EntityType::Organization,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn entity_type_location_aliases() {
+        for alias in ["place", "city", "country", "LOCATION", "City"] {
+            assert_eq!(
+                EntityType::from(alias),
+                EntityType::Location,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn entity_type_product_aliases() {
+        for alias in ["product", "tool", "app", "Tool", "APP"] {
+            assert_eq!(
+                EntityType::from(alias),
+                EntityType::Product,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn entity_type_concept_aliases() {
+        for alias in ["concept", "idea", "topic", "technology", "Technology"] {
+            assert_eq!(
+                EntityType::from(alias),
+                EntityType::Concept,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn entity_type_file_aliases() {
+        for alias in ["file", "document", "lib", "library", "crate", "Library"] {
+            assert_eq!(EntityType::from(alias), EntityType::File, "alias: {alias}");
+        }
+    }
+
+    // ── RelationType canonicalize coverage ──────────────────────────────
+
+    #[test]
+    fn relation_type_works_at_aliases() {
+        for alias in [
+            "works_at",
+            "employed_at",
+            "works_for",
+            "employee_of",
+            "employed_by",
+            "reports_to",
+            "manages",
+            "Works At",
+            "WORKS-FOR",
+        ] {
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::WorksAt,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn relation_type_located_in_aliases() {
+        for alias in [
+            "located_in",
+            "based_in",
+            "headquartered_in",
+            "lives_in",
+            "resides_in",
+            "Located In",
+            "BASED-IN",
+        ] {
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::LocatedIn,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn relation_type_part_of_aliases() {
+        for alias in ["part_of", "is_part_of", "belongs_to", "subset_of"] {
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::PartOf,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn relation_type_member_of_aliases() {
+        for alias in ["member_of", "affiliated_with", "Member Of"] {
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::MemberOf,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn relation_type_uses_aliases() {
+        for alias in ["uses", "utilizes", "leverages", "adopts", "employs"] {
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::Uses,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn relation_type_created_by_aliases() {
+        for alias in [
+            "created_by",
+            "authored_by",
+            "built_by",
+            "developed_by",
+            "founded_by",
+            "invented_by",
+            "designed_by",
+            "built",
+            "authored",
+            "created",
+        ] {
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::CreatedBy,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn relation_type_knows_aliases() {
+        for alias in ["knows", "met", "collaborates_with", "works_with", "mentors"] {
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::Knows,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn relation_type_depends_on_aliases() {
+        for alias in ["depends_on", "requires", "needs", "relies_on"] {
+            assert_eq!(
+                RelationType::canonicalize(alias),
+                RelationType::DependsOn,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn relation_type_unknown_defaults_to_related_to() {
+        assert_eq!(
+            RelationType::canonicalize("foo_bar"),
+            RelationType::RelatedTo
+        );
+        assert_eq!(RelationType::canonicalize("xyz"), RelationType::RelatedTo);
+    }
+
+    #[test]
+    fn relation_type_from_delegates_to_canonicalize() {
+        assert_eq!(RelationType::from("works_at"), RelationType::WorksAt);
+        assert_eq!(RelationType::from("member_of"), RelationType::MemberOf);
+        assert_eq!(RelationType::from("gibberish"), RelationType::RelatedTo);
+    }
+
+    #[test]
+    fn relation_type_display_roundtrip() {
+        let types = [
+            RelationType::WorksAt,
+            RelationType::LocatedIn,
+            RelationType::PartOf,
+            RelationType::MemberOf,
+            RelationType::Uses,
+            RelationType::CreatedBy,
+            RelationType::Knows,
+            RelationType::DependsOn,
+            RelationType::RelatedTo,
+        ];
+        for rt in types {
+            let display = rt.to_string();
+            let back = RelationType::canonicalize(&display);
+            assert_eq!(back, rt, "roundtrip failed for {display}");
+        }
+    }
+
+    #[test]
+    fn symmetric_types() {
+        assert!(RelationType::Knows.is_symmetric());
+        assert!(RelationType::RelatedTo.is_symmetric());
+        assert!(!RelationType::WorksAt.is_symmetric());
+        assert!(!RelationType::MemberOf.is_symmetric());
+        assert!(!RelationType::PartOf.is_symmetric());
     }
 }

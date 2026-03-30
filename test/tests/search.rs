@@ -7,11 +7,7 @@ use context_keeper_core::{
     search::{fuse_rrf, QueryExpander},
     traits::*,
 };
-use context_keeper_test::{
-    fixtures,
-    harness::TestEnv,
-    metrics,
-};
+use context_keeper_test::{fixtures, harness::TestEnv, metrics};
 use uuid::Uuid;
 
 // ── Vector search self-similarity ────────────────────────────────────────
@@ -30,13 +26,18 @@ async fn test_vector_search_self_similarity() -> Result<()> {
             embedding: env.embedder.embed(name).await?,
             valid_from: Utc::now(),
             valid_until: None,
+            namespace: None,
+            created_by_agent: None,
         };
         env.repo.upsert_entity(&entity).await?;
     }
 
     for name in &names {
         let query_vec = env.embedder.embed(name).await?;
-        let results = env.repo.search_entities_by_vector(&query_vec, 4, None).await?;
+        let results = env
+            .repo
+            .search_entities_by_vector(&query_vec, 4, None, None)
+            .await?;
         assert!(
             !results.is_empty(),
             "Vector search for {name} should return results"
@@ -62,8 +63,7 @@ async fn test_vector_search_self_similarity() -> Result<()> {
 async fn test_vector_search_ranking() -> Result<()> {
     let env = TestEnv::new().await?;
     let names: Vec<&str> = vec![
-        "Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf",
-        "Hotel", "India", "Juliet",
+        "Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel", "India", "Juliet",
     ];
 
     for name in &names {
@@ -75,12 +75,17 @@ async fn test_vector_search_ranking() -> Result<()> {
             embedding: env.embedder.embed(name).await?,
             valid_from: Utc::now(),
             valid_until: None,
+            namespace: None,
+            created_by_agent: None,
         };
         env.repo.upsert_entity(&entity).await?;
     }
 
     let query_vec = env.embedder.embed("Alpha").await?;
-    let results = env.repo.search_entities_by_vector(&query_vec, 10, None).await?;
+    let results = env
+        .repo
+        .search_entities_by_vector(&query_vec, 10, None, None)
+        .await?;
     assert_eq!(results[0].0.name, "Alpha");
 
     for i in 1..results.len() {
@@ -107,10 +112,15 @@ async fn test_bm25_exact_match() -> Result<()> {
         embedding: env.embedder.embed("Kubernetes").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     env.repo.upsert_entity(&entity).await?;
 
-    let results = env.repo.search_entities_by_keyword("Kubernetes", None).await?;
+    let results = env
+        .repo
+        .search_entities_by_keyword("Kubernetes", None, None)
+        .await?;
     assert!(!results.is_empty(), "BM25 should find exact name match");
     assert_eq!(results[0].name, "Kubernetes");
 
@@ -131,10 +141,15 @@ async fn test_bm25_summary_match() -> Result<()> {
         embedding: env.embedder.embed("Kubernetes").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
     env.repo.upsert_entity(&entity).await?;
 
-    let results = env.repo.search_entities_by_keyword("orchestration", None).await?;
+    let results = env
+        .repo
+        .search_entities_by_keyword("orchestration", None, None)
+        .await?;
     assert!(!results.is_empty(), "BM25 should match words in summary");
     assert_eq!(results[0].name, "Kubernetes");
 
@@ -153,6 +168,8 @@ async fn test_rrf_fusion_boost() -> Result<()> {
         embedding: vec![],
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
 
     let alice = make("Alice");
@@ -185,20 +202,29 @@ async fn test_rrf_diverse_results() -> Result<()> {
         embedding: vec![],
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
 
     let list1 = vec![make("A"), make("B")];
     let list2 = vec![make("C"), make("D")];
 
     let fused = fuse_rrf(vec![list1, list2]);
-    assert_eq!(fused.len(), 4, "Union of disjoint lists should contain all items");
+    assert_eq!(
+        fused.len(),
+        4,
+        "Union of disjoint lists should contain all items"
+    );
 
     let names: HashSet<String> = fused
         .iter()
         .map(|r| r.entity.as_ref().unwrap().name.clone())
         .collect();
     for expected in &["A", "B", "C", "D"] {
-        assert!(names.contains(*expected), "Missing {expected} in fused results");
+        assert!(
+            names.contains(*expected),
+            "Missing {expected} in fused results"
+        );
     }
 
     Ok(())
@@ -255,9 +281,15 @@ async fn test_memory_vector_search() -> Result<()> {
     env.ingest_text(episode_text, "test").await?;
 
     let query_vec = env.embedder.embed(episode_text).await?;
-    let results = env.repo.search_memories_by_vector(&query_vec, 5).await?;
+    let results = env
+        .repo
+        .search_memories_by_vector(&query_vec, 5, None)
+        .await?;
 
-    assert!(!results.is_empty(), "Memory vector search should return results");
+    assert!(
+        !results.is_empty(),
+        "Memory vector search should return results"
+    );
     assert_eq!(results[0].0.content, episode_text);
     assert!(
         (results[0].1 - 1.0).abs() < 0.01,
@@ -273,8 +305,10 @@ async fn test_memory_vector_search() -> Result<()> {
 async fn test_memory_keyword_search() -> Result<()> {
     let env = TestEnv::new().await?;
 
-    env.ingest_text("Rust is a systems programming language", "test").await?;
-    env.ingest_text("Python is popular for data science", "test").await?;
+    env.ingest_text("Rust is a systems programming language", "test")
+        .await?;
+    env.ingest_text("Python is popular for data science", "test")
+        .await?;
 
     let results = env.repo.search_episodes_by_keyword("Rust").await?;
     assert!(!results.is_empty(), "BM25 should find episode by keyword");
@@ -291,30 +325,46 @@ async fn test_memory_keyword_search() -> Result<()> {
 #[tokio::test]
 async fn test_query_expansion_increases_recall() -> Result<()> {
     let env = TestEnv::new().await?;
-    env.ingest_text("Alice is the CTO of Acme Corp", "test").await?;
-    env.ingest_text("Bob manages the Engineering team at Acme", "test").await?;
+    env.ingest_text("Alice is the CTO of Acme Corp", "test")
+        .await?;
+    env.ingest_text("Bob manages the Engineering team at Acme", "test")
+        .await?;
 
     let expander = QueryExpander::new(3);
-    let variants = expander.expand("Acme leadership", &env.query_rewriter).await?;
+    let variants = expander
+        .expand("Acme leadership", &env.query_rewriter)
+        .await?;
 
-    assert!(variants.len() > 1, "Expander should produce multiple variants");
+    assert!(
+        variants.len() > 1,
+        "Expander should produce multiple variants"
+    );
 
     let mut all_entity_names: HashSet<String> = HashSet::new();
     for variant in &variants {
         let query_vec = env.embedder.embed(variant).await?;
-        let vec_results = env.repo.search_entities_by_vector(&query_vec, 5, None).await?;
+        let vec_results = env
+            .repo
+            .search_entities_by_vector(&query_vec, 5, None, None)
+            .await?;
         for (entity, _) in vec_results {
             all_entity_names.insert(entity.name);
         }
 
-        let kw_results = env.repo.search_entities_by_keyword(variant, None).await?;
+        let kw_results = env
+            .repo
+            .search_entities_by_keyword(variant, None, None)
+            .await?;
         for entity in kw_results {
             all_entity_names.insert(entity.name);
         }
     }
 
     let base_vec = env.embedder.embed("Acme leadership").await?;
-    let base_results = env.repo.search_entities_by_vector(&base_vec, 5, None).await?;
+    let base_results = env
+        .repo
+        .search_entities_by_vector(&base_vec, 5, None, None)
+        .await?;
     let base_names: HashSet<String> = base_results.into_iter().map(|(e, _)| e.name).collect();
 
     assert!(
@@ -380,6 +430,8 @@ async fn test_search_excludes_invalidated() -> Result<()> {
         embedding: env.embedder.embed("ActiveEntity").await?,
         valid_from: Utc::now(),
         valid_until: None,
+        namespace: None,
+        created_by_agent: None,
     };
 
     let invalidated = Entity {
@@ -390,13 +442,18 @@ async fn test_search_excludes_invalidated() -> Result<()> {
         embedding: env.embedder.embed("GoneEntity").await?,
         valid_from: Utc::now() - chrono::Duration::days(10),
         valid_until: Some(Utc::now() - chrono::Duration::days(1)),
+        namespace: None,
+        created_by_agent: None,
     };
 
     env.repo.upsert_entity(&active).await?;
     env.repo.upsert_entity(&invalidated).await?;
 
     let query_vec = env.embedder.embed("GoneEntity").await?;
-    let vec_results = env.repo.search_entities_by_vector(&query_vec, 10, None).await?;
+    let vec_results = env
+        .repo
+        .search_entities_by_vector(&query_vec, 10, None, None)
+        .await?;
     let vec_names: Vec<String> = vec_results.into_iter().map(|(e, _)| e.name).collect();
     assert!(
         !vec_names.contains(&"GoneEntity".to_string()),

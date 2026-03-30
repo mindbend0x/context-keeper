@@ -19,6 +19,10 @@ Thumbs.db
 # Environment
 .env
 .env.local
+.env.staging
+
+# SSH keys
+.keys/
 
 # DB
 context.sql

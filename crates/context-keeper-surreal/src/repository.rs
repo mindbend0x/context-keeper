@@ -1,22 +1,28 @@
-use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use context_keeper_core::error::Result;
 use context_keeper_core::models::*;
 use context_keeper_core::traits::EntityResolver;
+use context_keeper_core::ContextKeeperError;
 use serde::{Deserialize, Serialize};
-use surrealdb::engine::local::Db;
+use surrealdb::engine::any::Any;
 use surrealdb::types::SurrealValue;
 use surrealdb::Surreal;
 use tracing::debug;
 use uuid::Uuid;
 
+fn storage_err(e: impl std::fmt::Display) -> ContextKeeperError {
+    ContextKeeperError::StorageError(e.to_string())
+}
+
 /// Typed repository for all Context Keeper data operations against SurrealDB.
 ///
 /// Uses SurrealDB's native graph engine: RELATE for edges, HNSW for vector
 /// search, BM25 for full-text, and recursive graph queries for traversal.
+/// Accepts `Surreal<Any>` to support in-memory, RocksDB, and remote backends.
 #[derive(Clone)]
 pub struct Repository {
-    db: Surreal<Db>,
+    db: Surreal<Any>,
 }
 
 // ── Deserialization helpers for SurrealDB query results ──────────────────
@@ -31,6 +37,10 @@ struct EntityRow {
     embedding: Vec<f64>,
     valid_from: DateTime<Utc>,
     valid_until: Option<DateTime<Utc>>,
+    #[serde(default)]
+    namespace: Option<String>,
+    #[serde(default)]
+    created_by_agent: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, SurrealValue)]
@@ -39,6 +49,14 @@ struct EpisodeRow {
     content: String,
     source: String,
     session_id: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
+    agent_name: Option<String>,
+    #[serde(default)]
+    machine_id: Option<String>,
+    #[serde(default)]
+    namespace: Option<String>,
     created_at: DateTime<Utc>,
 }
 
@@ -49,6 +67,10 @@ struct MemoryRow {
     #[serde(default)]
     embedding: Vec<f64>,
     created_at: DateTime<Utc>,
+    #[serde(default)]
+    namespace: Option<String>,
+    #[serde(default)]
+    created_by_agent: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, SurrealValue)]
@@ -74,6 +96,10 @@ struct ScoredEntityRow {
     embedding: Vec<f64>,
     valid_from: DateTime<Utc>,
     valid_until: Option<DateTime<Utc>>,
+    #[serde(default)]
+    namespace: Option<String>,
+    #[serde(default)]
+    created_by_agent: Option<String>,
     score: f64,
 }
 
@@ -84,6 +110,10 @@ struct ScoredMemoryRow {
     #[serde(default)]
     embedding: Vec<f64>,
     created_at: DateTime<Utc>,
+    #[serde(default)]
+    namespace: Option<String>,
+    #[serde(default)]
+    created_by_agent: Option<String>,
     score: f64,
 }
 
@@ -97,6 +127,10 @@ struct FtsEntityRow {
     embedding: Vec<f64>,
     valid_from: DateTime<Utc>,
     valid_until: Option<DateTime<Utc>>,
+    #[serde(default)]
+    namespace: Option<String>,
+    #[serde(default)]
+    created_by_agent: Option<String>,
     relevance: f64,
 }
 
@@ -107,6 +141,10 @@ struct MemoryWithEdgesRow {
     #[serde(default)]
     embedding: Vec<f64>,
     created_at: DateTime<Utc>,
+    #[serde(default)]
+    namespace: Option<String>,
+    #[serde(default)]
+    created_by_agent: Option<String>,
     #[serde(default)]
     episode_ids: Vec<surrealdb::types::RecordId>,
     #[serde(default)]
@@ -133,15 +171,24 @@ fn entity_from_row(r: EntityRow) -> Option<Entity> {
         embedding: r.embedding,
         valid_from: r.valid_from,
         valid_until: r.valid_until,
+        namespace: r.namespace,
+        created_by_agent: r.created_by_agent,
     })
 }
 
 fn episode_from_row(r: EpisodeRow) -> Option<Episode> {
+    let agent = r.agent_id.map(|id| context_keeper_core::AgentInfo {
+        agent_id: id,
+        agent_name: r.agent_name,
+        machine_id: r.machine_id,
+    });
     Some(Episode {
         id: record_id_to_uuid(&r.id)?,
         content: r.content,
         source: r.source,
         session_id: r.session_id,
+        agent,
+        namespace: r.namespace,
         created_at: r.created_at,
     })
 }
@@ -154,11 +201,17 @@ fn memory_from_row(r: MemoryRow) -> Option<Memory> {
         source_episode_id: Uuid::nil(),
         entity_ids: vec![],
         created_at: r.created_at,
+        namespace: r.namespace,
+        created_by_agent: r.created_by_agent,
     })
 }
 
 fn memory_with_edges_from_row(r: MemoryWithEdgesRow) -> Option<Memory> {
-    let episode_id = r.episode_ids.first().and_then(record_id_to_uuid).unwrap_or(Uuid::nil());
+    let episode_id = r
+        .episode_ids
+        .first()
+        .and_then(record_id_to_uuid)
+        .unwrap_or(Uuid::nil());
     let entity_ids: Vec<Uuid> = r.entity_ids.iter().filter_map(record_id_to_uuid).collect();
     Some(Memory {
         id: record_id_to_uuid(&r.id)?,
@@ -167,6 +220,8 @@ fn memory_with_edges_from_row(r: MemoryWithEdgesRow) -> Option<Memory> {
         source_episode_id: episode_id,
         entity_ids,
         created_at: r.created_at,
+        namespace: r.namespace,
+        created_by_agent: r.created_by_agent,
     })
 }
 
@@ -186,9 +241,25 @@ fn relation_from_edge_row(r: RelationEdgeRow) -> Option<Relation> {
 
 #[async_trait]
 impl EntityResolver for Repository {
-    async fn find_existing(&self, name: &str) -> Result<Option<Entity>> {
-        let results = self.find_entities_by_name(name).await?;
-        Ok(results.into_iter().next())
+    async fn find_existing(
+        &self,
+        name: &str,
+        entity_type: &EntityType,
+        _namespace: Option<&str>,
+    ) -> Result<Option<Entity>> {
+        let etype_str = entity_type.to_string();
+        // Resolution is namespace-agnostic: (name, entity_type) uniquely identifies an entity
+        // across all namespaces so the same real-world entity isn't duplicated per namespace.
+        let q = "SELECT * FROM entity WHERE name = $name AND entity_type = $etype AND valid_until IS NONE LIMIT 1";
+        let mut response = self
+            .db
+            .query(q)
+            .bind(("name", name.to_string()))
+            .bind(("etype", etype_str))
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
+        Ok(rows.into_iter().next().and_then(entity_from_row))
     }
 
     async fn find_similar(
@@ -196,9 +267,10 @@ impl EntityResolver for Repository {
         _name: &str,
         embedding: &[f64],
         threshold: f64,
+        namespace: Option<&str>,
     ) -> Result<Vec<Entity>> {
         let candidates = self
-            .search_entities_by_vector(embedding, 3, None)
+            .search_entities_by_vector(embedding, 3, None, namespace)
             .await?;
 
         Ok(candidates
@@ -210,19 +282,19 @@ impl EntityResolver for Repository {
 }
 
 impl Repository {
-    pub fn new(db: Surreal<Db>) -> Self {
+    pub fn new(db: Surreal<Any>) -> Self {
         Self { db }
     }
 
     // ── File export/import ───────────────────────────────────────────
 
     pub async fn export(&self, path: &str) -> Result<()> {
-        self.db.export(path).await?;
+        self.db.export(path).await.map_err(storage_err)?;
         Ok(())
     }
 
     pub async fn import_from_file(&self, path: &str) -> Result<()> {
-        self.db.import(path).await?;
+        self.db.import(path).await.map_err(storage_err)?;
         Ok(())
     }
 
@@ -230,7 +302,7 @@ impl Repository {
 
     pub async fn create_episode(&self, episode: &Episode) -> Result<()> {
         let q = format!(
-            "CREATE episode:`{}` SET content = $content, source = $source, session_id = $session_id, created_at = <datetime>$created_at",
+            "CREATE episode:`{}` SET content = $content, source = $source, session_id = $session_id, agent_id = $agent_id, agent_name = $agent_name, machine_id = $machine_id, namespace = $namespace, created_at = <datetime>$created_at",
             episode.id
         );
         self.db
@@ -238,15 +310,29 @@ impl Repository {
             .bind(("content", episode.content.clone()))
             .bind(("source", episode.source.clone()))
             .bind(("session_id", episode.session_id.clone()))
+            .bind((
+                "agent_id",
+                episode.agent.as_ref().map(|a| a.agent_id.clone()),
+            ))
+            .bind((
+                "agent_name",
+                episode.agent.as_ref().and_then(|a| a.agent_name.clone()),
+            ))
+            .bind((
+                "machine_id",
+                episode.agent.as_ref().and_then(|a| a.machine_id.clone()),
+            ))
+            .bind(("namespace", episode.namespace.clone()))
             .bind(("created_at", episode.created_at.to_rfc3339()))
-            .await?;
+            .await
+            .map_err(storage_err)?;
         Ok(())
     }
 
     pub async fn get_episode(&self, id: Uuid) -> Result<Option<Episode>> {
         let q = format!("SELECT * FROM episode:`{}`", id);
-        let mut response = self.db.query(&q).await?;
-        let rows: Vec<EpisodeRow> = response.take(0)?;
+        let mut response = self.db.query(&q).await.map_err(storage_err)?;
+        let rows: Vec<EpisodeRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().next().and_then(episode_from_row))
     }
 
@@ -255,8 +341,9 @@ impl Repository {
             .db
             .query("SELECT * FROM episode ORDER BY created_at DESC LIMIT $limit")
             .bind(("limit", limit))
-            .await?;
-        let rows: Vec<EpisodeRow> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<EpisodeRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(episode_from_row).collect())
     }
 
@@ -265,7 +352,7 @@ impl Repository {
     /// True UPSERT: if an entity with the same ID exists, update it.
     pub async fn upsert_entity(&self, entity: &Entity) -> Result<()> {
         let q = format!(
-            "UPSERT entity:`{}` SET name = $name, entity_type = $entity_type, summary = $summary, embedding = $embedding, valid_from = <datetime>$valid_from, valid_until = IF $valid_until THEN <datetime>$valid_until ELSE NONE END",
+            "UPSERT entity:`{}` SET name = $name, entity_type = $entity_type, summary = $summary, embedding = $embedding, valid_from = <datetime>$valid_from, valid_until = IF $valid_until THEN <datetime>$valid_until ELSE NONE END, namespace = $namespace, created_by_agent = $created_by_agent",
             entity.id
         );
         self.db
@@ -276,45 +363,78 @@ impl Repository {
             .bind(("embedding", entity.embedding.clone()))
             .bind(("valid_from", entity.valid_from.to_rfc3339()))
             .bind(("valid_until", entity.valid_until.map(|d| d.to_rfc3339())))
-            .await?;
+            .bind(("namespace", entity.namespace.clone()))
+            .bind(("created_by_agent", entity.created_by_agent.clone()))
+            .await
+            .map_err(storage_err)?;
         Ok(())
     }
 
     pub async fn get_entity(&self, id: Uuid) -> Result<Option<Entity>> {
         let q = format!("SELECT * FROM entity:`{}`", id);
-        let mut response = self.db.query(&q).await?;
-        let rows: Vec<EntityRow> = response.take(0)?;
+        let mut response = self.db.query(&q).await.map_err(storage_err)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().next().and_then(entity_from_row))
     }
 
-    pub async fn find_entities_by_name(&self, name: &str) -> Result<Vec<Entity>> {
-        let mut response = self
-            .db
-            .query("SELECT * FROM entity WHERE name = $name AND valid_until IS NONE")
-            .bind(("name", name.to_string()))
-            .await?;
+    pub async fn find_entities_by_name(
+        &self,
+        name: &str,
+        entity_type: Option<&EntityType>,
+        namespace: Option<&str>,
+    ) -> Result<Vec<Entity>> {
+        let mut conditions = vec!["name = $name", "valid_until IS NONE"];
+        if entity_type.is_some() {
+            conditions.push("entity_type = $etype");
+        }
+        if namespace.is_some() {
+            conditions.push("namespace = $ns");
+        }
+        let q = format!("SELECT * FROM entity WHERE {}", conditions.join(" AND "));
+
+        let mut query = self.db.query(&q).bind(("name", name.to_string()));
+        if let Some(etype) = entity_type {
+            query = query.bind(("etype", etype.to_string()));
+        }
+        if let Some(ns) = namespace {
+            query = query.bind(("ns", ns.to_string()));
+        }
+        let mut response = query.await.map_err(storage_err)?;
         debug!("find_entities_by_name");
-        let rows: Vec<EntityRow> = response.take(0)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
 
     pub async fn get_all_active_entities(&self) -> Result<Vec<Entity>> {
-        let mut response = self
-            .db
-            .query("SELECT * FROM entity WHERE valid_until IS NONE")
-            .await?;
-        let rows: Vec<EntityRow> = response.take(0)?;
+        self.get_all_active_entities_in_namespace(None).await
+    }
+
+    pub async fn get_all_active_entities_in_namespace(
+        &self,
+        namespace: Option<&str>,
+    ) -> Result<Vec<Entity>> {
+        let q = match namespace {
+            Some(_) => "SELECT * FROM entity WHERE valid_until IS NONE AND namespace = $ns",
+            None => "SELECT * FROM entity WHERE valid_until IS NONE",
+        };
+        let mut query = self.db.query(q);
+        if let Some(ns) = namespace {
+            query = query.bind(("ns", ns.to_string()));
+        }
+        let mut response = query.await.map_err(storage_err)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
 
     /// Invalidate an entity by setting its `valid_until` to now.
     pub async fn invalidate_entity(&self, id: Uuid) -> Result<()> {
         let now = Utc::now().to_rfc3339();
-        let q = format!(
-            "UPDATE entity:`{}` SET valid_until = <datetime>$now",
-            id
-        );
-        self.db.query(&q).bind(("now", now)).await?;
+        let q = format!("UPDATE entity:`{}` SET valid_until = <datetime>$now", id);
+        self.db
+            .query(&q)
+            .bind(("now", now))
+            .await
+            .map_err(storage_err)?;
         Ok(())
     }
 
@@ -324,8 +444,9 @@ impl Repository {
             .db
             .query("SELECT * FROM entity WHERE entity_type = $etype AND valid_until IS NONE")
             .bind(("etype", entity_type.to_string()))
-            .await?;
-        let rows: Vec<EntityRow> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
 
@@ -339,7 +460,6 @@ impl Repository {
     pub async fn create_relation(&self, relation: &Relation) -> Result<bool> {
         let rel_type_str = relation.relation_type.to_string();
 
-        // Check for existing active relation with same (from, to, type)
         let check_q = format!(
             "SELECT id, in AS in_id, out AS out_id, relation_type, confidence, valid_from, valid_until FROM relates_to WHERE in = entity:`{}` AND out = entity:`{}` AND relation_type = $rel_type AND valid_until IS NONE LIMIT 1",
             relation.from_entity_id, relation.to_entity_id
@@ -348,11 +468,13 @@ impl Repository {
             .db
             .query(&check_q)
             .bind(("rel_type", rel_type_str.clone()))
-            .await?;
-        let existing: Vec<RelationEdgeRow> = check_resp.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let existing: Vec<RelationEdgeRow> = check_resp.take(0).map_err(storage_err)?;
 
         if let Some(existing_row) = existing.into_iter().next() {
-            let avg_conf = ((existing_row.confidence as u16 + relation.confidence as u16) / 2) as u8;
+            let avg_conf =
+                ((existing_row.confidence as u16 + relation.confidence as u16) / 2) as u8;
             let update_q = format!(
                 "UPDATE relates_to:`{}` SET confidence = $confidence",
                 record_id_to_uuid(&existing_row.id).unwrap_or(relation.id)
@@ -360,11 +482,11 @@ impl Repository {
             self.db
                 .query(&update_q)
                 .bind(("confidence", avg_conf))
-                .await?;
-            return Ok(false); // merged, not created
+                .await
+                .map_err(storage_err)?;
+            return Ok(false);
         }
 
-        // For symmetric types, also check the reverse direction
         if relation.relation_type.is_symmetric() {
             let rev_q = format!(
                 "SELECT id, in AS in_id, out AS out_id, relation_type, confidence, valid_from, valid_until FROM relates_to WHERE in = entity:`{}` AND out = entity:`{}` AND relation_type = $rel_type AND valid_until IS NONE LIMIT 1",
@@ -374,12 +496,12 @@ impl Repository {
                 .db
                 .query(&rev_q)
                 .bind(("rel_type", rel_type_str.clone()))
-                .await?;
-            let rev_existing: Vec<RelationEdgeRow> = rev_resp.take(0)?;
+                .await
+                .map_err(storage_err)?;
+            let rev_existing: Vec<RelationEdgeRow> = rev_resp.take(0).map_err(storage_err)?;
 
             if let Some(rev_row) = rev_existing.into_iter().next() {
-                let avg_conf =
-                    ((rev_row.confidence as u16 + relation.confidence as u16) / 2) as u8;
+                let avg_conf = ((rev_row.confidence as u16 + relation.confidence as u16) / 2) as u8;
                 let update_q = format!(
                     "UPDATE relates_to:`{}` SET confidence = $confidence",
                     record_id_to_uuid(&rev_row.id).unwrap_or(relation.id)
@@ -387,8 +509,9 @@ impl Repository {
                 self.db
                     .query(&update_q)
                     .bind(("confidence", avg_conf))
-                    .await?;
-                return Ok(false); // merged, not created
+                    .await
+                    .map_err(storage_err)?;
+                return Ok(false);
             }
         }
 
@@ -404,18 +527,41 @@ impl Repository {
             .bind(("confidence", relation.confidence))
             .bind(("valid_from", relation.valid_from.to_rfc3339()))
             .bind(("valid_until", relation.valid_until.map(|d| d.to_rfc3339())))
-            .await?;
-        Ok(true) // newly created
+            .await
+            .map_err(storage_err)?;
+        Ok(true)
     }
 
     pub async fn invalidate_relation(&self, id: Uuid) -> Result<()> {
         let now = Utc::now().to_rfc3339();
-        let q = format!("UPDATE relates_to:`{}` SET valid_until = <datetime>$now", id);
+        let q = format!(
+            "UPDATE relates_to:`{}` SET valid_until = <datetime>$now",
+            id
+        );
         self.db
             .query(&q)
             .bind(("now", now))
-            .await?;
+            .await
+            .map_err(storage_err)?;
         Ok(())
+    }
+
+    /// Invalidate all active relations where the given entity is either endpoint.
+    /// Returns the number of relations invalidated.
+    pub async fn invalidate_relations_for_entity(&self, entity_id: Uuid) -> Result<usize> {
+        let now = Utc::now().to_rfc3339();
+        let q = format!(
+            "UPDATE relates_to SET valid_until = <datetime>$now WHERE (in = entity:`{}` OR out = entity:`{}`) AND valid_until IS NONE",
+            entity_id, entity_id
+        );
+        let mut response = self
+            .db
+            .query(&q)
+            .bind(("now", now))
+            .await
+            .map_err(storage_err)?;
+        let affected: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
+        Ok(affected.len())
     }
 
     /// Get active relations for an entity using graph traversal.
@@ -424,9 +570,12 @@ impl Repository {
             "SELECT id, in AS in_id, out AS out_id, relation_type, confidence, valid_from, valid_until FROM relates_to WHERE (in = entity:`{}` OR out = entity:`{}`) AND valid_until IS NONE",
             entity_id, entity_id
         );
-        let mut response = self.db.query(&q).await?;
-        let rows: Vec<RelationEdgeRow> = response.take(0)?;
-        Ok(rows.into_iter().filter_map(relation_from_edge_row).collect())
+        let mut response = self.db.query(&q).await.map_err(storage_err)?;
+        let rows: Vec<RelationEdgeRow> = response.take(0).map_err(storage_err)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(relation_from_edge_row)
+            .collect())
     }
 
     /// Batch-prune relations below a confidence threshold.
@@ -437,8 +586,9 @@ impl Repository {
             .query("UPDATE relates_to SET valid_until = <datetime>$now WHERE confidence < $threshold AND valid_until IS NONE")
             .bind(("now", now))
             .bind(("threshold", threshold))
-            .await?;
-        let affected: Vec<RelationEdgeRow> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let affected: Vec<RelationEdgeRow> = response.take(0).map_err(storage_err)?;
         Ok(affected.len())
     }
 
@@ -450,7 +600,7 @@ impl Repository {
         let ep_id = memory.source_episode_id;
 
         let q = format!(
-            "CREATE memory:`{}` SET content = $content, embedding = $embedding, created_at = <datetime>$created_at",
+            "CREATE memory:`{}` SET content = $content, embedding = $embedding, created_at = <datetime>$created_at, namespace = $namespace, created_by_agent = $created_by_agent",
             mem_id
         );
         self.db
@@ -458,14 +608,23 @@ impl Repository {
             .bind(("content", memory.content.clone()))
             .bind(("embedding", memory.embedding.clone()))
             .bind(("created_at", memory.created_at.to_rfc3339()))
-            .await?;
+            .bind(("namespace", memory.namespace.clone()))
+            .bind(("created_by_agent", memory.created_by_agent.clone()))
+            .await
+            .map_err(storage_err)?;
 
-        let q = format!("RELATE memory:`{}`->sourced_from->episode:`{}`", mem_id, ep_id);
-        self.db.query(&q).await?;
+        let q = format!(
+            "RELATE memory:`{}`->sourced_from->episode:`{}`",
+            mem_id, ep_id
+        );
+        self.db.query(&q).await.map_err(storage_err)?;
 
         for entity_id in &memory.entity_ids {
-            let q = format!("RELATE memory:`{}`->references->entity:`{}`", mem_id, entity_id);
-            self.db.query(&q).await?;
+            let q = format!(
+                "RELATE memory:`{}`->references->entity:`{}`",
+                mem_id, entity_id
+            );
+            self.db.query(&q).await.map_err(storage_err)?;
         }
 
         Ok(())
@@ -476,37 +635,57 @@ impl Repository {
             .db
             .query("SELECT *, ->sourced_from->episode AS episode_ids, ->references->entity AS entity_ids FROM memory ORDER BY created_at DESC LIMIT $limit")
             .bind(("limit", limit))
-            .await?;
-        let rows: Vec<MemoryWithEdgesRow> = response.take(0)?;
-        Ok(rows.into_iter().filter_map(memory_with_edges_from_row).collect())
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<MemoryWithEdgesRow> = response.take(0).map_err(storage_err)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(memory_with_edges_from_row)
+            .collect())
     }
 
     // ── Vector Search (HNSW) ─────────────────────────────────────────
 
     /// Search entities by vector similarity using HNSW index.
-    /// Optionally filter by entity_type.
+    /// Optionally filter by entity_type and/or namespace.
     pub async fn search_entities_by_vector(
         &self,
         query_embedding: &[f64],
         limit: usize,
         entity_type_filter: Option<&str>,
+        namespace: Option<&str>,
     ) -> Result<Vec<(Entity, f64)>> {
-        let q = match entity_type_filter {
-            Some(_) => "SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM entity WHERE valid_until IS NONE AND entity_type = $etype ORDER BY score DESC LIMIT $limit".to_string(),
-            None => "SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM entity WHERE valid_until IS NONE ORDER BY score DESC LIMIT $limit".to_string(),
-        };
+        let mut conditions = vec!["valid_until IS NONE"];
+        let mut cond_parts = Vec::new();
+        if entity_type_filter.is_some() {
+            cond_parts.push("entity_type = $etype".to_string());
+        }
+        if namespace.is_some() {
+            cond_parts.push("namespace = $ns".to_string());
+        }
+        conditions.extend(cond_parts.iter().map(|s| s.as_str()));
 
-        let mut query = self.db.query(&q)
+        let q = format!(
+            "SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM entity WHERE {} ORDER BY score DESC LIMIT $limit",
+            conditions.join(" AND ")
+        );
+
+        let mut query = self
+            .db
+            .query(&q)
             .bind(("query_vec", query_embedding.to_vec()))
             .bind(("limit", limit));
 
         if let Some(etype) = entity_type_filter {
             query = query.bind(("etype", etype.to_string()));
         }
+        if let Some(ns) = namespace {
+            query = query.bind(("ns", ns.to_string()));
+        }
 
-        let mut response = query.await?;
+        let mut response = query.await.map_err(storage_err)?;
 
-        let rows: Vec<ScoredEntityRow> = response.take(0)?;
+        let rows: Vec<ScoredEntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows
             .into_iter()
             .filter_map(|r| {
@@ -519,6 +698,8 @@ impl Repository {
                     embedding: r.embedding,
                     valid_from: r.valid_from,
                     valid_until: r.valid_until,
+                    namespace: r.namespace,
+                    created_by_agent: r.created_by_agent,
                 })?;
                 Some((entity, score))
             })
@@ -526,19 +707,28 @@ impl Repository {
     }
 
     /// Search memories by vector similarity using HNSW index.
+    /// Optionally scoped by namespace.
     pub async fn search_memories_by_vector(
         &self,
         query_embedding: &[f64],
         limit: usize,
+        namespace: Option<&str>,
     ) -> Result<Vec<(Memory, f64)>> {
-        let mut response = self
+        let q = match namespace {
+            Some(_) => "SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM memory WHERE namespace = $ns ORDER BY score DESC LIMIT $limit",
+            None => "SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM memory ORDER BY score DESC LIMIT $limit",
+        };
+        let mut query = self
             .db
-            .query("SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM memory ORDER BY score DESC LIMIT $limit")
+            .query(q)
             .bind(("query_vec", query_embedding.to_vec()))
-            .bind(("limit", limit))
-            .await?;
+            .bind(("limit", limit));
+        if let Some(ns) = namespace {
+            query = query.bind(("ns", ns.to_string()));
+        }
+        let mut response = query.await.map_err(storage_err)?;
 
-        let rows: Vec<ScoredMemoryRow> = response.take(0)?;
+        let rows: Vec<ScoredMemoryRow> = response.take(0).map_err(storage_err)?;
         Ok(rows
             .into_iter()
             .filter_map(|r| {
@@ -548,6 +738,8 @@ impl Repository {
                     content: r.content,
                     embedding: r.embedding,
                     created_at: r.created_at,
+                    namespace: r.namespace,
+                    created_by_agent: r.created_by_agent,
                 })?;
                 Some((memory, score))
             })
@@ -557,28 +749,41 @@ impl Repository {
     // ── Full-Text Search (BM25) ──────────────────────────────────────
 
     /// BM25 full-text search over entity name and summary fields.
-    /// Optionally filter by entity_type.
+    /// Optionally filter by entity_type and/or namespace.
     pub async fn search_entities_by_keyword(
         &self,
         query: &str,
         entity_type_filter: Option<&str>,
+        namespace: Option<&str>,
     ) -> Result<Vec<Entity>> {
         debug!("search_entities_by_keyword");
 
-        let q = match entity_type_filter {
-            Some(_) => "SELECT *, search::score(1) + search::score(2) AS relevance FROM entity WHERE (name @1@ $query OR summary @2@ $query) AND entity_type = $etype ORDER BY relevance DESC",
-            None => "SELECT *, search::score(1) + search::score(2) AS relevance FROM entity WHERE name @1@ $query OR summary @2@ $query ORDER BY relevance DESC",
-        };
+        let mut extra_filters = Vec::new();
+        if entity_type_filter.is_some() {
+            extra_filters.push("AND entity_type = $etype");
+        }
+        if namespace.is_some() {
+            extra_filters.push("AND namespace = $ns");
+        }
+        let suffix = extra_filters.join(" ");
 
-        let mut db_query = self.db.query(q).bind(("query", query.to_string()));
+        let q = format!(
+            "SELECT *, search::score(1) + search::score(2) AS relevance FROM entity WHERE (name @1@ $query OR summary @2@ $query) {} ORDER BY relevance DESC",
+            suffix
+        );
+
+        let mut db_query = self.db.query(&q).bind(("query", query.to_string()));
 
         if let Some(etype) = entity_type_filter {
             db_query = db_query.bind(("etype", etype.to_string()));
         }
+        if let Some(ns) = namespace {
+            db_query = db_query.bind(("ns", ns.to_string()));
+        }
 
-        let mut response = db_query.await?;
+        let mut response = db_query.await.map_err(storage_err)?;
 
-        let rows: Vec<FtsEntityRow> = response.take(0)?;
+        let rows: Vec<FtsEntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows
             .into_iter()
             .filter_map(|r| {
@@ -590,20 +795,31 @@ impl Repository {
                     embedding: r.embedding,
                     valid_from: r.valid_from,
                     valid_until: r.valid_until,
+                    namespace: r.namespace,
+                    created_by_agent: r.created_by_agent,
                 })
             })
             .collect())
     }
 
     /// BM25 full-text search over memory content.
-    pub async fn search_memories_by_keyword(&self, query: &str) -> Result<Vec<Memory>> {
-        let mut response = self
-            .db
-            .query("SELECT *, search::score(1) AS relevance FROM memory WHERE content @1@ $query ORDER BY relevance DESC")
-            .bind(("query", query.to_string()))
-            .await?;
+    /// Optionally scoped by namespace.
+    pub async fn search_memories_by_keyword(
+        &self,
+        query: &str,
+        namespace: Option<&str>,
+    ) -> Result<Vec<Memory>> {
+        let q = match namespace {
+            Some(_) => "SELECT *, search::score(1) AS relevance FROM memory WHERE content @1@ $query AND namespace = $ns ORDER BY relevance DESC",
+            None => "SELECT *, search::score(1) AS relevance FROM memory WHERE content @1@ $query ORDER BY relevance DESC",
+        };
+        let mut db_query = self.db.query(q).bind(("query", query.to_string()));
+        if let Some(ns) = namespace {
+            db_query = db_query.bind(("ns", ns.to_string()));
+        }
+        let mut response = db_query.await.map_err(storage_err)?;
 
-        let rows: Vec<ScoredMemoryRow> = response.take(0)?;
+        let rows: Vec<ScoredMemoryRow> = response.take(0).map_err(storage_err)?;
         Ok(rows
             .into_iter()
             .filter_map(|r| {
@@ -612,6 +828,8 @@ impl Repository {
                     content: r.content,
                     embedding: r.embedding,
                     created_at: r.created_at,
+                    namespace: r.namespace,
+                    created_by_agent: r.created_by_agent,
                 })
             })
             .collect())
@@ -623,9 +841,10 @@ impl Repository {
             .db
             .query("SELECT *, search::score(1) AS relevance FROM episode WHERE content @1@ $query ORDER BY relevance DESC")
             .bind(("query", query.to_string()))
-            .await?;
+            .await
+            .map_err(storage_err)?;
 
-        let rows: Vec<EpisodeRow> = response.take(0)?;
+        let rows: Vec<EpisodeRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(episode_from_row).collect())
     }
 
@@ -648,8 +867,8 @@ impl Repository {
                 "SELECT * FROM entity:`{}`<->relates_to<->entity WHERE valid_until IS NONE",
                 eid
             );
-            let mut response = self.db.query(&q).await?;
-            let rows: Vec<EntityRow> = response.take(0)?;
+            let mut response = self.db.query(&q).await.map_err(storage_err)?;
+            let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
             for row in rows {
                 if let Some(entity) = entity_from_row(row) {
                     if !all_entities.iter().any(|e| e.id == entity.id) {
@@ -670,8 +889,9 @@ impl Repository {
             .db
             .query("SELECT * FROM entity WHERE valid_from <= <datetime>$at AND (valid_until IS NONE OR valid_until > <datetime>$at)")
             .bind(("at", at_str))
-            .await?;
-        let rows: Vec<EntityRow> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(entity_from_row).collect())
     }
 
@@ -681,34 +901,87 @@ impl Repository {
             .db
             .query("SELECT id, in AS in_id, out AS out_id, relation_type, confidence, valid_from, valid_until FROM relates_to WHERE valid_from <= <datetime>$at AND (valid_until IS NONE OR valid_until > <datetime>$at)")
             .bind(("at", at_str))
-            .await?;
-        let rows: Vec<RelationEdgeRow> = response.take(0)?;
-        Ok(rows.into_iter().filter_map(relation_from_edge_row).collect())
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<RelationEdgeRow> = response.take(0).map_err(storage_err)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(relation_from_edge_row)
+            .collect())
     }
 
     // ── Changefeed Queries ───────────────────────────────────────────
 
     /// Query recent changes to the entity table via changefeeds.
-    pub async fn entity_changes_since(&self, since: DateTime<Utc>) -> Result<Vec<serde_json::Value>> {
+    pub async fn entity_changes_since(
+        &self,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<serde_json::Value>> {
         let since_str = since.to_rfc3339();
         let mut response = self
             .db
             .query("SHOW CHANGES FOR TABLE entity SINCE $since")
             .bind(("since", since_str))
-            .await?;
-        let changes: Vec<serde_json::Value> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let changes: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
         Ok(changes)
     }
 
     /// Query recent changes to the relates_to edge table via changefeeds.
-    pub async fn relation_changes_since(&self, since: DateTime<Utc>) -> Result<Vec<serde_json::Value>> {
+    pub async fn relation_changes_since(
+        &self,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<serde_json::Value>> {
         let mut response = self
             .db
             .query("SHOW CHANGES FOR TABLE relates_to SINCE $since")
             .bind(("since", since.to_rfc3339()))
-            .await?;
-        let changes: Vec<serde_json::Value> = response.take(0)?;
+            .await
+            .map_err(storage_err)?;
+        let changes: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
         Ok(changes)
+    }
+
+    // ── Multi-Agent Discovery ─────────────────────────────────────────
+
+    /// List all distinct agent IDs that have contributed episodes.
+    pub async fn list_agents(&self) -> Result<Vec<serde_json::Value>> {
+        let mut response = self
+            .db
+            .query("SELECT agent_id, agent_name, array::group(namespace) AS namespaces, count() AS episode_count FROM episode WHERE agent_id IS NOT NONE GROUP BY agent_id, agent_name")
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
+        Ok(rows)
+    }
+
+    /// List all distinct namespaces across episodes, entities, and memories.
+    pub async fn list_namespaces(&self) -> Result<Vec<serde_json::Value>> {
+        let mut response = self
+            .db
+            .query("SELECT namespace, count() AS entity_count FROM entity WHERE namespace IS NOT NONE AND valid_until IS NONE GROUP BY namespace")
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
+        Ok(rows)
+    }
+
+    /// List recent episodes from a specific agent.
+    pub async fn list_episodes_by_agent(
+        &self,
+        agent_id: &str,
+        limit: usize,
+    ) -> Result<Vec<Episode>> {
+        let mut response = self
+            .db
+            .query("SELECT * FROM episode WHERE agent_id = $agent_id ORDER BY created_at DESC LIMIT $limit")
+            .bind(("agent_id", agent_id.to_string()))
+            .bind(("limit", limit))
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<EpisodeRow> = response.take(0).map_err(storage_err)?;
+        Ok(rows.into_iter().filter_map(episode_from_row).collect())
     }
 }
 
