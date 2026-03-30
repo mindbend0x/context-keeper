@@ -47,14 +47,72 @@ Return JSON array of {subject, predicate, object, confidence}.";
 const DEFAULT_MAX_RETRIES: u32 = 3;
 const INITIAL_BACKOFF_MS: u64 = 100;
 
+/// Tolerant intermediate types for LLM deserialization.
+/// Some models (especially OSS) return null for fields — these types absorb that
+/// and get filtered/converted to the strict core types in validation.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct RigExtractedEntities {
-    pub entities: Vec<ExtractedEntity>,
+struct RawExtractedEntity {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub entity_type: Option<EntityType>,
+    #[serde(default)]
+    pub summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct RigExtractedRelations {
-    pub relations: Vec<ExtractedRelation>,
+struct RawExtractedRelation {
+    #[serde(default)]
+    pub subject: Option<String>,
+    #[serde(default)]
+    pub predicate: Option<String>,
+    #[serde(default)]
+    pub object: Option<String>,
+    #[serde(default)]
+    pub confidence: Option<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+struct RigExtractedEntities {
+    #[serde(default)]
+    entities: Vec<RawExtractedEntity>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+struct RigExtractedRelations {
+    #[serde(default)]
+    relations: Vec<RawExtractedRelation>,
+}
+
+/// Convert raw LLM output to strict core types, dropping entries with missing required fields.
+fn coerce_entities(raw: Vec<RawExtractedEntity>) -> Vec<ExtractedEntity> {
+    raw.into_iter()
+        .filter_map(|r| {
+            let name = r.name.filter(|s| !s.trim().is_empty())?;
+            let summary = r.summary.unwrap_or_default();
+            Some(ExtractedEntity {
+                name,
+                entity_type: r.entity_type.unwrap_or_default(),
+                summary,
+            })
+        })
+        .collect()
+}
+
+fn coerce_relations(raw: Vec<RawExtractedRelation>) -> Vec<ExtractedRelation> {
+    raw.into_iter()
+        .filter_map(|r| {
+            let subject = r.subject.filter(|s| !s.trim().is_empty())?;
+            let predicate = r.predicate.filter(|s| !s.trim().is_empty())?;
+            let object = r.object.filter(|s| !s.trim().is_empty())?;
+            Some(ExtractedRelation {
+                subject,
+                predicate,
+                object,
+                confidence: r.confidence.unwrap_or(50),
+            })
+        })
+        .collect()
 }
 
 /// Retry configuration for LLM extraction calls.
@@ -130,7 +188,8 @@ impl EntityExtractor for RigEntityExtractor {
                 .await
             {
                 Ok(values) => {
-                    let validated = validate_entities(values.entities);
+                    let coerced = coerce_entities(values.entities);
+                    let validated = validate_entities(coerced);
                     return Ok(validated);
                 }
                 Err(e) => {
@@ -211,7 +270,8 @@ impl RelationExtractor for RigRelationExtractor {
 
             match builder.preamble(&preamble).build().extract(text).await {
                 Ok(values) => {
-                    let validated = validate_relations(values.relations, &entity_names);
+                    let coerced = coerce_relations(values.relations);
+                    let validated = validate_relations(coerced, &entity_names);
                     return Ok(validated);
                 }
                 Err(e) => {

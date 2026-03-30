@@ -29,18 +29,26 @@ services:
       dockerfile: Dockerfile
     ports:
       - "0.0.0.0:3000:3000"     # Publicly accessible MCP HTTP endpoint
+    env_file:
+      - path: .env
+        required: false
     environment:
       # Connect to the standalone SurrealDB via WebSocket
       STORAGE_BACKEND: "remote:ws://surrealdb:8000"
       # MCP transport
       MCP_TRANSPORT: "http"
       MCP_HTTP_PORT: "3000"
-      # LLM configuration — loaded from .env
+      # LLM configuration — from .env, with fallback defaults
       OPENAI_API_URL: "${OPENAI_API_URL:-}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
       EMBEDDING_DIMS: "${EMBEDDING_DIMS:-1536}"
       EXTRACTION_MODEL: "${EXTRACTION_MODEL:-gpt-4o-mini}"
+      # Optional: separate endpoint for embeddings (falls back to OPENAI_API_URL/KEY)
+      EMBEDDING_API_URL: "${EMBEDDING_API_URL:-}"
+      EMBEDDING_API_KEY: "${EMBEDDING_API_KEY:-}"
+      # Auth
+      MCP_AUTH_TOKENS: "${MCP_AUTH_TOKENS:-}"
       # SurrealDB auth (must match --user/--pass on surrealdb service)
       SURREAL_USER: "root"
       SURREAL_PASS: "root"

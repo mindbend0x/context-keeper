@@ -56,6 +56,13 @@ struct Cli {
     api_url: Option<String>,
     #[arg(short = 'k', long, env = "OPENAI_API_KEY", global = true)]
     api_key: Option<String>,
+
+    /// Override API URL for embeddings (falls back to OPENAI_API_URL)
+    #[arg(long, env = "EMBEDDING_API_URL", global = true)]
+    embedding_api_url: Option<String>,
+    /// Override API key for embeddings (falls back to OPENAI_API_KEY)
+    #[arg(long, env = "EMBEDDING_API_KEY", global = true)]
+    embedding_api_key: Option<String>,
     #[arg(
         short = 'f',
         long,
@@ -157,6 +164,10 @@ async fn main() -> Result<()> {
     tracing::info!("SurrealDB initialized, repository ready");
 
     // Build LLM services
+    // Embedding URL/key can be overridden separately (e.g., OpenAI for embeddings, HuggingFace for extraction)
+    let emb_api_url = cli.embedding_api_url.as_deref().or(cli.api_url.as_deref());
+    let emb_api_key = cli.embedding_api_key.as_deref().or(cli.api_key.as_deref());
+
     let (embedder, entity_extractor, relation_extractor, query_rewriter): (
         Arc<dyn Embedder>,
         Arc<dyn EntityExtractor>,
@@ -169,14 +180,15 @@ async fn main() -> Result<()> {
         cli.extraction_model_name.as_deref(),
     ) {
         (Some(api_url), Some(api_key), Some(emb_model), Some(ext_model)) => {
-            tracing::info!("Using LLM-powered extraction");
+            let emb_url = emb_api_url.unwrap_or(api_url);
+            let emb_key = emb_api_key.unwrap_or(api_key);
+            tracing::info!(
+                extraction_url = api_url,
+                embedding_url = emb_url,
+                "Using LLM-powered extraction"
+            );
             (
-                Arc::new(RigEmbedder::new(
-                    api_url,
-                    api_key,
-                    emb_model,
-                    embedding_dims,
-                )),
+                Arc::new(RigEmbedder::new(emb_url, emb_key, emb_model, embedding_dims)),
                 Arc::new(RigEntityExtractor::new(api_url, api_key, ext_model)),
                 Arc::new(RigRelationExtractor::new(api_url, api_key, ext_model)),
                 Arc::new(RigQueryRewriter::new(api_url, api_key, ext_model)),
