@@ -42,6 +42,19 @@ jobs:
             echo "path=${{ github.event.inputs.config || 'crates/context-keeper-bench/benches/quality.yaml' }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Validate secrets
+        env:
+          OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          missing=()
+          [ -z "$OPENAI_API_URL" ] && missing+=(OPENAI_API_URL)
+          [ -z "$OPENAI_API_KEY" ] && missing+=(OPENAI_API_KEY)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing secrets: ${missing[*]}. Add them to the 'benchmark' environment in repo Settings > Environments."
+            exit 1
+          fi
+
       - name: Run benchmark
         env:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
