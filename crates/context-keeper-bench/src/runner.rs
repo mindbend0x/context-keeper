@@ -140,9 +140,9 @@ async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -
                             pass = false;
                         }
 
-                        let answer_score = gold_answer.as_ref().map(|gold| {
-                            crate::quality::score_answer(gold, &result_text)
-                        });
+                        let answer_score = gold_answer
+                            .as_ref()
+                            .map(|gold| crate::quality::score_answer(gold, &result_text));
 
                         tracing::info!(
                             iteration = iter_idx + 1,

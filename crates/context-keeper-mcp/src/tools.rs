@@ -505,10 +505,7 @@ impl ContextKeeperServer {
                             .cloned()
                             .unwrap_or_default(),
                         to_entity_id: r.to_entity_id.to_string(),
-                        to_entity_name: name_map
-                            .get(&r.to_entity_id)
-                            .cloned()
-                            .unwrap_or_default(),
+                        to_entity_name: name_map.get(&r.to_entity_id).cloned().unwrap_or_default(),
                         confidence: r.confidence,
                     })
                     .collect(),

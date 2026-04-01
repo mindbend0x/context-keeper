@@ -4,7 +4,9 @@ use uuid::Uuid;
 
 use crate::error::Result;
 use crate::models::{Entity, EntityType, Episode, Memory, Relation};
-use crate::traits::{Embedder, EntityExtractor, EntityResolver, RelationExtractor, SummarySynthesizer};
+use crate::traits::{
+    Embedder, EntityExtractor, EntityResolver, RelationExtractor, SummarySynthesizer,
+};
 
 /// The output of a successful ingestion run.
 #[derive(Debug)]

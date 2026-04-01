@@ -42,9 +42,9 @@ async fn main() -> anyhow::Result<()> {
     let mut config = context_keeper_bench::config::load_config(&cli.config)?;
 
     if let Some(dataset_spec) = &cli.dataset {
-        let (dtype, path) = dataset_spec
-            .split_once(':')
-            .ok_or_else(|| anyhow::anyhow!("--dataset must be type:path (e.g. locomo:data.json)"))?;
+        let (dtype, path) = dataset_spec.split_once(':').ok_or_else(|| {
+            anyhow::anyhow!("--dataset must be type:path (e.g. locomo:data.json)")
+        })?;
 
         let path = std::path::Path::new(path);
         let scenarios = match dtype {
@@ -53,7 +53,9 @@ async fn main() -> anyhow::Result<()> {
                 context_keeper_bench::datasets::longmemeval::load_temporal_subset(path)?
             }
             "longmemeval" => context_keeper_bench::datasets::longmemeval::load(path)?,
-            other => anyhow::bail!("Unknown dataset type '{other}'. Use 'locomo' or 'longmemeval'."),
+            other => {
+                anyhow::bail!("Unknown dataset type '{other}'. Use 'locomo' or 'longmemeval'.")
+            }
         };
 
         tracing::info!(

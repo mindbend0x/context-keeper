@@ -118,7 +118,11 @@ impl ScenarioResult {
             .iter()
             .filter_map(|i| i.tokens_consumed)
             .sum();
-        if total > 0 { Some(total) } else { None }
+        if total > 0 {
+            Some(total)
+        } else {
+            None
+        }
     }
 
     fn compute_aggregates(&self) -> AggregatedMetrics {

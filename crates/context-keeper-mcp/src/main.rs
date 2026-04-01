@@ -12,12 +12,12 @@ use context_keeper_rig::{
 };
 use context_keeper_surreal::{apply_schema, connect, Repository, StorageBackend, SurrealConfig};
 use dotenv::dotenv;
+use rmcp::transport::streamable_http_server::tower::StreamableHttpServerConfig;
 use rmcp::transport::{
     streamable_http_server::session::local::{LocalSessionManager, SessionConfig},
     StreamableHttpService,
 };
 use rmcp::ServiceExt;
-use rmcp::transport::streamable_http_server::tower::StreamableHttpServerConfig;
 use tracing_subscriber::EnvFilter;
 
 mod tools;

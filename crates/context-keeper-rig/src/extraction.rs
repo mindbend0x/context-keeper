@@ -16,10 +16,10 @@ use context_keeper_core::traits::{
     EntityExtractor, ExtractedEntity, ExtractedRelation, RelationExtractor,
 };
 use context_keeper_core::ContextKeeperError;
+use regex::Regex;
 use rig::client::CompletionClient;
 use rig::completion::Prompt;
 use rig::providers::openai;
-use regex::Regex;
 use serde::Deserialize;
 use std::sync::LazyLock;
 use std::time::Duration;

@@ -78,11 +78,9 @@ impl From<&str> for EntityType {
             "service" | "api" | "saas" | "cloud service" | "hosting" | "registry" | "platform" => {
                 Self::Service
             }
-            "concept" | "idea" | "topic" | "technology" | "methodology" | "protocol" | "pattern"
-            | "paradigm" | "algorithm" | "technique" => Self::Concept,
-            "file" | "document" | "lib" | "library" | "crate" | "module" | "package" => {
-                Self::File
-            }
+            "concept" | "idea" | "topic" | "technology" | "methodology" | "protocol"
+            | "pattern" | "paradigm" | "algorithm" | "technique" => Self::Concept,
+            "file" | "document" | "lib" | "library" | "crate" | "module" | "package" => Self::File,
             "project" | "codebase" | "workspace" | "monorepo" | "repository" | "repo" => {
                 Self::Project
             }
@@ -414,9 +412,7 @@ mod tests {
 
     #[test]
     fn entity_type_service_aliases() {
-        for alias in [
-            "service", "api", "saas", "hosting", "registry", "platform",
-        ] {
+        for alias in ["service", "api", "saas", "hosting", "registry", "platform"] {
             assert_eq!(
                 EntityType::from(alias),
                 EntityType::Service,
@@ -448,11 +444,7 @@ mod tests {
     #[test]
     fn entity_type_group_aliases() {
         for alias in ["group", "team", "department", "division", "squad", "Team"] {
-            assert_eq!(
-                EntityType::from(alias),
-                EntityType::Group,
-                "alias: {alias}"
-            );
+            assert_eq!(EntityType::from(alias), EntityType::Group, "alias: {alias}");
         }
     }
 
