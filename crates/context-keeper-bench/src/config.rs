@@ -35,7 +35,10 @@ pub struct ScenarioConfig {
     pub operation: Operation,
     #[serde(default = "default_iterations")]
     pub iterations: usize,
+    #[serde(default)]
     pub inputs: Vec<BenchInput>,
+    #[serde(default)]
+    pub steps: Vec<BehavioralStep>,
 }
 
 fn default_iterations() -> usize {
@@ -107,6 +110,7 @@ pub enum Operation {
     Ingestion,
     Search,
     QueryRewriting,
+    Behavioral,
 }
 
 impl std::fmt::Display for Operation {
@@ -117,6 +121,7 @@ impl std::fmt::Display for Operation {
             Self::Ingestion => write!(f, "ingestion"),
             Self::Search => write!(f, "search"),
             Self::QueryRewriting => write!(f, "query_rewriting"),
+            Self::Behavioral => write!(f, "behavioral"),
         }
     }
 }
@@ -128,6 +133,23 @@ pub struct Settings {
     pub storage_backend: String,
     #[serde(default = "default_warmup")]
     pub warmup_iterations: usize,
+}
+
+/// A step in a behavioral scenario: either ingest data or verify search results.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum BehavioralStep {
+    Ingest {
+        text: String,
+        source: Option<String>,
+    },
+    Search {
+        query: String,
+        #[serde(default)]
+        expected_entities: Vec<String>,
+        #[serde(default)]
+        unexpected_entities: Vec<String>,
+    },
 }
 
 impl Default for Settings {
@@ -198,7 +220,11 @@ fn validate(config: &BenchConfig) -> anyhow::Result<()> {
     }
     for s in &config.scenarios {
         anyhow::ensure!(!s.name.is_empty(), "scenario name must not be empty");
-        anyhow::ensure!(!s.inputs.is_empty(), "scenario '{}' has no inputs", s.name);
+        if s.operation == Operation::Behavioral {
+            anyhow::ensure!(!s.steps.is_empty(), "behavioral scenario '{}' has no steps", s.name);
+        } else {
+            anyhow::ensure!(!s.inputs.is_empty(), "scenario '{}' has no inputs", s.name);
+        }
         anyhow::ensure!(s.iterations > 0, "scenario '{}' needs at least 1 iteration", s.name);
     }
     Ok(())
@@ -314,9 +340,71 @@ scenarios:
                 operation: Operation::EntityExtraction,
                 iterations: 1,
                 inputs: vec![BenchInput::Simple("text".into())],
+                steps: vec![],
             }],
             settings: Settings::default(),
         };
         assert!(validate(&config).is_err());
+    }
+
+    #[test]
+    fn deserialize_behavioral_scenario() {
+        let yaml = r#"
+providers:
+  - name: test
+    api_url: "http://localhost"
+    api_key: "sk-test"
+    extraction_model: "m"
+    embedding_model: "e"
+scenarios:
+  - name: negation_test
+    operation: behavioral
+    iterations: 1
+    steps:
+      - action: ingest
+        text: "Alice works at Acme Corp."
+      - action: search
+        query: "Where does Alice work?"
+        expected_entities: ["Alice", "Acme Corp"]
+      - action: ingest
+        text: "Alice left Acme Corp."
+      - action: search
+        query: "Where does Alice work?"
+        expected_entities: ["Alice"]
+        unexpected_entities: ["Acme Corp"]
+"#;
+        let config: BenchConfig = serde_yaml_ng::from_str(yaml).unwrap();
+        assert_eq!(config.scenarios[0].operation, Operation::Behavioral);
+        assert_eq!(config.scenarios[0].steps.len(), 4);
+
+        match &config.scenarios[0].steps[0] {
+            BehavioralStep::Ingest { text, .. } => {
+                assert_eq!(text, "Alice works at Acme Corp.");
+            }
+            _ => panic!("expected ingest step"),
+        }
+
+        match &config.scenarios[0].steps[1] {
+            BehavioralStep::Search {
+                query,
+                expected_entities,
+                unexpected_entities,
+            } => {
+                assert_eq!(query, "Where does Alice work?");
+                assert_eq!(expected_entities.len(), 2);
+                assert!(unexpected_entities.is_empty());
+            }
+            _ => panic!("expected search step"),
+        }
+
+        match &config.scenarios[0].steps[3] {
+            BehavioralStep::Search {
+                unexpected_entities,
+                ..
+            } => {
+                assert_eq!(unexpected_entities, &["Acme Corp"]);
+            }
+            _ => panic!("expected search step"),
+        }
     }
 }

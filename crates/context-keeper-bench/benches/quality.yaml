@@ -1,7 +1,4 @@
-# Quality benchmark with ground-truth annotations.
-#
-# Every input has expected entities, types, and relations so the report
-# shows precision, recall, F1, type accuracy, and consistency scores.
+# Quality-focused benchmark configuration with ground-truth expectations.
 #
 # Run:
 #   cargo run -p context-keeper-bench -- --config crates/context-keeper-bench/benches/quality.yaml
@@ -15,9 +12,9 @@ providers:
     embedding_dims: 1536
 
 scenarios:
-  - name: entity_quality
+  - name: entity_typing_accuracy
     operation: entity_extraction
-    iterations: 5
+    iterations: 3
     inputs:
       - text: "Alice works at Acme Corp in New York City."
         expected_entities: ["Alice", "Acme Corp", "New York City"]
@@ -26,31 +23,23 @@ scenarios:
           Acme Corp: organization
           New York City: location
 
-      - text: "The Rust programming language was created by Graydon Hoare at Mozilla."
-        expected_entities: ["Rust", "Graydon Hoare", "Mozilla"]
+      - text: "SurrealDB is written in Rust and supports HNSW indexes for vector search."
+        expected_entities: ["SurrealDB", "Rust", "HNSW"]
         expected_entity_types:
+          SurrealDB: product
           Rust: product
-          Graydon Hoare: person
-          Mozilla: organization
+          HNSW: concept
 
-      - text: "Dr. Sarah Chen presented her findings on climate change at the UN Summit in Geneva."
-        expected_entities: ["Sarah Chen", "UN Summit", "Geneva"]
+      - text: "Linus Torvalds created Linux at the University of Helsinki."
+        expected_entities: ["Linus Torvalds", "Linux", "University of Helsinki"]
         expected_entity_types:
-          Sarah Chen: person
-          UN Summit: event
-          Geneva: location
-
-      - text: "SpaceX launched the Falcon 9 rocket from Kennedy Space Center in Florida."
-        expected_entities: ["SpaceX", "Falcon 9", "Kennedy Space Center", "Florida"]
-        expected_entity_types:
-          SpaceX: organization
-          Falcon 9: product
-          Kennedy Space Center: location
-          Florida: location
+          Linus Torvalds: person
+          Linux: product
+          University of Helsinki: organization
 
   - name: relation_quality
     operation: relation_extraction
-    iterations: 5
+    iterations: 3
     inputs:
       - text: "Alice manages the engineering team at Acme Corp. She reports to Bob, the CTO."
         expected_entities: ["Alice", "Acme Corp", "Bob"]
@@ -61,28 +50,32 @@ scenarios:
         expected_relations:
           - { subject: Alice, predicate: works_at, object: Acme Corp }
           - { subject: Bob, predicate: works_at, object: Acme Corp }
+          - { subject: Alice, predicate: knows, object: Bob }
 
-      - text: "The Eiffel Tower is located in Paris, France. It was designed by Gustave Eiffel."
-        expected_entities: ["Eiffel Tower", "Paris", "France", "Gustave Eiffel"]
+      - text: "The Rust programming language is used by Context Keeper, which depends on SurrealDB for storage."
+        expected_entities: ["Rust", "Context Keeper", "SurrealDB"]
         expected_entity_types:
-          Eiffel Tower: location
-          Paris: location
-          France: location
-          Gustave Eiffel: person
-        expected_relations:
-          - { subject: Eiffel Tower, predicate: located_in, object: Paris }
-          - { subject: Paris, predicate: located_in, object: France }
-          - { subject: Eiffel Tower, predicate: created_by, object: Gustave Eiffel }
-
-      - text: "SurrealDB is used by Context Keeper for storage. It depends on RocksDB for persistence."
-        expected_entities: ["SurrealDB", "Context Keeper", "RocksDB"]
-        expected_entity_types:
-          SurrealDB: product
+          Rust: product
           Context Keeper: product
-          RocksDB: product
+          SurrealDB: product
         expected_relations:
-          - { subject: Context Keeper, predicate: uses, object: SurrealDB }
-          - { subject: SurrealDB, predicate: depends_on, object: RocksDB }
+          - { subject: Context Keeper, predicate: uses, object: Rust }
+          - { subject: Context Keeper, predicate: depends_on, object: SurrealDB }
+
+  - name: complex_scenario
+    operation: relation_extraction
+    iterations: 2
+    inputs:
+      - text: "DataCo acquired TechStart last quarter. Eve led the integration from the DataCo side. TechStart was based in Berlin."
+        expected_entities: ["DataCo", "TechStart", "Eve", "Berlin"]
+        expected_entity_types:
+          DataCo: organization
+          TechStart: organization
+          Eve: person
+          Berlin: location
+        expected_relations:
+          - { subject: Eve, predicate: works_at, object: DataCo }
+          - { subject: TechStart, predicate: located_in, object: Berlin }
 
 settings:
   storage_backend: memory

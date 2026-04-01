@@ -54,4 +54,11 @@ pub trait BenchBackend: Send + Sync {
     async fn search(&self, query: &str) -> anyhow::Result<SearchOutput>;
 
     async fn query_rewrite(&self, query: &str) -> anyhow::Result<QueryRewriteOutput>;
+
+    /// Search the graph and return entity names from the results.
+    /// Used by behavioral scenarios to verify expected/unexpected entities.
+    async fn search_entity_names(&self, query: &str) -> anyhow::Result<Vec<String>>;
+
+    /// Reset internal state (e.g. drop all entities). Called between behavioral iterations.
+    async fn reset(&self) -> anyhow::Result<()>;
 }

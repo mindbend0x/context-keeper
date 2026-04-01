@@ -150,7 +150,7 @@ impl EntityExtractor for MockEntityExtractor {
             .split_whitespace()
             .filter(|w| {
                 w.len() > 1
-                    && w.chars().next().map_or(false, |c| c.is_uppercase())
+                    && w.chars().next().is_some_and(|c| c.is_uppercase())
                     && w.chars().all(|c| c.is_alphanumeric())
             })
             .map(|w| {

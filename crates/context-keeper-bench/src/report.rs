@@ -12,8 +12,18 @@ pub fn to_json(results: &[ScenarioResult]) -> serde_json::Result<String> {
 
 /// Print all report tables to stdout.
 pub fn print_report(results: &[ScenarioResult]) {
-    print_table(results);
-    print_comparison(results);
+    let regular: Vec<&ScenarioResult> = results.iter().filter(|r| r.behavioral.is_none()).collect();
+    let behavioral: Vec<&ScenarioResult> = results.iter().filter(|r| r.behavioral.is_some()).collect();
+
+    if !regular.is_empty() {
+        let owned: Vec<ScenarioResult> = regular.into_iter().cloned().collect();
+        print_table(&owned);
+        print_comparison(&owned);
+    }
+
+    if !behavioral.is_empty() {
+        print_behavioral(&behavioral);
+    }
 }
 
 /// Print a human-readable summary table to stdout.
@@ -186,6 +196,85 @@ pub fn print_comparison(results: &[ScenarioResult]) {
     }
 
     println!("Comparison (vs first provider per scenario):\n{table}\n");
+}
+
+/// Print a summary of behavioral scenario results.
+pub fn print_behavioral(results: &[&ScenarioResult]) {
+    if results.is_empty() {
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS);
+
+    table.set_header(vec![
+        "Scenario",
+        "Provider",
+        "Iters",
+        "Checks",
+        "Passed",
+        "Pass Rate",
+        "Total Time",
+        "Errors",
+    ]);
+
+    for r in results {
+        if let Some(beh) = &r.behavioral {
+            let pass_rate = beh.pass_rate();
+            let rate_cell = if pass_rate >= 1.0 {
+                Cell::new(format!("{:.0}%", pass_rate * 100.0)).fg(Color::Green)
+            } else if pass_rate > 0.5 {
+                Cell::new(format!("{:.0}%", pass_rate * 100.0)).fg(Color::Yellow)
+            } else {
+                Cell::new(format!("{:.0}%", pass_rate * 100.0)).fg(Color::Red)
+            };
+
+            table.add_row(vec![
+                Cell::new(&r.scenario_name),
+                Cell::new(&r.provider_name),
+                Cell::new(beh.iterations),
+                Cell::new(beh.total_checks()),
+                Cell::new(beh.passed_checks()),
+                rate_cell,
+                Cell::new(fmt_duration(beh.total_latency)),
+                Cell::new(beh.errors.len()),
+            ]);
+        }
+    }
+
+    println!("\nBehavioral Scenarios:\n{table}\n");
+
+    for r in results {
+        if let Some(beh) = &r.behavioral {
+            let failures: Vec<_> = beh
+                .verifications
+                .iter()
+                .enumerate()
+                .flat_map(|(iter_idx, checks)| {
+                    checks
+                        .iter()
+                        .filter(|v| !v.pass)
+                        .map(move |v| (iter_idx, v))
+                })
+                .collect();
+
+            if !failures.is_empty() {
+                println!("  {} — {} failures:", r.scenario_name, failures.len());
+                for (iter_idx, v) in &failures {
+                    println!(
+                        "    iter {}: query={:?} missing={:?} unwanted={:?}",
+                        iter_idx + 1,
+                        v.query,
+                        v.missing_expected,
+                        v.found_unexpected
+                    );
+                }
+                println!();
+            }
+        }
+    }
 }
 
 fn color_delta_cell(text: &str, higher_is_better: bool) -> Cell {

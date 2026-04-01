@@ -58,6 +58,7 @@ pub struct ScenarioResult {
     pub operation: Operation,
     pub input_count: usize,
     pub iterations: Vec<IterationMetrics>,
+    pub behavioral: Option<BehavioralResult>,
     #[serde(skip)]
     aggregated: Option<AggregatedMetrics>,
 }
@@ -76,10 +77,27 @@ impl ScenarioResult {
             operation,
             input_count,
             iterations,
+            behavioral: None,
             aggregated: None,
         };
         result.aggregated = Some(result.compute_aggregates());
         result
+    }
+
+    pub fn new_behavioral(
+        scenario_name: String,
+        provider_name: String,
+        behavioral: BehavioralResult,
+    ) -> Self {
+        Self {
+            scenario_name,
+            provider_name,
+            operation: Operation::Behavioral,
+            input_count: 0,
+            iterations: vec![],
+            behavioral: Some(behavioral),
+            aggregated: None,
+        }
     }
 
     pub fn aggregated(&self) -> AggregatedMetrics {
@@ -237,6 +255,57 @@ fn avg_optional_f64(iter: impl Iterator<Item = f64>) -> Option<f64> {
     }
     let sum: f64 = vals.iter().sum();
     Some(sum / vals.len() as f64)
+}
+
+/// Results from a multi-step behavioral scenario.
+#[derive(Debug, Clone, Serialize)]
+pub struct BehavioralResult {
+    pub iterations: usize,
+    pub total_latency: Duration,
+    pub verifications: Vec<Vec<StepVerification>>,
+    pub errors: Vec<String>,
+}
+
+impl BehavioralResult {
+    pub fn pass_rate(&self) -> f64 {
+        let total: usize = self
+            .verifications
+            .iter()
+            .map(|v| v.len())
+            .sum();
+        if total == 0 {
+            return 0.0;
+        }
+        let passed: usize = self
+            .verifications
+            .iter()
+            .flat_map(|v| v.iter())
+            .filter(|v| v.pass)
+            .count();
+        passed as f64 / total as f64
+    }
+
+    pub fn total_checks(&self) -> usize {
+        self.verifications.iter().map(|v| v.len()).sum()
+    }
+
+    pub fn passed_checks(&self) -> usize {
+        self.verifications
+            .iter()
+            .flat_map(|v| v.iter())
+            .filter(|v| v.pass)
+            .count()
+    }
+}
+
+/// Verification result for a single search step in a behavioral scenario.
+#[derive(Debug, Clone, Serialize)]
+pub struct StepVerification {
+    pub query: String,
+    pub found_entities: Vec<String>,
+    pub missing_expected: Vec<String>,
+    pub found_unexpected: Vec<String>,
+    pub pass: bool,
 }
 
 #[cfg(test)]

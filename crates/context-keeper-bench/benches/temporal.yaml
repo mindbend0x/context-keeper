@@ -1,0 +1,58 @@
+# Behavioral efficacy: Temporal reasoning and point-in-time queries.
+#
+# Tests that the knowledge graph maintains temporal state correctly,
+# allowing both current and historical queries.
+#
+# Run:
+#   cargo run -p context-keeper-bench -- --config crates/context-keeper-bench/benches/temporal.yaml
+
+providers:
+  - name: gpt-4o-mini
+    api_url: "${OPENAI_API_URL}"
+    api_key: "${OPENAI_API_KEY}"
+    extraction_model: gpt-4o-mini
+    embedding_model: text-embedding-3-small
+    embedding_dims: 1536
+
+scenarios:
+  - name: career_progression
+    operation: behavioral
+    iterations: 1
+    steps:
+      - action: ingest
+        text: "Alice started as a junior engineer at Acme Corp in 2020."
+      - action: ingest
+        text: "Alice was promoted to senior engineer at Acme Corp in 2022."
+      - action: ingest
+        text: "Alice became VP of Engineering at BigCo in 2024."
+      - action: search
+        query: "What is Alice's current role?"
+        expected_entities: ["Alice", "BigCo"]
+
+  - name: company_acquisition
+    operation: behavioral
+    iterations: 1
+    steps:
+      - action: ingest
+        text: "DataCo is a data analytics startup based in Berlin."
+      - action: ingest
+        text: "MegaCorp acquired DataCo. DataCo's operations moved to London."
+      - action: search
+        query: "Where is DataCo located?"
+        expected_entities: ["DataCo"]
+
+  - name: relationship_change
+    operation: behavioral
+    iterations: 1
+    steps:
+      - action: ingest
+        text: "Alice and Bob are colleagues at Acme Corp."
+      - action: ingest
+        text: "Alice left Acme Corp to start her own company, AliceTech."
+      - action: search
+        query: "What does Alice do?"
+        expected_entities: ["Alice", "AliceTech"]
+
+settings:
+  storage_backend: memory
+  warmup_iterations: 0

@@ -2,8 +2,8 @@ use std::time::Instant;
 
 use crate::backend::BenchBackend;
 use crate::ck_backend::ContextKeeperBackend;
-use crate::config::{BenchConfig, BenchInput, Operation, ScenarioConfig};
-use crate::metrics::{IterationMetrics, ScenarioResult};
+use crate::config::{BehavioralStep, BenchConfig, BenchInput, Operation, ScenarioConfig};
+use crate::metrics::{BehavioralResult, IterationMetrics, ScenarioResult, StepVerification};
 use crate::quality;
 
 /// Execute all scenarios against all providers, returning collected results.
@@ -15,6 +15,24 @@ pub async fn run(config: &BenchConfig) -> Vec<ScenarioResult> {
         let backend = ContextKeeperBackend::from_provider(provider);
 
         for scenario in &config.scenarios {
+            if scenario.operation == Operation::Behavioral {
+                tracing::info!(
+                    scenario = %scenario.name,
+                    provider = %provider.name,
+                    steps = scenario.steps.len(),
+                    iterations = scenario.iterations,
+                    "Running behavioral scenario"
+                );
+
+                let behavioral = run_behavioral(&backend, scenario).await;
+                results.push(ScenarioResult::new_behavioral(
+                    scenario.name.clone(),
+                    provider.name.clone(),
+                    behavioral,
+                ));
+                continue;
+            }
+
             tracing::info!(
                 scenario = %scenario.name,
                 provider = %provider.name,
@@ -59,6 +77,113 @@ pub async fn run(config: &BenchConfig) -> Vec<ScenarioResult> {
     }
 
     results
+}
+
+async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -> BehavioralResult {
+    let mut all_verifications = Vec::new();
+    let mut total_latency = std::time::Duration::ZERO;
+    let mut errors = Vec::new();
+
+    for iter_idx in 0..scenario.iterations {
+        if let Err(e) = backend.reset().await {
+            errors.push(format!("reset failed on iteration {}: {e}", iter_idx + 1));
+            continue;
+        }
+
+        let mut iter_verifications = Vec::new();
+        for (step_idx, step) in scenario.steps.iter().enumerate() {
+            let start = Instant::now();
+            match step {
+                BehavioralStep::Ingest { text, source } => {
+                    let src = source.as_deref().unwrap_or("bench");
+                    match backend.ingestion(text, src).await {
+                        Ok(_) => {
+                            total_latency += start.elapsed();
+                            tracing::debug!(
+                                iteration = iter_idx + 1,
+                                step = step_idx + 1,
+                                "Ingested"
+                            );
+                        }
+                        Err(e) => {
+                            errors.push(format!(
+                                "ingest failed at step {} iter {}: {e}",
+                                step_idx + 1,
+                                iter_idx + 1
+                            ));
+                        }
+                    }
+                }
+                BehavioralStep::Search {
+                    query,
+                    expected_entities,
+                    unexpected_entities,
+                } => {
+                    match backend.search_entity_names(query).await {
+                        Ok(found_names) => {
+                            total_latency += start.elapsed();
+                            let mut pass = true;
+
+                            let missing: Vec<String> = expected_entities
+                                .iter()
+                                .filter(|e| {
+                                    !found_names.iter().any(|f| f.eq_ignore_ascii_case(e))
+                                })
+                                .cloned()
+                                .collect();
+
+                            let unwanted: Vec<String> = unexpected_entities
+                                .iter()
+                                .filter(|e| {
+                                    found_names.iter().any(|f| f.eq_ignore_ascii_case(e))
+                                })
+                                .cloned()
+                                .collect();
+
+                            if !missing.is_empty() || !unwanted.is_empty() {
+                                pass = false;
+                            }
+
+                            tracing::info!(
+                                iteration = iter_idx + 1,
+                                step = step_idx + 1,
+                                query = query,
+                                found = ?found_names,
+                                pass = pass,
+                                missing = ?missing,
+                                unwanted = ?unwanted,
+                                "Search verification"
+                            );
+
+                            iter_verifications.push(StepVerification {
+                                query: query.clone(),
+                                found_entities: found_names,
+                                missing_expected: missing,
+                                found_unexpected: unwanted,
+                                pass,
+                            });
+                        }
+                        Err(e) => {
+                            errors.push(format!(
+                                "search failed at step {} iter {}: {e}",
+                                step_idx + 1,
+                                iter_idx + 1
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        all_verifications.push(iter_verifications);
+    }
+
+    BehavioralResult {
+        iterations: scenario.iterations,
+        total_latency,
+        verifications: all_verifications,
+        errors,
+    }
 }
 
 async fn run_single(
@@ -116,6 +241,9 @@ async fn run_single(
         Operation::QueryRewriting => backend.query_rewrite(text).await.map(|_| {
             IterationMetrics::success(start.elapsed())
         }),
+        Operation::Behavioral => {
+            unreachable!("behavioral scenarios are handled by run_behavioral()")
+        }
     };
 
     match result {
