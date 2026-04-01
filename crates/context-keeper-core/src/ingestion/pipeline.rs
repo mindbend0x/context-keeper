@@ -174,24 +174,12 @@ fn detect_slot_conflict(existing_lower: &str, new_lower: &str) -> Option<String>
     for prep in SLOT_PREPOSITIONS {
         let existing_slots: Vec<&str> = existing_words
             .windows(2)
-            .filter_map(|w| {
-                if w[0] == *prep {
-                    Some(w[1])
-                } else {
-                    None
-                }
-            })
+            .filter_map(|w| if w[0] == *prep { Some(w[1]) } else { None })
             .collect();
 
         let new_slots: Vec<&str> = new_words
             .windows(2)
-            .filter_map(|w| {
-                if w[0] == *prep {
-                    Some(w[1])
-                } else {
-                    None
-                }
-            })
+            .filter_map(|w| if w[0] == *prep { Some(w[1]) } else { None })
             .collect();
 
         for e_slot in &existing_slots {
@@ -456,7 +444,9 @@ mod tests {
     #[test]
     fn no_contradiction_on_additive_info() {
         assert!(detect_contradiction("Works at Acme", "Works at Acme as Director").is_none());
-        assert!(detect_contradiction("Engineer", "Senior engineer with expertise in Rust").is_none());
+        assert!(
+            detect_contradiction("Engineer", "Senior engineer with expertise in Rust").is_none()
+        );
     }
 
     #[test]
@@ -474,7 +464,8 @@ mod tests {
         assert!(detect_contradiction(
             "Software engineer specializing in Rust",
             "Marketing manager for consumer products"
-        ).is_some());
+        )
+        .is_some());
     }
 
     #[test]

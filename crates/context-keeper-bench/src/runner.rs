@@ -118,60 +118,54 @@ async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -
                     query,
                     expected_entities,
                     unexpected_entities,
-                } => {
-                    match backend.search_entity_names(query).await {
-                        Ok(found_names) => {
-                            total_latency += start.elapsed();
-                            let mut pass = true;
+                } => match backend.search_entity_names(query).await {
+                    Ok(found_names) => {
+                        total_latency += start.elapsed();
+                        let mut pass = true;
 
-                            let missing: Vec<String> = expected_entities
-                                .iter()
-                                .filter(|e| {
-                                    !found_names.iter().any(|f| f.eq_ignore_ascii_case(e))
-                                })
-                                .cloned()
-                                .collect();
+                        let missing: Vec<String> = expected_entities
+                            .iter()
+                            .filter(|e| !found_names.iter().any(|f| f.eq_ignore_ascii_case(e)))
+                            .cloned()
+                            .collect();
 
-                            let unwanted: Vec<String> = unexpected_entities
-                                .iter()
-                                .filter(|e| {
-                                    found_names.iter().any(|f| f.eq_ignore_ascii_case(e))
-                                })
-                                .cloned()
-                                .collect();
+                        let unwanted: Vec<String> = unexpected_entities
+                            .iter()
+                            .filter(|e| found_names.iter().any(|f| f.eq_ignore_ascii_case(e)))
+                            .cloned()
+                            .collect();
 
-                            if !missing.is_empty() || !unwanted.is_empty() {
-                                pass = false;
-                            }
-
-                            tracing::info!(
-                                iteration = iter_idx + 1,
-                                step = step_idx + 1,
-                                query = query,
-                                found = ?found_names,
-                                pass = pass,
-                                missing = ?missing,
-                                unwanted = ?unwanted,
-                                "Search verification"
-                            );
-
-                            iter_verifications.push(StepVerification {
-                                query: query.clone(),
-                                found_entities: found_names,
-                                missing_expected: missing,
-                                found_unexpected: unwanted,
-                                pass,
-                            });
+                        if !missing.is_empty() || !unwanted.is_empty() {
+                            pass = false;
                         }
-                        Err(e) => {
-                            errors.push(format!(
-                                "search failed at step {} iter {}: {e}",
-                                step_idx + 1,
-                                iter_idx + 1
-                            ));
-                        }
+
+                        tracing::info!(
+                            iteration = iter_idx + 1,
+                            step = step_idx + 1,
+                            query = query,
+                            found = ?found_names,
+                            pass = pass,
+                            missing = ?missing,
+                            unwanted = ?unwanted,
+                            "Search verification"
+                        );
+
+                        iter_verifications.push(StepVerification {
+                            query: query.clone(),
+                            found_entities: found_names,
+                            missing_expected: missing,
+                            found_unexpected: unwanted,
+                            pass,
+                        });
                     }
-                }
+                    Err(e) => {
+                        errors.push(format!(
+                            "search failed at step {} iter {}: {e}",
+                            step_idx + 1,
+                            iter_idx + 1
+                        ));
+                    }
+                },
             }
         }
 
@@ -198,8 +192,7 @@ async fn run_single(
         Operation::EntityExtraction => backend.entity_extraction(text).await.map(|out| {
             let mut m = IterationMetrics::success(start.elapsed());
             m.entity_count = Some(out.entities.len());
-            m.extracted_entity_names =
-                Some(out.entities.iter().map(|e| e.name.clone()).collect());
+            m.extracted_entity_names = Some(out.entities.iter().map(|e| e.name.clone()).collect());
 
             if let Some(detailed) = input.as_detailed() {
                 if !detailed.expected_entities.is_empty() {
@@ -212,12 +205,10 @@ async fn run_single(
             let mut m = IterationMetrics::success(start.elapsed());
             m.entity_count = Some(out.entities.len());
             m.relation_count = Some(out.relations.len());
-            m.extracted_entity_names =
-                Some(out.entities.iter().map(|e| e.name.clone()).collect());
+            m.extracted_entity_names = Some(out.entities.iter().map(|e| e.name.clone()).collect());
 
             if let Some(detailed) = input.as_detailed() {
-                if !detailed.expected_entities.is_empty()
-                    || !detailed.expected_relations.is_empty()
+                if !detailed.expected_entities.is_empty() || !detailed.expected_relations.is_empty()
                 {
                     m.quality = Some(quality::score_extraction(
                         &out.entities,
@@ -235,12 +226,14 @@ async fn run_single(
             m.memory_count = Some(out.memory_count);
             m
         }),
-        Operation::Search => backend.search(text).await.map(|_| {
-            IterationMetrics::success(start.elapsed())
-        }),
-        Operation::QueryRewriting => backend.query_rewrite(text).await.map(|_| {
-            IterationMetrics::success(start.elapsed())
-        }),
+        Operation::Search => backend
+            .search(text)
+            .await
+            .map(|_| IterationMetrics::success(start.elapsed())),
+        Operation::QueryRewriting => backend
+            .query_rewrite(text)
+            .await
+            .map(|_| IterationMetrics::success(start.elapsed())),
         Operation::Behavioral => {
             unreachable!("behavioral scenarios are handled by run_behavioral()")
         }

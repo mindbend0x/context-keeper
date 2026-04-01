@@ -144,8 +144,11 @@ impl ScenarioResult {
         let avg_entity = avg_optional_usize(successful.iter().filter_map(|i| i.entity_count));
         let avg_relation = avg_optional_usize(successful.iter().filter_map(|i| i.relation_count));
 
-        let avg_entity_f1 =
-            avg_optional_f64(successful.iter().filter_map(|i| i.quality.as_ref().map(|q| q.entity_f1)));
+        let avg_entity_f1 = avg_optional_f64(
+            successful
+                .iter()
+                .filter_map(|i| i.quality.as_ref().map(|q| q.entity_f1)),
+        );
         let avg_entity_type_accuracy = avg_optional_f64(
             successful
                 .iter()
@@ -268,11 +271,7 @@ pub struct BehavioralResult {
 
 impl BehavioralResult {
     pub fn pass_rate(&self) -> f64 {
-        let total: usize = self
-            .verifications
-            .iter()
-            .map(|v| v.len())
-            .sum();
+        let total: usize = self.verifications.iter().map(|v| v.len()).sum();
         if total == 0 {
             return 0.0;
         }
@@ -358,13 +357,8 @@ mod tests {
             IterationMetrics::success(Duration::from_millis(50)),
             IterationMetrics::failure(Duration::from_millis(10), "boom".into()),
         ];
-        let result = ScenarioResult::new(
-            "test".into(),
-            "prov".into(),
-            Operation::Ingestion,
-            1,
-            iters,
-        );
+        let result =
+            ScenarioResult::new("test".into(), "prov".into(), Operation::Ingestion, 1, iters);
         let agg = result.aggregated();
         assert_eq!(agg.successful_iterations, 1);
         assert!((agg.success_rate - 0.5).abs() < f64::EPSILON);
@@ -376,13 +370,7 @@ mod tests {
             Duration::from_millis(5),
             "err".into(),
         )];
-        let result = ScenarioResult::new(
-            "test".into(),
-            "prov".into(),
-            Operation::Search,
-            1,
-            iters,
-        );
+        let result = ScenarioResult::new("test".into(), "prov".into(), Operation::Search, 1, iters);
         let agg = result.aggregated();
         assert_eq!(agg.successful_iterations, 0);
         assert!(agg.mean_latency.is_zero());

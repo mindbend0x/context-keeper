@@ -56,7 +56,11 @@ pub fn entity_type_accuracy(
     for entity in extracted {
         if let Some(expected_type) = expected_types.get(&entity.name) {
             total += 1;
-            if entity.entity_type.to_string().eq_ignore_ascii_case(expected_type) {
+            if entity
+                .entity_type
+                .to_string()
+                .eq_ignore_ascii_case(expected_type)
+            {
                 matched += 1;
             }
         }
@@ -125,10 +129,7 @@ pub fn relation_recall(
 // ── Composite scoring ───────────────────────────────────────────────────
 
 /// Score entity extraction quality against ground truth.
-pub fn score_entities(
-    extracted: &[ExtractedEntity],
-    expected: &DetailedInput,
-) -> QualityMetrics {
+pub fn score_entities(extracted: &[ExtractedEntity], expected: &DetailedInput) -> QualityMetrics {
     let extracted_names: Vec<String> = extracted.iter().map(|e| e.name.clone()).collect();
     let expected_set: HashSet<String> = expected.expected_entities.iter().cloned().collect();
 

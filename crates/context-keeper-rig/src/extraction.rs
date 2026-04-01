@@ -170,13 +170,15 @@ fn parse_entities(json_str: &str) -> std::result::Result<Vec<RawExtractedEntity>
     let entities: Vec<RawExtractedEntity> = arr
         .into_iter()
         .filter(|v| !v.is_null())
-        .filter_map(|v| match serde_json::from_value::<RawExtractedEntity>(v.clone()) {
-            Ok(e) => Some(e),
-            Err(e) => {
-                tracing::warn!(error = %e, value = %v, "Skipping malformed entity element");
-                None
-            }
-        })
+        .filter_map(
+            |v| match serde_json::from_value::<RawExtractedEntity>(v.clone()) {
+                Ok(e) => Some(e),
+                Err(e) => {
+                    tracing::warn!(error = %e, value = %v, "Skipping malformed entity element");
+                    None
+                }
+            },
+        )
         .collect();
 
     Ok(entities)
@@ -201,13 +203,15 @@ fn parse_relations(json_str: &str) -> std::result::Result<Vec<RawExtractedRelati
     let relations: Vec<RawExtractedRelation> = arr
         .into_iter()
         .filter(|v| !v.is_null())
-        .filter_map(|v| match serde_json::from_value::<RawExtractedRelation>(v.clone()) {
-            Ok(r) => Some(r),
-            Err(e) => {
-                tracing::warn!(error = %e, value = %v, "Skipping malformed relation element");
-                None
-            }
-        })
+        .filter_map(
+            |v| match serde_json::from_value::<RawExtractedRelation>(v.clone()) {
+                Ok(r) => Some(r),
+                Err(e) => {
+                    tracing::warn!(error = %e, value = %v, "Skipping malformed relation element");
+                    None
+                }
+            },
+        )
         .collect();
 
     Ok(relations)
@@ -406,11 +410,7 @@ impl RelationExtractor for RigRelationExtractor {
         ]
         .join("\n");
 
-        let agent = self
-            .client
-            .agent(&self.model)
-            .preamble(&preamble)
-            .build();
+        let agent = self.client.agent(&self.model).preamble(&preamble).build();
 
         for attempt in 0..=self.retry_config.max_retries {
             if attempt > 0 {

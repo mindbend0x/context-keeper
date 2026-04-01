@@ -48,9 +48,22 @@ impl From<&str> for EntityType {
                 Self::Location
             }
             "event" | "conference" | "meeting" | "summit" | "workshop" => Self::Event,
-            "product" | "tool" | "app" | "application" | "database" | "db" | "framework"
-            | "language" | "programming language" | "software" | "hardware" | "platform"
-            | "engine" | "runtime" | "compiler" | "sdk" => Self::Product,
+            "product"
+            | "tool"
+            | "app"
+            | "application"
+            | "database"
+            | "db"
+            | "framework"
+            | "language"
+            | "programming language"
+            | "software"
+            | "hardware"
+            | "platform"
+            | "engine"
+            | "runtime"
+            | "compiler"
+            | "sdk" => Self::Product,
             "service" | "api" | "saas" | "cloud service" | "hosting" => Self::Service,
             "concept" | "idea" | "topic" | "technology" | "methodology" | "protocol"
             | "standard" | "pattern" | "paradigm" | "algorithm" | "technique" => Self::Concept,
@@ -241,7 +254,6 @@ impl fmt::Display for DistanceMetric {
     }
 }
 
-
 impl DistanceMetric {
     /// Returns the SurrealQL vector similarity function name for this metric.
     pub fn similarity_function(&self) -> &'static str {
@@ -278,7 +290,14 @@ mod tests {
     #[test]
     fn entity_type_organization_aliases() {
         for alias in [
-            "org", "company", "firm", "Organization", "COMPANY", "institution", "agency", "corp",
+            "org",
+            "company",
+            "firm",
+            "Organization",
+            "COMPANY",
+            "institution",
+            "agency",
+            "corp",
             "corporation",
         ] {
             assert_eq!(
@@ -292,7 +311,14 @@ mod tests {
     #[test]
     fn entity_type_location_aliases() {
         for alias in [
-            "place", "city", "country", "LOCATION", "City", "region", "state", "continent",
+            "place",
+            "city",
+            "country",
+            "LOCATION",
+            "City",
+            "region",
+            "state",
+            "continent",
         ] {
             assert_eq!(
                 EntityType::from(alias),
@@ -305,8 +331,22 @@ mod tests {
     #[test]
     fn entity_type_product_aliases() {
         for alias in [
-            "product", "tool", "app", "Tool", "APP", "database", "db", "framework", "language",
-            "software", "hardware", "platform", "engine", "runtime", "compiler", "sdk",
+            "product",
+            "tool",
+            "app",
+            "Tool",
+            "APP",
+            "database",
+            "db",
+            "framework",
+            "language",
+            "software",
+            "hardware",
+            "platform",
+            "engine",
+            "runtime",
+            "compiler",
+            "sdk",
         ] {
             assert_eq!(
                 EntityType::from(alias),
@@ -342,8 +382,16 @@ mod tests {
     #[test]
     fn entity_type_file_aliases() {
         for alias in [
-            "file", "document", "lib", "library", "crate", "Library", "module", "package",
-            "repository", "repo",
+            "file",
+            "document",
+            "lib",
+            "library",
+            "crate",
+            "Library",
+            "module",
+            "package",
+            "repository",
+            "repo",
         ] {
             assert_eq!(EntityType::from(alias), EntityType::File, "alias: {alias}");
         }

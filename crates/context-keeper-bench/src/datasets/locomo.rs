@@ -186,7 +186,11 @@ mod tests {
         }
 
         match &scenarios[0].steps[1] {
-            BehavioralStep::Search { query, expected_entities, .. } => {
+            BehavioralStep::Search {
+                query,
+                expected_entities,
+                ..
+            } => {
                 assert_eq!(query, "Where does Alice work?");
                 assert!(expected_entities.contains(&"Acme".to_string()));
             }

@@ -33,18 +33,27 @@ pub struct ContextKeeperBackend {
 
 impl ContextKeeperBackend {
     pub fn from_provider(provider: &ProviderConfig) -> Self {
-        let entity_extractor =
-            RigEntityExtractor::new(&provider.api_url, &provider.api_key, &provider.extraction_model);
-        let relation_extractor =
-            RigRelationExtractor::new(&provider.api_url, &provider.api_key, &provider.extraction_model);
+        let entity_extractor = RigEntityExtractor::new(
+            &provider.api_url,
+            &provider.api_key,
+            &provider.extraction_model,
+        );
+        let relation_extractor = RigRelationExtractor::new(
+            &provider.api_url,
+            &provider.api_key,
+            &provider.extraction_model,
+        );
         let embedder = RigEmbedder::new(
             &provider.api_url,
             &provider.api_key,
             &provider.embedding_model,
             provider.embedding_dims,
         );
-        let query_rewriter =
-            RigQueryRewriter::new(&provider.api_url, &provider.api_key, &provider.extraction_model);
+        let query_rewriter = RigQueryRewriter::new(
+            &provider.api_url,
+            &provider.api_key,
+            &provider.extraction_model,
+        );
 
         Self {
             provider_name: provider.name.clone(),

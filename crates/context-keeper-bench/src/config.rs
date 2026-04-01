@@ -208,24 +208,43 @@ fn expand_env_vars(input: &str) -> String {
 }
 
 fn validate(config: &BenchConfig) -> anyhow::Result<()> {
-    anyhow::ensure!(!config.providers.is_empty(), "at least one provider required");
+    anyhow::ensure!(
+        !config.providers.is_empty(),
+        "at least one provider required"
+    );
     anyhow::ensure!(
         !config.scenarios.is_empty(),
         "at least one scenario required"
     );
     for p in &config.providers {
         anyhow::ensure!(!p.name.is_empty(), "provider name must not be empty");
-        anyhow::ensure!(!p.api_url.is_empty(), "provider '{}' has empty api_url", p.name);
-        anyhow::ensure!(!p.api_key.is_empty(), "provider '{}' has empty api_key — set the env var", p.name);
+        anyhow::ensure!(
+            !p.api_url.is_empty(),
+            "provider '{}' has empty api_url",
+            p.name
+        );
+        anyhow::ensure!(
+            !p.api_key.is_empty(),
+            "provider '{}' has empty api_key — set the env var",
+            p.name
+        );
     }
     for s in &config.scenarios {
         anyhow::ensure!(!s.name.is_empty(), "scenario name must not be empty");
         if s.operation == Operation::Behavioral {
-            anyhow::ensure!(!s.steps.is_empty(), "behavioral scenario '{}' has no steps", s.name);
+            anyhow::ensure!(
+                !s.steps.is_empty(),
+                "behavioral scenario '{}' has no steps",
+                s.name
+            );
         } else {
             anyhow::ensure!(!s.inputs.is_empty(), "scenario '{}' has no inputs", s.name);
         }
-        anyhow::ensure!(s.iterations > 0, "scenario '{}' needs at least 1 iteration", s.name);
+        anyhow::ensure!(
+            s.iterations > 0,
+            "scenario '{}' needs at least 1 iteration",
+            s.name
+        );
     }
     Ok(())
 }
@@ -304,7 +323,10 @@ scenarios:
 
         let detailed = input.as_detailed().unwrap();
         assert_eq!(detailed.expected_entities.len(), 2);
-        assert_eq!(detailed.expected_entity_types.get("Alice").unwrap(), "person");
+        assert_eq!(
+            detailed.expected_entity_types.get("Alice").unwrap(),
+            "person"
+        );
         assert_eq!(detailed.expected_relations.len(), 1);
         assert_eq!(detailed.expected_relations[0].predicate, "works_at");
     }

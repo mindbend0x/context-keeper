@@ -13,7 +13,8 @@ pub fn to_json(results: &[ScenarioResult]) -> serde_json::Result<String> {
 /// Print all report tables to stdout.
 pub fn print_report(results: &[ScenarioResult]) {
     let regular: Vec<&ScenarioResult> = results.iter().filter(|r| r.behavioral.is_none()).collect();
-    let behavioral: Vec<&ScenarioResult> = results.iter().filter(|r| r.behavioral.is_some()).collect();
+    let behavioral: Vec<&ScenarioResult> =
+        results.iter().filter(|r| r.behavioral.is_some()).collect();
 
     if !regular.is_empty() {
         let owned: Vec<ScenarioResult> = regular.into_iter().cloned().collect();
