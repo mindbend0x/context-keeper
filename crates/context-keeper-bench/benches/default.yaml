@@ -1,0 +1,37 @@
+# Quick smoke-test benchmark.
+#
+# Single provider, low iterations -- verifies the setup works.
+#
+# Run:
+#   cargo run -p context-keeper-bench -- --config crates/context-keeper-bench/benches/default.yaml
+
+providers:
+  - name: gpt-4o-mini
+    api_url: "${OPENAI_API_URL}"
+    api_key: "${OPENAI_API_KEY}"
+    extraction_model: gpt-4o-mini
+    embedding_model: text-embedding-3-small
+    embedding_dims: 1536
+
+scenarios:
+  - name: smoke_entities
+    operation: entity_extraction
+    iterations: 1
+    inputs:
+      - "Alice works at Acme Corp in New York City."
+
+  - name: smoke_relations
+    operation: relation_extraction
+    iterations: 1
+    inputs:
+      - "Alice manages the engineering team at Acme Corp."
+
+  - name: smoke_ingestion
+    operation: ingestion
+    iterations: 1
+    inputs:
+      - "Eve joined DataCo last month as VP of Engineering."
+
+settings:
+  storage_backend: memory
+  warmup_iterations: 0

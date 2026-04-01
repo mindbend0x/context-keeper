@@ -1,0 +1,78 @@
+# Model comparison benchmark.
+#
+# Runs the same scenarios against two providers so the comparison table
+# highlights latency and quality deltas between models.
+#
+# Run:
+#   cargo run -p context-keeper-bench -- --config crates/context-keeper-bench/benches/model_comparison.yaml
+
+providers:
+  - name: gpt-4o-mini
+    api_url: "${OPENAI_API_URL}"
+    api_key: "${OPENAI_API_KEY}"
+    extraction_model: gpt-4o-mini
+    embedding_model: text-embedding-3-small
+    embedding_dims: 1536
+
+  - name: gpt-4o
+    api_url: "${OPENAI_API_URL}"
+    api_key: "${OPENAI_API_KEY}"
+    extraction_model: gpt-4o
+    embedding_model: text-embedding-3-small
+    embedding_dims: 1536
+
+scenarios:
+  - name: entity_extraction
+    operation: entity_extraction
+    iterations: 3
+    inputs:
+      - text: "Alice works at Acme Corp in New York City."
+        expected_entities: ["Alice", "Acme Corp", "New York City"]
+        expected_entity_types:
+          Alice: person
+          Acme Corp: organization
+          New York City: location
+
+      - text: "Bob met Charlie at the annual Python conference in Berlin."
+        expected_entities: ["Bob", "Charlie", "Python", "Berlin"]
+        expected_entity_types:
+          Bob: person
+          Charlie: person
+          Berlin: location
+
+      - text: "TechStart was acquired by DataCo for $2 billion. CEO Eve Zhao led negotiations."
+        expected_entities: ["TechStart", "DataCo", "Eve Zhao"]
+        expected_entity_types:
+          TechStart: organization
+          DataCo: organization
+          Eve Zhao: person
+
+  - name: relation_extraction
+    operation: relation_extraction
+    iterations: 3
+    inputs:
+      - text: "Alice manages the engineering team at Acme Corp. She reports to Bob, the CTO."
+        expected_entities: ["Alice", "Acme Corp", "Bob"]
+        expected_entity_types:
+          Alice: person
+          Acme Corp: organization
+          Bob: person
+        expected_relations:
+          - { subject: Alice, predicate: works_at, object: Acme Corp }
+          - { subject: Bob, predicate: works_at, object: Acme Corp }
+
+      - text: "DataCo acquired TechStart last quarter. Eve led the integration from the DataCo side."
+        expected_entities: ["DataCo", "TechStart", "Eve"]
+        expected_relations:
+          - { subject: Eve, predicate: works_at, object: DataCo }
+
+  - name: query_rewrite
+    operation: query_rewriting
+    iterations: 3
+    inputs:
+      - "Who works at Acme Corp?"
+      - "What happened with DataCo's acquisition?"
+
+settings:
+  storage_backend: memory
+  warmup_iterations: 1

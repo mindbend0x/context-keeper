@@ -1,0 +1,89 @@
+# Quality benchmark with ground-truth annotations.
+#
+# Every input has expected entities, types, and relations so the report
+# shows precision, recall, F1, type accuracy, and consistency scores.
+#
+# Run:
+#   cargo run -p context-keeper-bench -- --config crates/context-keeper-bench/benches/quality.yaml
+
+providers:
+  - name: gpt-4o-mini
+    api_url: "${OPENAI_API_URL}"
+    api_key: "${OPENAI_API_KEY}"
+    extraction_model: gpt-4o-mini
+    embedding_model: text-embedding-3-small
+    embedding_dims: 1536
+
+scenarios:
+  - name: entity_quality
+    operation: entity_extraction
+    iterations: 5
+    inputs:
+      - text: "Alice works at Acme Corp in New York City."
+        expected_entities: ["Alice", "Acme Corp", "New York City"]
+        expected_entity_types:
+          Alice: person
+          Acme Corp: organization
+          New York City: location
+
+      - text: "The Rust programming language was created by Graydon Hoare at Mozilla."
+        expected_entities: ["Rust", "Graydon Hoare", "Mozilla"]
+        expected_entity_types:
+          Rust: product
+          Graydon Hoare: person
+          Mozilla: organization
+
+      - text: "Dr. Sarah Chen presented her findings on climate change at the UN Summit in Geneva."
+        expected_entities: ["Sarah Chen", "UN Summit", "Geneva"]
+        expected_entity_types:
+          Sarah Chen: person
+          UN Summit: event
+          Geneva: location
+
+      - text: "SpaceX launched the Falcon 9 rocket from Kennedy Space Center in Florida."
+        expected_entities: ["SpaceX", "Falcon 9", "Kennedy Space Center", "Florida"]
+        expected_entity_types:
+          SpaceX: organization
+          Falcon 9: product
+          Kennedy Space Center: location
+          Florida: location
+
+  - name: relation_quality
+    operation: relation_extraction
+    iterations: 5
+    inputs:
+      - text: "Alice manages the engineering team at Acme Corp. She reports to Bob, the CTO."
+        expected_entities: ["Alice", "Acme Corp", "Bob"]
+        expected_entity_types:
+          Alice: person
+          Acme Corp: organization
+          Bob: person
+        expected_relations:
+          - { subject: Alice, predicate: works_at, object: Acme Corp }
+          - { subject: Bob, predicate: works_at, object: Acme Corp }
+
+      - text: "The Eiffel Tower is located in Paris, France. It was designed by Gustave Eiffel."
+        expected_entities: ["Eiffel Tower", "Paris", "France", "Gustave Eiffel"]
+        expected_entity_types:
+          Eiffel Tower: location
+          Paris: location
+          France: location
+          Gustave Eiffel: person
+        expected_relations:
+          - { subject: Eiffel Tower, predicate: located_in, object: Paris }
+          - { subject: Paris, predicate: located_in, object: France }
+          - { subject: Eiffel Tower, predicate: created_by, object: Gustave Eiffel }
+
+      - text: "SurrealDB is used by Context Keeper for storage. It depends on RocksDB for persistence."
+        expected_entities: ["SurrealDB", "Context Keeper", "RocksDB"]
+        expected_entity_types:
+          SurrealDB: product
+          Context Keeper: product
+          RocksDB: product
+        expected_relations:
+          - { subject: Context Keeper, predicate: uses, object: SurrealDB }
+          - { subject: SurrealDB, predicate: depends_on, object: RocksDB }
+
+settings:
+  storage_backend: memory
+  warmup_iterations: 1
