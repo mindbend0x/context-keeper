@@ -203,6 +203,7 @@ async fn test_ingestion_pipeline() -> Result<()> {
         &relation_extractor,
         None,
         None,
+        None,
     )
     .await?;
 

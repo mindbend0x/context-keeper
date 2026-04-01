@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::error::Result;
 use crate::models::{Entity, EntityType, Episode, Memory, Relation};
-use crate::traits::{Embedder, EntityExtractor, EntityResolver, RelationExtractor};
+use crate::traits::{Embedder, EntityExtractor, EntityResolver, RelationExtractor, SummarySynthesizer};
 
 /// The output of a successful ingestion run.
 #[derive(Debug)]
@@ -196,6 +196,28 @@ fn detect_slot_conflict(existing_lower: &str, new_lower: &str) -> Option<String>
     None
 }
 
+/// Use the LLM synthesizer when available; fall back to heuristic concatenation.
+async fn synthesize_or_merge(
+    synthesizer: Option<&dyn SummarySynthesizer>,
+    existing: &str,
+    new: &str,
+    entity_name: &str,
+) -> String {
+    if let Some(synth) = synthesizer {
+        match synth.synthesize(existing, new, entity_name).await {
+            Ok(merged) => return merged,
+            Err(e) => {
+                tracing::warn!(
+                    entity = entity_name,
+                    error = %e,
+                    "SummarySynthesizer failed, falling back to heuristic merge"
+                );
+            }
+        }
+    }
+    merge_summaries(existing, new)
+}
+
 /// Merge an existing entity summary with new information.
 ///
 /// If the new summary adds information not present in the old one, the two
@@ -230,6 +252,7 @@ pub async fn ingest(
     entity_extractor: &dyn EntityExtractor,
     relation_extractor: &dyn RelationExtractor,
     entity_resolver: Option<&dyn EntityResolver>,
+    summary_synthesizer: Option<&dyn SummarySynthesizer>,
     min_confidence: Option<u8>,
 ) -> Result<IngestionResult> {
     tracing::info!(episode_id = %episode.id, "Starting ingestion pipeline");
@@ -282,7 +305,13 @@ pub async fn ingest(
                     });
                     diff.entities_created.push(ext.name.clone());
                 } else {
-                    let merged = merge_summaries(&existing.summary, &ext.summary);
+                    let merged = synthesize_or_merge(
+                        summary_synthesizer,
+                        &existing.summary,
+                        &ext.summary,
+                        &ext.name,
+                    )
+                    .await;
                     diff.entities_updated.push(EntityUpdate {
                         name: ext.name.clone(),
                         old_summary: existing.summary.clone(),
@@ -310,7 +339,13 @@ pub async fn ingest(
                 .find_similar(&ext.name, &embedding, 0.85, ns)
                 .await?;
             if let Some(best) = similar.first() {
-                let merged = merge_summaries(&best.summary, &ext.summary);
+                let merged = synthesize_or_merge(
+                    summary_synthesizer,
+                    &best.summary,
+                    &ext.summary,
+                    &ext.name,
+                )
+                .await;
                 diff.entities_updated.push(EntityUpdate {
                     name: ext.name.clone(),
                     old_summary: best.summary.clone(),

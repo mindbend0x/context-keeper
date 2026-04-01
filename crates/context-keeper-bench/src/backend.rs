@@ -59,6 +59,21 @@ pub trait BenchBackend: Send + Sync {
     /// Used by behavioral scenarios to verify expected/unexpected entities.
     async fn search_entity_names(&self, query: &str) -> anyhow::Result<Vec<String>>;
 
+    /// Search the graph and return both entity names and concatenated result text.
+    /// The text is used for answer-level scoring against gold answers.
+    /// Default implementation returns entity names as text.
+    async fn search_with_text(&self, query: &str) -> anyhow::Result<(Vec<String>, String)> {
+        let names = self.search_entity_names(query).await?;
+        let text = names.join(", ");
+        Ok((names, text))
+    }
+
     /// Reset internal state (e.g. drop all entities). Called between behavioral iterations.
     async fn reset(&self) -> anyhow::Result<()>;
+
+    /// Return the cumulative token count since last reset, if tracked.
+    /// Default returns `None` (tracking not supported).
+    fn token_count(&self) -> Option<u64> {
+        None
+    }
 }

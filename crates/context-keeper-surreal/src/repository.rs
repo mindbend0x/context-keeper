@@ -377,6 +377,18 @@ impl Repository {
         Ok(rows.into_iter().next().and_then(entity_from_row))
     }
 
+    /// Batch-fetch entities by their IDs. Missing IDs are silently skipped.
+    pub async fn get_entities_by_ids(&self, ids: &[Uuid]) -> Result<Vec<Entity>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let id_list: Vec<String> = ids.iter().map(|id| format!("entity:`{}`", id)).collect();
+        let q = format!("SELECT * FROM {}", id_list.join(", "));
+        let mut response = self.db.query(&q).await.map_err(storage_err)?;
+        let rows: Vec<EntityRow> = response.take(0).map_err(storage_err)?;
+        Ok(rows.into_iter().filter_map(entity_from_row).collect())
+    }
+
     pub async fn find_entities_by_name(
         &self,
         name: &str,

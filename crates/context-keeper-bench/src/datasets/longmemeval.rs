@@ -98,6 +98,7 @@ pub fn load(path: &Path) -> anyhow::Result<Vec<ScenarioConfig>> {
                 query: q.question.clone(),
                 expected_entities: answer_tokens,
                 unexpected_entities: vec![],
+                gold_answer: Some(q.gold_answer.clone()),
             });
         }
 

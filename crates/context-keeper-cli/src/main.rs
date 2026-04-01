@@ -257,6 +257,7 @@ async fn main() -> Result<()> {
                 relation_extractor.as_ref(),
                 Some(resolver),
                 None,
+                None,
             )
             .await?;
 

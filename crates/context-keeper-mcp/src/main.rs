@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use axum::{extract::Request, middleware, response::Response};
@@ -12,9 +13,11 @@ use context_keeper_rig::{
 use context_keeper_surreal::{apply_schema, connect, Repository, StorageBackend, SurrealConfig};
 use dotenv::dotenv;
 use rmcp::transport::{
-    streamable_http_server::session::local::LocalSessionManager, StreamableHttpService,
+    streamable_http_server::session::local::{LocalSessionManager, SessionConfig},
+    StreamableHttpService,
 };
 use rmcp::ServiceExt;
+use rmcp::transport::streamable_http_server::tower::StreamableHttpServerConfig;
 use tracing_subscriber::EnvFilter;
 
 mod tools;
@@ -244,10 +247,19 @@ async fn main() -> Result<()> {
             let bind_addr = format!("0.0.0.0:{}", cli.http_port);
             tracing::info!(addr = %bind_addr, "Serving MCP over streamable HTTP");
 
+            let mut session_config = SessionConfig::default();
+            session_config.keep_alive = Some(Duration::from_secs(300));
+
+            let mut session_manager = LocalSessionManager::default();
+            session_manager.session_config = session_config;
+
+            let mut http_config = StreamableHttpServerConfig::default();
+            http_config.sse_keep_alive = Some(Duration::from_secs(5));
+
             let http_service = StreamableHttpService::new(
                 move || Ok(server.clone()),
-                LocalSessionManager::default().into(),
-                Default::default(),
+                Arc::new(session_manager),
+                http_config,
             );
 
             let router = if valid_tokens.is_empty() {

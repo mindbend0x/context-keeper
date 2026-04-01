@@ -61,6 +61,7 @@ impl TestEnv {
             &self.relation_extractor,
             if use_resolver { Some(resolver) } else { None },
             None,
+            None,
         )
         .await?;
 
@@ -130,6 +131,7 @@ impl TestEnv {
             &self.entity_extractor,
             &self.relation_extractor,
             Some(resolver),
+            None,
             None,
         )
         .await?;
