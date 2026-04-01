@@ -19,8 +19,10 @@ build-release: ## Build release binaries
 test: ## Run all workspace tests
 	cargo test --workspace
 
-lint clippy: ## Run clippy (workspace + all targets, warnings as errors; CI parity)
+clippy: ## Run clippy (workspace + all targets, -D warnings; matches CI)
 	cargo clippy --workspace --all-targets -- -D warnings
+
+lint: clippy ## Same as clippy
 
 fmt: ## Check formatting
 	cargo fmt --check
