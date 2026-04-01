@@ -17,3 +17,9 @@ anyhow.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
 surrealdb.workspace = true
+
+[features]
+default = []
+rocksdb = ["surrealdb/kv-rocksdb"]
+ws = ["surrealdb/protocol-ws"]
+full = ["rocksdb", "ws"]

@@ -11,7 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 context-keeper-core.workspace = true
-context-keeper-surreal.workspace = true
+context-keeper-surreal = { workspace = true, features = ["full"] }
 context-keeper-rig.workspace = true
 tokio.workspace = true
 serde.workspace = true
