@@ -1,0 +1,62 @@
+# Behavioral efficacy: Negation and temporal reasoning.
+#
+# Tests that contradictory information properly invalidates old facts.
+#
+# Run:
+#   cargo run -p context-keeper-bench -- --config crates/context-keeper-bench/benches/negation.yaml
+
+providers:
+  - name: gpt-4o-mini
+    api_url: "${OPENAI_API_URL}"
+    api_key: "${OPENAI_API_KEY}"
+    extraction_model: gpt-4o-mini
+    embedding_model: text-embedding-3-small
+    embedding_dims: 1536
+
+scenarios:
+  - name: explicit_negation
+    operation: behavioral
+    iterations: 1
+    steps:
+      - action: ingest
+        text: "Alice works at Acme Corp as a software engineer."
+      - action: search
+        query: "Where does Alice work?"
+        expected_entities: ["Alice", "Acme Corp"]
+      - action: ingest
+        text: "Alice left Acme Corp last month."
+      - action: search
+        query: "Where does Alice work?"
+        expected_entities: ["Alice"]
+        # After negation, Acme Corp should not appear as Alice's employer
+        # (it may still appear as an entity, but the active relationship is gone)
+
+  - name: implicit_transition
+    operation: behavioral
+    iterations: 1
+    steps:
+      - action: ingest
+        text: "Alice works at Acme Corp as a software engineer."
+      - action: ingest
+        text: "Alice joined BigCo as CTO."
+      - action: search
+        query: "Where does Alice work now?"
+        expected_entities: ["Alice", "BigCo"]
+
+  - name: multiple_updates
+    operation: behavioral
+    iterations: 1
+    steps:
+      - action: ingest
+        text: "Alice works at Acme Corp."
+      - action: ingest
+        text: "Alice moved to BigCo."
+      - action: ingest
+        text: "Alice is now at MegaCorp as VP of Engineering."
+      - action: search
+        query: "Where does Alice work?"
+        expected_entities: ["Alice", "MegaCorp"]
+
+settings:
+  storage_backend: memory
+  warmup_iterations: 0

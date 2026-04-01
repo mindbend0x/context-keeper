@@ -23,8 +23,25 @@ use serde::Deserialize;
 use std::time::Duration;
 
 const ENTITY_EXTRACTION_PROMPT: &str = "\
-Extract named entities from the text. Classify each entity as one of: \
-person, organization, location, event, product, service, concept, file, other. \
+Extract only significant named entities from the text — proper nouns that refer \
+to specific people, organizations, places, products, events, or technical concepts. \
+Do NOT extract generic roles (e.g. \"engineer\", \"manager\"), common nouns, adjectives, \
+or pronouns. Each entity must be a distinct, identifiable thing with a proper name.
+
+Classify each entity using these types with examples:
+- person: named individuals (e.g. \"Alice\", \"Linus Torvalds\")
+- organization: companies, teams, institutions (e.g. \"Acme Corp\", \"Google\")
+- location: cities, countries, geographic places (e.g. \"Berlin\", \"Germany\")
+- event: named events, conferences (e.g. \"PyCon 2025\", \"World Cup\")
+- product: software, databases, frameworks, languages, hardware (e.g. \"SurrealDB\", \"Rust\", \"React\", \"PostgreSQL\")
+- service: hosted services, APIs, platforms (e.g. \"AWS Lambda\", \"GitHub Actions\")
+- concept: abstract ideas, methodologies, protocols (e.g. \"RAG\", \"microservices\", \"OAuth\")
+- file: specific files, documents, libraries, crates (e.g. \"pipeline.rs\", \"tokio\")
+- other: only when none of the above fit
+
+Write each summary as a concise description of what the entity does or represents \
+in the context of THIS text — not a generic dictionary definition.
+
 Return ONLY a JSON object with an \"entities\" array of {\"name\", \"entity_type\", \"summary\"}. \
 No markdown, no explanation — just the JSON object.";
 
@@ -153,13 +170,15 @@ fn parse_entities(json_str: &str) -> std::result::Result<Vec<RawExtractedEntity>
     let entities: Vec<RawExtractedEntity> = arr
         .into_iter()
         .filter(|v| !v.is_null())
-        .filter_map(|v| match serde_json::from_value::<RawExtractedEntity>(v.clone()) {
-            Ok(e) => Some(e),
-            Err(e) => {
-                tracing::warn!(error = %e, value = %v, "Skipping malformed entity element");
-                None
-            }
-        })
+        .filter_map(
+            |v| match serde_json::from_value::<RawExtractedEntity>(v.clone()) {
+                Ok(e) => Some(e),
+                Err(e) => {
+                    tracing::warn!(error = %e, value = %v, "Skipping malformed entity element");
+                    None
+                }
+            },
+        )
         .collect();
 
     Ok(entities)
@@ -184,13 +203,15 @@ fn parse_relations(json_str: &str) -> std::result::Result<Vec<RawExtractedRelati
     let relations: Vec<RawExtractedRelation> = arr
         .into_iter()
         .filter(|v| !v.is_null())
-        .filter_map(|v| match serde_json::from_value::<RawExtractedRelation>(v.clone()) {
-            Ok(r) => Some(r),
-            Err(e) => {
-                tracing::warn!(error = %e, value = %v, "Skipping malformed relation element");
-                None
-            }
-        })
+        .filter_map(
+            |v| match serde_json::from_value::<RawExtractedRelation>(v.clone()) {
+                Ok(r) => Some(r),
+                Err(e) => {
+                    tracing::warn!(error = %e, value = %v, "Skipping malformed relation element");
+                    None
+                }
+            },
+        )
         .collect();
 
     Ok(relations)
@@ -389,11 +410,7 @@ impl RelationExtractor for RigRelationExtractor {
         ]
         .join("\n");
 
-        let agent = self
-            .client
-            .agent(&self.model)
-            .preamble(&preamble)
-            .build();
+        let agent = self.client.agent(&self.model).preamble(&preamble).build();
 
         for attempt in 0..=self.retry_config.max_retries {
             if attempt > 0 {

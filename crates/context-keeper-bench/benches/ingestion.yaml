@@ -1,0 +1,61 @@
+# Ingestion pipeline benchmark.
+#
+# Exercises the full pipeline (extraction + embedding + entity resolution)
+# with longer, more realistic text inputs.
+#
+# Run:
+#   cargo run -p context-keeper-bench -- --config crates/context-keeper-bench/benches/ingestion.yaml
+
+providers:
+  - name: gpt-4o-mini
+    api_url: "${OPENAI_API_URL}"
+    api_key: "${OPENAI_API_KEY}"
+    extraction_model: gpt-4o-mini
+    embedding_model: text-embedding-3-small
+    embedding_dims: 1536
+
+scenarios:
+  - name: short_ingestion
+    operation: ingestion
+    iterations: 3
+    inputs:
+      - "Eve joined DataCo last month as VP of Engineering. She previously worked at Acme Corp with Alice."
+      - "The Rust programming language is used by Context Keeper. It depends on SurrealDB for storage."
+      - "Bob left Acme Corp and joined TechStart as lead architect. He now reports to Eve."
+
+  - name: paragraph_ingestion
+    operation: ingestion
+    iterations: 2
+    inputs:
+      - >
+        In Q3 2025, DataCo completed its acquisition of TechStart for $2.1 billion.
+        Eve Zhao, DataCo's VP of Engineering, led the technical integration effort.
+        The combined entity now operates from offices in San Francisco, Austin, and Berlin.
+        Former TechStart CEO Marcus Lee transitioned to an advisory role at DataCo.
+
+      - >
+        The Context Keeper project was founded by the FZ team to build a temporal
+        knowledge graph memory layer for AI agents. It uses SurrealDB for persistent
+        storage and the Rig framework for LLM integration. The architecture consists
+        of five crates: core, rig, surreal, mcp, and cli. The MCP server supports
+        both stdio and streamable HTTP transports.
+
+      - >
+        Dr. Sarah Chen presented her climate research at the annual UN Summit in
+        Geneva. Her team at MIT collaborated with researchers from Oxford and ETH
+        Zurich. The findings were published in Nature and cited by the IPCC in their
+        2025 assessment report. Sarah's postdoctoral advisor, Prof. James Liu,
+        also contributed to the study.
+
+  - name: multi_episode_ingestion
+    operation: ingestion
+    iterations: 2
+    inputs:
+      - "Alice started working at Acme Corp as a software engineer in January 2024."
+      - "Alice was promoted to team lead at Acme Corp in September 2024."
+      - "Alice left Acme Corp and joined DataCo as Director of Engineering in March 2025."
+      - "Bob joined Acme Corp to fill Alice's former team lead position."
+
+settings:
+  storage_backend: memory
+  warmup_iterations: 1

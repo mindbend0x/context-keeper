@@ -1,0 +1,190 @@
+name: Benchmark
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      config:
+        description: "Benchmark config file path"
+        default: "crates/context-keeper-bench/benches/quality.yaml"
+        type: string
+  pull_request:
+    types: [labeled, synchronize]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bench-llm:
+    name: LLM Benchmark
+    runs-on: ubuntu-latest
+    environment: benchmark
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-bench'))
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build bench binary
+        run: cargo build -p context-keeper-bench --release
+
+      - name: Select config
+        id: config
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "path=crates/context-keeper-bench/benches/default.yaml" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=${{ github.event.inputs.config || 'crates/context-keeper-bench/benches/quality.yaml' }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate secrets
+        env:
+          OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          missing=()
+          [ -z "$OPENAI_API_URL" ] && missing+=(OPENAI_API_URL)
+          [ -z "$OPENAI_API_KEY" ] && missing+=(OPENAI_API_KEY)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing secrets: ${missing[*]}. Add them to the 'benchmark' environment in repo Settings > Environments."
+            exit 1
+          fi
+
+      - name: Run benchmark
+        env:
+          OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          cargo run -p context-keeper-bench --release -- \
+            --config "${{ steps.config.outputs.path }}" \
+            --output bench-results.json
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.run_number }}
+          path: bench-results.json
+          retention-days: 90
+
+  bench-pr-comment:
+    name: PR Benchmark Comment
+    needs: bench-llm
+    runs-on: ubuntu-latest
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'run-bench')
+    steps:
+      - name: Download results
+        id: download
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-results-${{ github.run_number }}
+        continue-on-error: true
+
+      - name: Post results comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const prNumber = context.payload.pull_request?.number;
+            if (!prNumber) return;
+
+            const benchJob = '${{ needs.bench-llm.result }}';
+            let body = '';
+
+            if (benchJob !== 'success' || '${{ steps.download.outcome }}' !== 'success') {
+              body = `### Benchmark Results\n\n` +
+                `**Status:** bench-llm ${benchJob}\n\n` +
+                `The benchmark run did not produce results. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.`;
+            } else {
+              const raw = fs.readFileSync('bench-results.json', 'utf8');
+              const results = JSON.parse(raw);
+
+              const fmtMs = (d) => {
+                if (!d) return '-';
+                const secs = d.secs || 0;
+                const nanos = d.nanos || 0;
+                const ms = secs * 1000 + nanos / 1e6;
+                return ms < 1000 ? `${ms.toFixed(0)}ms` : `${(ms / 1000).toFixed(2)}s`;
+              };
+              const fmtPct = (v) => v != null ? `${(v * 100).toFixed(0)}%` : '-';
+
+              let rows = '';
+              let behavioralRows = '';
+
+              for (const r of results) {
+                if (r.behavioral) {
+                  const beh = r.behavioral;
+                  const total = beh.verifications.reduce((s, v) => s + v.length, 0);
+                  const passed = beh.verifications.reduce((s, v) => s + v.filter(c => c.pass).length, 0);
+                  const rate = total > 0 ? (passed / total * 100).toFixed(0) : '0';
+                  behavioralRows += `| ${r.scenario_name} | ${r.provider_name} | ${passed}/${total} | ${rate}% | ${fmtMs(beh.total_latency)} |\n`;
+                  continue;
+                }
+
+                const iters = r.iterations || [];
+                const ok = iters.filter(i => !i.error);
+                if (ok.length === 0) {
+                  rows += `| ${r.scenario_name} | ${r.provider_name} | ${r.operation} | 0/${iters.length} | - | - | - | - |\n`;
+                  continue;
+                }
+
+                const latencies = ok.map(i => (i.latency.secs || 0) * 1000 + (i.latency.nanos || 0) / 1e6).sort((a, b) => a - b);
+                const mean = latencies.reduce((a, b) => a + b, 0) / latencies.length;
+                const p95i = Math.min(Math.ceil(latencies.length * 0.95) - 1, latencies.length - 1);
+
+                const qualities = ok.filter(i => i.quality);
+                const avgF1 = qualities.length > 0
+                  ? qualities.reduce((s, i) => s + i.quality.entity_f1, 0) / qualities.length
+                  : null;
+
+                const fmtMsNum = (ms) => ms < 1000 ? `${ms.toFixed(0)}ms` : `${(ms / 1000).toFixed(2)}s`;
+
+                rows += `| ${r.scenario_name} | ${r.provider_name} | ${r.operation} | ${ok.length}/${iters.length} | ${fmtMsNum(mean)} | ${fmtMsNum(latencies[p95i])} | ${fmtPct(avgF1)} | ${fmtPct(qualities.length > 0 ? qualities.reduce((s, i) => s + (i.quality.entity_type_accuracy || 0), 0) / qualities.length : null)} |\n`;
+              }
+
+              body = `### Benchmark Results\n\n`;
+
+              if (rows) {
+                body += `| Scenario | Provider | Op | OK | Mean | p95 | Ent F1 | Type Acc |\n`;
+                body += `|----------|----------|----|----|------|-----|--------|----------|\n`;
+                body += rows + '\n';
+              }
+
+              if (behavioralRows) {
+                body += `**Behavioral Scenarios**\n\n`;
+                body += `| Scenario | Provider | Checks | Pass Rate | Time |\n`;
+                body += `|----------|----------|--------|-----------|------|\n`;
+                body += behavioralRows + '\n';
+              }
+
+              body += `\n<details><summary>Run details</summary>\n\n`;
+              body += `- Config: \`${{ steps.config.outputs.path || 'default.yaml' }}\`\n`;
+              body += `- [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n`;
+              body += `</details>`;
+            }
+
+            // Upsert: find existing bot comment and update it
+            const { data: comments } = await github.rest.issues.listComments({
+              owner, repo, issue_number: prNumber,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('### Benchmark Results')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: prNumber, body,
+              });
+            }

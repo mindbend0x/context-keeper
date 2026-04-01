@@ -220,7 +220,7 @@ async fn test_temporal_relation_lifecycle() -> Result<()> {
 
 #[tokio::test]
 async fn test_staleness_ordering() -> Result<()> {
-    let entities = vec![
+    let entities = [
         Entity {
             id: Uuid::new_v4(),
             name: "Ancient".to_string(),
@@ -256,7 +256,7 @@ async fn test_staleness_ordering() -> Result<()> {
         },
     ];
 
-    let scores: Vec<f64> = entities.iter().map(|e| staleness_score(e)).collect();
+    let scores: Vec<f64> = entities.iter().map(staleness_score).collect();
 
     assert!(
         scores[0] > scores[1],
