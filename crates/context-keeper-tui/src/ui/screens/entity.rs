@@ -203,14 +203,16 @@ impl EntityState {
         let body = chunks[1];
 
         if self.entities.is_empty() && self.detail.is_none() {
-            let msg = Paragraph::new("  Enter a name or press Enter with empty input to browse all entities.")
-                .style(Style::default().fg(theme::MUTED))
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(theme::border_default())
-                        .title(Line::from(" Entity ").style(theme::title())),
-                );
+            let msg = Paragraph::new(
+                "  Enter a name or press Enter with empty input to browse all entities.",
+            )
+            .style(Style::default().fg(theme::MUTED))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(theme::border_default())
+                    .title(Line::from(" Entity ").style(theme::title())),
+            );
             f.render_widget(msg, body);
             return;
         }
@@ -238,8 +240,7 @@ impl EntityState {
                 theme::border_default()
             })
             .title(
-                Line::from(format!(" Entities ({}) ", self.entities.len()))
-                    .style(theme::title()),
+                Line::from(format!(" Entities ({}) ", self.entities.len())).style(theme::title()),
             );
 
         let inner = block.inner(area);
@@ -270,10 +271,7 @@ impl EntityState {
                 ListItem::new(Line::from(vec![
                     Span::styled(&e.name, base.add_modifier(Modifier::BOLD)),
                     Span::raw(" "),
-                    Span::styled(
-                        format!("({})", e.entity_type),
-                        base.fg(theme::ENTITY_TYPE),
-                    ),
+                    Span::styled(format!("({})", e.entity_type), base.fg(theme::ENTITY_TYPE)),
                 ]))
             })
             .collect();
@@ -306,10 +304,7 @@ impl EntityState {
             }
         };
 
-        let valid_until = detail
-            .valid_until
-            .as_deref()
-            .unwrap_or("present");
+        let valid_until = detail.valid_until.as_deref().unwrap_or("present");
 
         let mut lines = vec![
             Line::from(vec![
@@ -354,10 +349,7 @@ impl EntityState {
                     RelationDirection::Incoming => "<-",
                 };
                 lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("  {} ", arrow),
-                        Style::default().fg(theme::MUTED),
-                    ),
+                    Span::styled(format!("  {} ", arrow), Style::default().fg(theme::MUTED)),
                     Span::styled(
                         &rel.relation_type,
                         Style::default().fg(theme::RELATION_TYPE),
@@ -383,10 +375,7 @@ impl EntityState {
 
     pub fn hints(&self) -> Vec<(&'static str, &'static str)> {
         match self.focus {
-            Focus::Input => vec![
-                ("Enter", "lookup / browse"),
-                ("Tab", "next screen"),
-            ],
+            Focus::Input => vec![("Enter", "lookup / browse"), ("Tab", "next screen")],
             Focus::EntityList => vec![
                 ("j/k", "navigate"),
                 ("Enter", "view detail"),

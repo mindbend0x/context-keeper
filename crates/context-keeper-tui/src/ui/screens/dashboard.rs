@@ -66,11 +66,7 @@ impl DashboardState {
         }
     }
 
-    pub fn refresh(
-        &self,
-        tx: &mpsc::UnboundedSender<AppEvent>,
-        backend: &Arc<dyn TuiBackend>,
-    ) {
+    pub fn refresh(&self, tx: &mpsc::UnboundedSender<AppEvent>, backend: &Arc<dyn TuiBackend>) {
         let tx2 = tx.clone();
         let b = Arc::clone(backend);
         tokio::spawn(async move {
@@ -123,7 +119,10 @@ impl DashboardState {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(theme::border_default())
-            .title(Line::from(format!(" Recent Memories ({}) ", self.recent.len())).style(theme::title()));
+            .title(
+                Line::from(format!(" Recent Memories ({}) ", self.recent.len()))
+                    .style(theme::title()),
+            );
 
         let inner = block.inner(area);
         f.render_widget(block, area);
@@ -174,10 +173,7 @@ impl DashboardState {
                     .collect();
 
                 ListItem::new(Line::from(vec![
-                    Span::styled(
-                        format!("{ts}  "),
-                        style.fg(theme::TIMESTAMP),
-                    ),
+                    Span::styled(format!("{ts}  "), style.fg(theme::TIMESTAMP)),
                     Span::styled(content_preview, style),
                 ]))
             })
@@ -198,9 +194,6 @@ impl DashboardState {
 fn stat_line(label: &str, value: usize) -> Line<'_> {
     Line::from(vec![
         Span::styled(label, theme::stat_label()),
-        Span::styled(
-            format!("  {value}"),
-            theme::stat_value(),
-        ),
+        Span::styled(format!("  {value}"), theme::stat_value()),
     ])
 }

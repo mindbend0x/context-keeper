@@ -166,8 +166,12 @@ impl SearchState {
             .constraints([Constraint::Length(3), Constraint::Min(5)])
             .split(area);
 
-        self.input
-            .render(f, chunks[0], " Search (Enter to query, x to expand) ", self.focus == Focus::Input);
+        self.input.render(
+            f,
+            chunks[0],
+            " Search (Enter to query, x to expand) ",
+            self.focus == Focus::Input,
+        );
 
         if self.hits.is_empty() {
             let empty = Paragraph::new("  No results. Type a query and press Enter.")
@@ -200,10 +204,7 @@ impl SearchState {
             } else {
                 theme::border_default()
             })
-            .title(
-                Line::from(format!(" Results ({}) ", self.hits.len()))
-                    .style(theme::title()),
-            );
+            .title(Line::from(format!(" Results ({}) ", self.hits.len())).style(theme::title()));
 
         let inner = block.inner(area);
         f.render_widget(block, area);
@@ -237,10 +238,7 @@ impl SearchState {
                 ListItem::new(Line::from(vec![
                     Span::styled(&h.name, base.add_modifier(Modifier::BOLD)),
                     Span::raw(" "),
-                    Span::styled(
-                        format!("({})", h.entity_type),
-                        base.fg(theme::ENTITY_TYPE),
-                    ),
+                    Span::styled(format!("({})", h.entity_type), base.fg(theme::ENTITY_TYPE)),
                     Span::raw("  "),
                     Span::styled(bar, base.fg(bar_color)),
                     Span::styled(format!(" {:.4}", h.score), base.fg(theme::MUTED)),
@@ -287,10 +285,7 @@ impl SearchState {
                 all_lines.push(Line::from(line.to_string()));
             }
 
-            f.render_widget(
-                Paragraph::new(all_lines).wrap(Wrap { trim: false }),
-                inner,
-            );
+            f.render_widget(Paragraph::new(all_lines).wrap(Wrap { trim: false }), inner);
         }
     }
 

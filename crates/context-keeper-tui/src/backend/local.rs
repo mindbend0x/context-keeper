@@ -286,10 +286,8 @@ impl TuiBackend for LocalBackend {
                     .and_then(|n| n.as_str())
                     .unwrap_or("(default)")
                     .to_string();
-                let entity_count = v
-                    .get("entity_count")
-                    .and_then(|c| c.as_u64())
-                    .unwrap_or(0) as usize;
+                let entity_count =
+                    v.get("entity_count").and_then(|c| c.as_u64()).unwrap_or(0) as usize;
                 NamespaceInfo { name, entity_count }
             })
             .collect())
@@ -309,10 +307,8 @@ impl TuiBackend for LocalBackend {
                     .get("agent_name")
                     .and_then(|a| a.as_str())
                     .map(String::from);
-                let episode_count = v
-                    .get("episode_count")
-                    .and_then(|c| c.as_u64())
-                    .unwrap_or(0) as usize;
+                let episode_count =
+                    v.get("episode_count").and_then(|c| c.as_u64()).unwrap_or(0) as usize;
                 AgentInfoRow {
                     agent_id,
                     agent_name,

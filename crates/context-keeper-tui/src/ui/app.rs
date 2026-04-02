@@ -50,7 +50,11 @@ impl ScreenId {
     }
 
     fn count(admin_enabled: bool) -> usize {
-        if admin_enabled { 5 } else { 4 }
+        if admin_enabled {
+            5
+        } else {
+            4
+        }
     }
 }
 
@@ -211,7 +215,7 @@ impl App {
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // tab bar
+                Constraint::Length(3), // tab bar
                 Constraint::Min(8),    // main content
                 Constraint::Length(1), // status bar
             ])

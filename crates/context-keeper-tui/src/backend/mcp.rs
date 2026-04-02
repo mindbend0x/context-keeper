@@ -14,9 +14,9 @@ use serde_json::json;
 use super::TuiBackend;
 use crate::error::TuiError;
 use crate::types::{
-    AddMemoryResult, AgentInfoRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats, MemoryRow,
-    MemoryItemJson, NamespaceInfo, RelationDirection, RelationRow, SearchHit, SearchHitJson,
-    SnapshotResult,
+    AddMemoryResult, AgentInfoRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats,
+    MemoryItemJson, MemoryRow, NamespaceInfo, RelationDirection, RelationRow, SearchHit,
+    SearchHitJson, SnapshotResult,
 };
 
 fn map_service_err(e: ServiceError) -> TuiError {

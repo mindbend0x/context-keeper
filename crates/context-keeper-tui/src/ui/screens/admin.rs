@@ -11,14 +11,18 @@ use ratatui::Frame;
 use tokio::sync::mpsc;
 
 use crate::backend::TuiBackend;
-use crate::types::{
-    AgentInfoRow, EpisodeRow, NamespaceInfo, SearchHit, SnapshotResult,
-};
+use crate::types::{AgentInfoRow, EpisodeRow, NamespaceInfo, SearchHit, SnapshotResult};
 use crate::ui::components::input::TextInput;
 use crate::ui::event::AppEvent;
 use crate::ui::theme;
 
-const SUB_TABS: &[&str] = &["Namespaces", "Agents", "Cross-Search", "Snapshot", "Activity"];
+const SUB_TABS: &[&str] = &[
+    "Namespaces",
+    "Agents",
+    "Cross-Search",
+    "Snapshot",
+    "Activity",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SubTab {
@@ -246,15 +250,9 @@ impl AdminState {
             .enumerate()
             .map(|(i, t)| {
                 if i == self.sub_tab.index() {
-                    Line::from(Span::styled(
-                        format!(" {t} "),
-                        theme::tab_active(),
-                    ))
+                    Line::from(Span::styled(format!(" {t} "), theme::tab_active()))
                 } else {
-                    Line::from(Span::styled(
-                        format!(" {t} "),
-                        theme::tab_inactive(),
-                    ))
+                    Line::from(Span::styled(format!(" {t} "), theme::tab_inactive()))
                 }
             })
             .collect();
@@ -295,8 +293,16 @@ impl AdminState {
         }
 
         let header = Row::new(vec![
-            Cell::from("Namespace").style(Style::default().fg(theme::LABEL).add_modifier(Modifier::BOLD)),
-            Cell::from("Entities").style(Style::default().fg(theme::LABEL).add_modifier(Modifier::BOLD)),
+            Cell::from("Namespace").style(
+                Style::default()
+                    .fg(theme::LABEL)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Cell::from("Entities").style(
+                Style::default()
+                    .fg(theme::LABEL)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]);
 
         let rows: Vec<Row> = self
@@ -311,9 +317,12 @@ impl AdminState {
             })
             .collect();
 
-        let table = Table::new(rows, [Constraint::Percentage(60), Constraint::Percentage(40)])
-            .header(header)
-            .block(block);
+        let table = Table::new(
+            rows,
+            [Constraint::Percentage(60), Constraint::Percentage(40)],
+        )
+        .header(header)
+        .block(block);
 
         f.render_widget(table, area);
     }
@@ -322,9 +331,7 @@ impl AdminState {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(theme::border_default())
-            .title(
-                Line::from(format!(" Agents ({}) ", self.agents.len())).style(theme::title()),
-            );
+            .title(Line::from(format!(" Agents ({}) ", self.agents.len())).style(theme::title()));
 
         if self.agents.is_empty() {
             f.render_widget(
@@ -337,9 +344,21 @@ impl AdminState {
         }
 
         let header = Row::new(vec![
-            Cell::from("Agent ID").style(Style::default().fg(theme::LABEL).add_modifier(Modifier::BOLD)),
-            Cell::from("Name").style(Style::default().fg(theme::LABEL).add_modifier(Modifier::BOLD)),
-            Cell::from("Episodes").style(Style::default().fg(theme::LABEL).add_modifier(Modifier::BOLD)),
+            Cell::from("Agent ID").style(
+                Style::default()
+                    .fg(theme::LABEL)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Cell::from("Name").style(
+                Style::default()
+                    .fg(theme::LABEL)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Cell::from("Episodes").style(
+                Style::default()
+                    .fg(theme::LABEL)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]);
 
         let rows: Vec<Row> = self
@@ -386,8 +405,7 @@ impl AdminState {
             .borders(Borders::ALL)
             .border_style(theme::border_default())
             .title(
-                Line::from(format!(" Results ({}) ", self.cross_hits.len()))
-                    .style(theme::title()),
+                Line::from(format!(" Results ({}) ", self.cross_hits.len())).style(theme::title()),
             );
 
         if self.cross_hits.is_empty() {
@@ -416,10 +434,7 @@ impl AdminState {
                 ListItem::new(Line::from(vec![
                     Span::styled(&h.name, base.add_modifier(Modifier::BOLD)),
                     Span::raw(" "),
-                    Span::styled(
-                        format!("({})", h.entity_type),
-                        base.fg(theme::ENTITY_TYPE),
-                    ),
+                    Span::styled(format!("({})", h.entity_type), base.fg(theme::ENTITY_TYPE)),
                     Span::styled(format!("  {:.4}", h.score), base.fg(theme::MUTED)),
                 ]))
             })
@@ -450,9 +465,11 @@ impl AdminState {
             Some(s) => s,
             None => {
                 f.render_widget(
-                    Paragraph::new("  Enter an ISO 8601 timestamp to view a point-in-time snapshot")
-                        .style(Style::default().fg(theme::MUTED))
-                        .block(block),
+                    Paragraph::new(
+                        "  Enter an ISO 8601 timestamp to view a point-in-time snapshot",
+                    )
+                    .style(Style::default().fg(theme::MUTED))
+                    .block(block),
                     chunks[1],
                 );
                 return;
@@ -513,8 +530,7 @@ impl AdminState {
             .borders(Borders::ALL)
             .border_style(theme::border_default())
             .title(
-                Line::from(format!(" Activity ({}) ", self.episodes.len()))
-                    .style(theme::title()),
+                Line::from(format!(" Activity ({}) ", self.episodes.len())).style(theme::title()),
             );
 
         if self.episodes.is_empty() {

@@ -24,19 +24,11 @@ impl TuiBackend for MockTuiBackend {
         })
     }
 
-    async fn search_memory(
-        &self,
-        _query: &str,
-        _limit: usize,
-    ) -> Result<Vec<SearchHit>, TuiError> {
+    async fn search_memory(&self, _query: &str, _limit: usize) -> Result<Vec<SearchHit>, TuiError> {
         Ok(vec![])
     }
 
-    async fn expand_search(
-        &self,
-        _query: &str,
-        _limit: usize,
-    ) -> Result<Vec<SearchHit>, TuiError> {
+    async fn expand_search(&self, _query: &str, _limit: usize) -> Result<Vec<SearchHit>, TuiError> {
         Ok(vec![])
     }
 

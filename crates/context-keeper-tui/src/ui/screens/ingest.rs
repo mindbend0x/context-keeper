@@ -44,9 +44,7 @@ impl IngestState {
 
         match key.code {
             KeyCode::Enter
-                if key
-                    .modifiers
-                    .contains(crossterm::event::KeyModifiers::ALT)
+                if key.modifiers.contains(crossterm::event::KeyModifiers::ALT)
                     || key
                         .modifiers
                         .contains(crossterm::event::KeyModifiers::CONTROL) =>
