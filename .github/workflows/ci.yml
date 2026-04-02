@@ -14,11 +14,31 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mold linker
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y mold
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --workspace
+
+  test:
+    name: Test
   fmt:
     name: Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install mold linker
+        run: sudo apt-get install -y mold
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -30,12 +50,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
           sudo apt-get clean
 
+      - name: Install mold linker
+        run: sudo apt-get install -y mold
+      
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -64,6 +86,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install mold linker
+        run: sudo apt-get install -y mold
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace

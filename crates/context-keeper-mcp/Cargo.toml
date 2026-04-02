@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 context-keeper-core.workspace = true
 context-keeper-rig.workspace = true
-context-keeper-surreal.workspace = true
+context-keeper-surreal = { workspace = true, features = ["full"] }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -20,7 +20,6 @@ schemars.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
-surrealdb.workspace = true
 clap.workspace = true
 chrono.workspace = true
 uuid.workspace = true

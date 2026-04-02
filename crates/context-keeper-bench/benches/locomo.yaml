@@ -1,0 +1,23 @@
+# LoCoMo benchmark configuration.
+#
+# Use with --dataset to load conversations + Q&A from the LoCoMo JSON file:
+#   cargo run -p context-keeper-bench -- \
+#     --config crates/context-keeper-bench/benches/locomo.yaml \
+#     --dataset locomo:path/to/locomo.json
+#
+# Target: >= 75% entity pass rate (matches Graphiti 75.1%, beats Mem0 67.1%)
+# Reference: LoCoMo paper + Graphiti evaluation (Zep, 2024)
+
+providers:
+  - name: gpt-4o-mini
+    api_url: "${OPENAI_API_URL}"
+    api_key: "${OPENAI_API_KEY}"
+    extraction_model: gpt-4o-mini
+    embedding_model: text-embedding-3-small
+    embedding_dims: 1536
+
+scenarios: []
+
+settings:
+  storage_backend: memory
+  warmup_iterations: 0

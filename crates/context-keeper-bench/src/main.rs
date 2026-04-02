@@ -9,6 +9,14 @@ struct Cli {
     #[arg(short, long)]
     config: PathBuf,
 
+    /// Load an external dataset. Format: locomo:/path/to/file.json or longmemeval:/path/to/file.json
+    #[arg(short, long)]
+    dataset: Option<String>,
+
+    /// When using --dataset longmemeval, only load temporal reasoning questions.
+    #[arg(long, default_value_t = false)]
+    temporal_only: bool,
+
     /// Write JSON results to this file.
     #[arg(short, long)]
     output: Option<PathBuf>,
@@ -31,7 +39,32 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     tracing::info!(config = %cli.config.display(), "Loading benchmark config");
-    let config = context_keeper_bench::config::load_config(&cli.config)?;
+    let mut config = context_keeper_bench::config::load_config(&cli.config)?;
+
+    if let Some(dataset_spec) = &cli.dataset {
+        let (dtype, path) = dataset_spec.split_once(':').ok_or_else(|| {
+            anyhow::anyhow!("--dataset must be type:path (e.g. locomo:data.json)")
+        })?;
+
+        let path = std::path::Path::new(path);
+        let scenarios = match dtype {
+            "locomo" => context_keeper_bench::datasets::locomo::load(path)?,
+            "longmemeval" if cli.temporal_only => {
+                context_keeper_bench::datasets::longmemeval::load_temporal_subset(path)?
+            }
+            "longmemeval" => context_keeper_bench::datasets::longmemeval::load(path)?,
+            other => {
+                anyhow::bail!("Unknown dataset type '{other}'. Use 'locomo' or 'longmemeval'.")
+            }
+        };
+
+        tracing::info!(
+            dataset = dtype,
+            scenarios = scenarios.len(),
+            "Loaded external dataset"
+        );
+        config.scenarios.extend(scenarios);
+    }
 
     tracing::info!(
         providers = config.providers.len(),

@@ -47,6 +47,7 @@ async fn main() -> Result<()> {
             &relation_extractor,
             Some(resolver),
             None,
+            None,
         )
         .await?;
 

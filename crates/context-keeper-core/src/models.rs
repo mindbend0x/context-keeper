@@ -9,6 +9,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EntityType {
+    // Level 1: coarse extraction types
     Person,
     Organization,
     Location,
@@ -17,6 +18,10 @@ pub enum EntityType {
     Service,
     Concept,
     File,
+    // Level 2: precision types (refine a Level 1 parent)
+    Project,
+    Group,
+    Specification,
     #[default]
     Other,
 }
@@ -32,6 +37,9 @@ impl fmt::Display for EntityType {
             Self::Service => "service",
             Self::Concept => "concept",
             Self::File => "file",
+            Self::Project => "project",
+            Self::Group => "group",
+            Self::Specification => "specification",
             Self::Other => "other",
         };
         f.write_str(s)
@@ -59,16 +67,25 @@ impl From<&str> for EntityType {
             | "programming language"
             | "software"
             | "hardware"
-            | "platform"
             | "engine"
             | "runtime"
             | "compiler"
-            | "sdk" => Self::Product,
-            "service" | "api" | "saas" | "cloud service" | "hosting" => Self::Service,
+            | "sdk"
+            | "operating_system"
+            | "os"
+            | "distro"
+            | "distribution" => Self::Product,
+            "service" | "api" | "saas" | "cloud service" | "hosting" | "registry" | "platform" => {
+                Self::Service
+            }
             "concept" | "idea" | "topic" | "technology" | "methodology" | "protocol"
-            | "standard" | "pattern" | "paradigm" | "algorithm" | "technique" => Self::Concept,
-            "file" | "document" | "lib" | "library" | "crate" | "module" | "package"
-            | "repository" | "repo" => Self::File,
+            | "pattern" | "paradigm" | "algorithm" | "technique" => Self::Concept,
+            "file" | "document" | "lib" | "library" | "crate" | "module" | "package" => Self::File,
+            "project" | "codebase" | "workspace" | "monorepo" | "repository" | "repo" => {
+                Self::Project
+            }
+            "group" | "team" | "department" | "division" | "squad" => Self::Group,
+            "specification" | "spec" | "rfc" | "standard" => Self::Specification,
             _ => Self::Other,
         }
     }
@@ -284,6 +301,9 @@ mod tests {
         assert_eq!(EntityType::from("service"), EntityType::Service);
         assert_eq!(EntityType::from("concept"), EntityType::Concept);
         assert_eq!(EntityType::from("file"), EntityType::File);
+        assert_eq!(EntityType::from("project"), EntityType::Project);
+        assert_eq!(EntityType::from("group"), EntityType::Group);
+        assert_eq!(EntityType::from("specification"), EntityType::Specification);
         assert_eq!(EntityType::from("unknown_type"), EntityType::Other);
     }
 
@@ -342,11 +362,14 @@ mod tests {
             "language",
             "software",
             "hardware",
-            "platform",
             "engine",
             "runtime",
             "compiler",
             "sdk",
+            "operating_system",
+            "os",
+            "distro",
+            "distribution",
         ] {
             assert_eq!(
                 EntityType::from(alias),
@@ -366,7 +389,6 @@ mod tests {
             "Technology",
             "methodology",
             "protocol",
-            "standard",
             "pattern",
             "paradigm",
             "algorithm",
@@ -382,18 +404,58 @@ mod tests {
     #[test]
     fn entity_type_file_aliases() {
         for alias in [
-            "file",
-            "document",
-            "lib",
-            "library",
-            "crate",
-            "Library",
-            "module",
-            "package",
-            "repository",
-            "repo",
+            "file", "document", "lib", "library", "crate", "Library", "module", "package",
         ] {
             assert_eq!(EntityType::from(alias), EntityType::File, "alias: {alias}");
+        }
+    }
+
+    #[test]
+    fn entity_type_service_aliases() {
+        for alias in ["service", "api", "saas", "hosting", "registry", "platform"] {
+            assert_eq!(
+                EntityType::from(alias),
+                EntityType::Service,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn entity_type_project_aliases() {
+        for alias in [
+            "project",
+            "codebase",
+            "workspace",
+            "monorepo",
+            "repository",
+            "repo",
+            "Project",
+            "REPO",
+        ] {
+            assert_eq!(
+                EntityType::from(alias),
+                EntityType::Project,
+                "alias: {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn entity_type_group_aliases() {
+        for alias in ["group", "team", "department", "division", "squad", "Team"] {
+            assert_eq!(EntityType::from(alias), EntityType::Group, "alias: {alias}");
+        }
+    }
+
+    #[test]
+    fn entity_type_specification_aliases() {
+        for alias in ["specification", "spec", "rfc", "standard", "Spec", "RFC"] {
+            assert_eq!(
+                EntityType::from(alias),
+                EntityType::Specification,
+                "alias: {alias}"
+            );
         }
     }
 

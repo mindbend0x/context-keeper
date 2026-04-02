@@ -128,6 +128,7 @@ impl BenchBackend for ContextKeeperBackend {
             &self.relation_extractor,
             Some(resolver),
             None,
+            None,
         )
         .await?;
 
@@ -191,6 +192,11 @@ impl BenchBackend for ContextKeeperBackend {
     }
 
     async fn search_entity_names(&self, query: &str) -> anyhow::Result<Vec<String>> {
+        let (names, _) = self.search_with_text(query).await?;
+        Ok(names)
+    }
+
+    async fn search_with_text(&self, query: &str) -> anyhow::Result<(Vec<String>, String)> {
         self.ensure_repo().await?;
 
         let guard = self.repo.lock().await;
@@ -208,10 +214,19 @@ impl BenchBackend for ContextKeeperBackend {
             keyword_results,
         ]);
 
-        Ok(fused
-            .into_iter()
-            .filter_map(|sr| sr.entity.map(|e| e.name))
-            .collect())
+        let mut names = Vec::new();
+        let mut text_parts = Vec::new();
+        for sr in fused {
+            if let Some(e) = sr.entity {
+                names.push(e.name.clone());
+                text_parts.push(format!("{}: {}", e.name, e.summary));
+            }
+            if let Some(m) = sr.memory {
+                text_parts.push(m.content);
+            }
+        }
+
+        Ok((names, text_parts.join("\n")))
     }
 
     async fn reset(&self) -> anyhow::Result<()> {

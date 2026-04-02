@@ -18,6 +18,9 @@ pub struct IterationMetrics {
     /// Entity names extracted in this iteration (used for consistency scoring).
     #[serde(skip)]
     pub extracted_entity_names: Option<Vec<String>>,
+    /// Approximate token count consumed by LLM calls in this iteration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_consumed: Option<u64>,
 }
 
 impl IterationMetrics {
@@ -30,6 +33,7 @@ impl IterationMetrics {
             error: None,
             quality: None,
             extracted_entity_names: None,
+            tokens_consumed: None,
         }
     }
 
@@ -42,6 +46,7 @@ impl IterationMetrics {
             error: Some(error),
             quality: None,
             extracted_entity_names: None,
+            tokens_consumed: None,
         }
     }
 
@@ -104,6 +109,20 @@ impl ScenarioResult {
         self.aggregated
             .clone()
             .unwrap_or_else(|| self.compute_aggregates())
+    }
+
+    /// Total tokens consumed across all iterations, if any iteration reported token counts.
+    pub fn total_tokens(&self) -> Option<u64> {
+        let total: u64 = self
+            .iterations
+            .iter()
+            .filter_map(|i| i.tokens_consumed)
+            .sum();
+        if total > 0 {
+            Some(total)
+        } else {
+            None
+        }
     }
 
     fn compute_aggregates(&self) -> AggregatedMetrics {
@@ -295,6 +314,36 @@ impl BehavioralResult {
             .filter(|v| v.pass)
             .count()
     }
+
+    /// Mean exact-match rate across all steps that have an answer score.
+    pub fn mean_exact_match_rate(&self) -> Option<f64> {
+        let scores: Vec<&crate::quality::AnswerScore> = self
+            .verifications
+            .iter()
+            .flat_map(|v| v.iter())
+            .filter_map(|v| v.answer_score.as_ref())
+            .collect();
+        if scores.is_empty() {
+            return None;
+        }
+        let em = scores.iter().filter(|s| s.exact_match).count();
+        Some(em as f64 / scores.len() as f64)
+    }
+
+    /// Mean token-level F1 across all steps that have an answer score.
+    pub fn mean_answer_f1(&self) -> Option<f64> {
+        let scores: Vec<&crate::quality::AnswerScore> = self
+            .verifications
+            .iter()
+            .flat_map(|v| v.iter())
+            .filter_map(|v| v.answer_score.as_ref())
+            .collect();
+        if scores.is_empty() {
+            return None;
+        }
+        let total: f64 = scores.iter().map(|s| s.f1).sum();
+        Some(total / scores.len() as f64)
+    }
 }
 
 /// Verification result for a single search step in a behavioral scenario.
@@ -305,6 +354,8 @@ pub struct StepVerification {
     pub missing_expected: Vec<String>,
     pub found_unexpected: Vec<String>,
     pub pass: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub answer_score: Option<crate::quality::AnswerScore>,
 }
 
 #[cfg(test)]
@@ -322,6 +373,7 @@ mod tests {
                 error: None,
                 quality: None,
                 extracted_entity_names: None,
+                tokens_consumed: None,
             },
             IterationMetrics {
                 latency: Duration::from_millis(200),
@@ -331,6 +383,7 @@ mod tests {
                 error: None,
                 quality: None,
                 extracted_entity_names: None,
+                tokens_consumed: None,
             },
         ];
 
@@ -395,6 +448,7 @@ mod tests {
                     relation_f1: None,
                 }),
                 extracted_entity_names: Some(names),
+                tokens_consumed: None,
             }
         };
 
@@ -428,6 +482,7 @@ mod tests {
                 error: None,
                 quality: None,
                 extracted_entity_names: Some(names),
+                tokens_consumed: None,
             }
         };
 

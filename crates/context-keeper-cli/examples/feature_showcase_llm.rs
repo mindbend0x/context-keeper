@@ -297,6 +297,7 @@ async fn main() -> Result<()> {
             &relation_extractor,
             None,
             None,
+            None,
         )
         .await?;
 

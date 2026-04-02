@@ -104,6 +104,18 @@ pub fn print_table(results: &[ScenarioResult]) {
     }
 
     println!("\n{table}\n");
+
+    let token_summaries: Vec<_> = results
+        .iter()
+        .filter_map(|r| r.total_tokens().map(|t| (r.scenario_name.as_str(), t)))
+        .collect();
+    if !token_summaries.is_empty() {
+        println!("Token consumption:");
+        for (name, tokens) in &token_summaries {
+            println!("  {name}: {tokens} tokens");
+        }
+        println!();
+    }
 }
 
 /// Print a comparison table when multiple providers ran the same scenario.
@@ -242,6 +254,16 @@ pub fn print_behavioral(results: &[&ScenarioResult]) {
                 Cell::new(fmt_duration(beh.total_latency)),
                 Cell::new(beh.errors.len()),
             ]);
+
+            if let Some(em_rate) = beh.mean_exact_match_rate() {
+                let f1 = beh.mean_answer_f1().unwrap_or(0.0);
+                println!(
+                    "  {} answer scoring — EM: {:.1}%  F1: {:.3}",
+                    r.scenario_name,
+                    em_rate * 100.0,
+                    f1,
+                );
+            }
         }
     }
 

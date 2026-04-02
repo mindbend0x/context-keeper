@@ -16,10 +16,12 @@ use context_keeper_core::traits::{
     EntityExtractor, ExtractedEntity, ExtractedRelation, RelationExtractor,
 };
 use context_keeper_core::ContextKeeperError;
+use regex::Regex;
 use rig::client::CompletionClient;
 use rig::completion::Prompt;
 use rig::providers::openai;
 use serde::Deserialize;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 const ENTITY_EXTRACTION_PROMPT: &str = "\
@@ -28,19 +30,39 @@ to specific people, organizations, places, products, events, or technical concep
 Do NOT extract generic roles (e.g. \"engineer\", \"manager\"), common nouns, adjectives, \
 or pronouns. Each entity must be a distinct, identifiable thing with a proper name.
 
-Classify each entity using these types with examples:
+Do NOT extract numeric specifications or measurements as entities. Values like \
+\"4 CPU cores\", \"75G disk\", \"16GB RAM\", or \"3.5 GHz\" are attributes of a parent \
+entity, not standalone entities.
+
+Classify each entity using exactly one of these types:
+
+Level 1 (coarse — prefer these when uncertain):
 - person: named individuals (e.g. \"Alice\", \"Linus Torvalds\")
-- organization: companies, teams, institutions (e.g. \"Acme Corp\", \"Google\")
-- location: cities, countries, geographic places (e.g. \"Berlin\", \"Germany\")
-- event: named events, conferences (e.g. \"PyCon 2025\", \"World Cup\")
-- product: software, databases, frameworks, languages, hardware (e.g. \"SurrealDB\", \"Rust\", \"React\", \"PostgreSQL\")
-- service: hosted services, APIs, platforms (e.g. \"AWS Lambda\", \"GitHub Actions\")
-- concept: abstract ideas, methodologies, protocols (e.g. \"RAG\", \"microservices\", \"OAuth\")
-- file: specific files, documents, libraries, crates (e.g. \"pipeline.rs\", \"tokio\")
+- organization: companies, institutions, agencies (e.g. \"Acme Corp\", \"Google\", \"MIT\")
+- location: cities, countries, geographic places (e.g. \"Berlin\", \"Germany\", \"AWS us-east-1\")
+- event: named events, conferences, releases (e.g. \"PyCon 2025\", \"World Cup\")
+- product: software, databases, frameworks, languages, OSes, hardware (e.g. \"SurrealDB\", \"Rust\", \"PostgreSQL\", \"Debian 13\")
+- service: hosted services, APIs, registries, platforms-as-a-service (e.g. \"AWS Lambda\", \"GitHub Actions\", \"crates.io\", \"npm\")
+- concept: abstract ideas, methodologies, protocols, algorithms (e.g. \"RAG\", \"microservices\", \"OAuth\")
+- file: specific files, documents, libraries, crates (e.g. \"pipeline.rs\", \"tokio\", \"serde\")
+
+Level 2 (use when confident — these refine a Level 1 parent):
+- project: named projects, repositories, codebases (e.g. \"Context Keeper\", \"linux kernel\")
+- group: teams, departments, working groups (e.g. \"Platform Team\", \"IETF Working Group\")
+- specification: standards, RFCs, specs (e.g. \"HTTP/2\", \"RFC 7231\", \"OpenAPI 3.0\")
 - other: only when none of the above fit
 
+Disambiguation rules:
+- Databases and frameworks are \"product\", not \"organization\"
+- Hosted platforms like crates.io and npm are \"service\", not \"location\"
+- Named repositories and codebases are \"project\", not \"file\"
+- Named teams and departments are \"group\", not \"organization\"
+- When uncertain between a Level 2 type and its parent, prefer the Level 1 parent
+
 Write each summary as a concise description of what the entity does or represents \
-in the context of THIS text — not a generic dictionary definition.
+in the context of THIS text. Each summary must capture what makes the entity distinct — \
+avoid generic descriptions like \"a crate in the workspace\" and instead describe the \
+entity's specific role or responsibility.
 
 Return ONLY a JSON object with an \"entities\" array of {\"name\", \"entity_type\", \"summary\"}. \
 No markdown, no explanation — just the JSON object.";
@@ -484,6 +506,10 @@ impl RelationExtractor for RigRelationExtractor {
 
 // ── Validation helpers ──────────────────────────────────────────────────
 
+static MEASUREMENT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^\d+[\.\d]*\s*(cpu|core|gb|mb|tb|ghz|mhz|ram|disk|cores?|threads?|vcpus?|gib|mib|tib)s?$").unwrap()
+});
+
 fn validate_entities(entities: Vec<ExtractedEntity>) -> Vec<ExtractedEntity> {
     entities
         .into_iter()
@@ -494,6 +520,10 @@ fn validate_entities(entities: Vec<ExtractedEntity>) -> Vec<ExtractedEntity> {
             }
             if e.summary.trim().is_empty() {
                 tracing::warn!(name = %e.name, "Rejected entity: empty summary");
+                return false;
+            }
+            if MEASUREMENT_RE.is_match(e.name.trim()) {
+                tracing::warn!(name = %e.name, "Rejected entity: measurement/spec value");
                 return false;
             }
             if EntityType::from(e.entity_type.to_string().as_str()) == EntityType::Other

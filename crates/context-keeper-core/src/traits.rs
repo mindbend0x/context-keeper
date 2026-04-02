@@ -95,6 +95,15 @@ pub trait EntityResolver: Send + Sync {
     ) -> Result<Vec<Entity>>;
 }
 
+/// Synthesizes a coherent merged summary from an existing and new description.
+///
+/// Used during entity resolution when a re-extracted entity needs its summary
+/// updated. LLM implementations produce fluent prose; the mock concatenates.
+#[async_trait]
+pub trait SummarySynthesizer: Send + Sync {
+    async fn synthesize(&self, existing: &str, new: &str, entity_name: &str) -> Result<String>;
+}
+
 // ── Mock implementations for testing ────────────────────────────────────
 
 /// Deterministic embedder that produces vectors from text hashes.
@@ -282,6 +291,28 @@ impl RelationExtractor for MockFailingExtractor {
 
         let inner = MockRelationExtractor;
         inner.extract_relations(text, entities).await
+    }
+}
+
+/// Mock summary synthesizer that concatenates summaries (same as the old merge_summaries logic).
+pub struct MockSummarySynthesizer;
+
+#[async_trait]
+impl SummarySynthesizer for MockSummarySynthesizer {
+    async fn synthesize(&self, existing: &str, new: &str, _entity_name: &str) -> Result<String> {
+        let existing_lower = existing.to_lowercase();
+        let new_lower = new.to_lowercase();
+
+        let existing_words: std::collections::HashSet<&str> =
+            existing_lower.split_whitespace().collect();
+        let new_words: std::collections::HashSet<&str> = new_lower.split_whitespace().collect();
+
+        let novel_count = new_words.difference(&existing_words).count();
+        if novel_count > 0 && !existing.is_empty() && !new.is_empty() {
+            Ok(format!("{}; {}", existing, new))
+        } else {
+            Ok(new.to_string())
+        }
     }
 }
 

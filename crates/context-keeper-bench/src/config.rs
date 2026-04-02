@@ -149,6 +149,8 @@ pub enum BehavioralStep {
         expected_entities: Vec<String>,
         #[serde(default)]
         unexpected_entities: Vec<String>,
+        #[serde(default)]
+        gold_answer: Option<String>,
     },
 }
 
@@ -411,6 +413,7 @@ scenarios:
                 query,
                 expected_entities,
                 unexpected_entities,
+                ..
             } => {
                 assert_eq!(query, "Where does Alice work?");
                 assert_eq!(expected_entities.len(), 2);

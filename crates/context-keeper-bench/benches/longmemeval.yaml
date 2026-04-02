@@ -1,0 +1,29 @@
+# LongMemEval benchmark configuration.
+#
+# Use with --dataset to load sessions + Q&A from the LongMemEval JSON file:
+#   cargo run -p context-keeper-bench -- \
+#     --config crates/context-keeper-bench/benches/longmemeval.yaml \
+#     --dataset longmemeval:path/to/longmemeval.json
+#
+# For temporal reasoning subset only:
+#   cargo run -p context-keeper-bench -- \
+#     --config crates/context-keeper-bench/benches/longmemeval.yaml \
+#     --dataset longmemeval:path/to/longmemeval.json \
+#     --temporal-only
+#
+# Target: >= 60% entity pass rate on full set, >= 50% on temporal subset
+# Reference: LongMemEval paper (2024)
+
+providers:
+  - name: gpt-4o-mini
+    api_url: "${OPENAI_API_URL}"
+    api_key: "${OPENAI_API_KEY}"
+    extraction_model: gpt-4o-mini
+    embedding_model: text-embedding-3-small
+    embedding_dims: 1536
+
+scenarios: []
+
+settings:
+  storage_backend: memory
+  warmup_iterations: 0

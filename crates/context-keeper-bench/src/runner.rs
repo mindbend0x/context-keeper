@@ -118,8 +118,9 @@ async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -
                     query,
                     expected_entities,
                     unexpected_entities,
-                } => match backend.search_entity_names(query).await {
-                    Ok(found_names) => {
+                    gold_answer,
+                } => match backend.search_with_text(query).await {
+                    Ok((found_names, result_text)) => {
                         total_latency += start.elapsed();
                         let mut pass = true;
 
@@ -139,6 +140,10 @@ async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -
                             pass = false;
                         }
 
+                        let answer_score = gold_answer
+                            .as_ref()
+                            .map(|gold| crate::quality::score_answer(gold, &result_text));
+
                         tracing::info!(
                             iteration = iter_idx + 1,
                             step = step_idx + 1,
@@ -147,6 +152,7 @@ async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -
                             pass = pass,
                             missing = ?missing,
                             unwanted = ?unwanted,
+                            answer_f1 = answer_score.as_ref().map(|s| s.f1),
                             "Search verification"
                         );
 
@@ -156,6 +162,7 @@ async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -
                             missing_expected: missing,
                             found_unexpected: unwanted,
                             pass,
+                            answer_score,
                         });
                     }
                     Err(e) => {

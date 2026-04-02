@@ -3,6 +3,7 @@
 //! Each tool corresponds to a capability exposed to MCP clients
 //! (Claude Desktop, Cursor, etc.).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -174,7 +175,9 @@ struct EntityDetail {
 struct RelationDetail {
     relation_type: String,
     from_entity_id: String,
+    from_entity_name: String,
     to_entity_id: String,
+    to_entity_name: String,
     confidence: u8,
 }
 
@@ -265,6 +268,7 @@ impl ContextKeeperServer {
             self.entity_extractor.as_ref(),
             self.relation_extractor.as_ref(),
             Some(resolver),
+            None,
             None,
         )
         .await
@@ -471,6 +475,20 @@ impl ContextKeeperServer {
                 .await
                 .map_err(to_mcp)?;
 
+            let related_ids: Vec<uuid::Uuid> = relations
+                .iter()
+                .flat_map(|r| [r.from_entity_id, r.to_entity_id])
+                .collect();
+            let related_entities = self
+                .repo
+                .get_entities_by_ids(&related_ids)
+                .await
+                .map_err(to_mcp)?;
+            let name_map: HashMap<uuid::Uuid, String> = related_entities
+                .into_iter()
+                .map(|e| (e.id, e.name))
+                .collect();
+
             details.push(EntityDetail {
                 name: entity.name.clone(),
                 entity_type: entity.entity_type.to_string(),
@@ -482,7 +500,12 @@ impl ContextKeeperServer {
                     .map(|r| RelationDetail {
                         relation_type: r.relation_type.to_string(),
                         from_entity_id: r.from_entity_id.to_string(),
+                        from_entity_name: name_map
+                            .get(&r.from_entity_id)
+                            .cloned()
+                            .unwrap_or_default(),
                         to_entity_id: r.to_entity_id.to_string(),
+                        to_entity_name: name_map.get(&r.to_entity_id).cloned().unwrap_or_default(),
                         confidence: r.confidence,
                     })
                     .collect(),
@@ -674,38 +697,33 @@ impl ContextKeeperServer {
 #[tool_handler]
 impl ServerHandler for ContextKeeperServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: ProtocolVersion::V_2024_11_05,
-            capabilities: ServerCapabilities::builder()
+        ServerInfo::new(
+            ServerCapabilities::builder()
                 .enable_tools()
                 .enable_resources()
                 .enable_prompts()
                 .build(),
-            server_info: Implementation {
-                name: "context-keeper".into(),
-                version: env!("CARGO_PKG_VERSION").into(),
-                title: None,
-                icons: None,
-                website_url: None,
-            },
-            instructions: Some(
-                "Context Keeper is a temporal knowledge graph memory system for multi-agent collaboration. \
-                 Use add_memory to store information (with optional namespace and agent_id for provenance), \
-                 search_memory or expand_search to retrieve it, get_entity for detailed entity lookups, \
-                 snapshot for point-in-time queries, and list_recent for recent memories. \
-                 For multi-agent workflows: list_agents shows contributing agents, list_namespaces \
-                 shows available scopes, agent_activity shows a specific agent's contributions, and \
-                 cross_namespace_search searches globally across all namespaces."
-                    .into(),
-            ),
-        }
+        )
+        .with_server_info(Implementation::new(
+            "context-keeper",
+            env!("CARGO_PKG_VERSION"),
+        ))
+        .with_instructions(
+            "Context Keeper is a temporal knowledge graph memory system for multi-agent collaboration. \
+             Use add_memory to store information (with optional namespace and agent_id for provenance), \
+             search_memory or expand_search to retrieve it, get_entity for detailed entity lookups, \
+             snapshot for point-in-time queries, and list_recent for recent memories. \
+             For multi-agent workflows: list_agents shows contributing agents, list_namespaces \
+             shows available scopes, agent_activity shows a specific agent's contributions, and \
+             cross_namespace_search searches globally across all namespaces.",
+        )
     }
 
     // ── MCP Resources ────────────────────────────────────────────────
 
     async fn list_resources(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
         let mut resources: Vec<Resource> = vec![RawResource {
@@ -716,6 +734,7 @@ impl ServerHandler for ContextKeeperServer {
             mime_type: Some("application/json".into()),
             size: None,
             icons: None,
+            meta: None,
         }
         .no_annotation()];
 
@@ -731,6 +750,7 @@ impl ServerHandler for ContextKeeperServer {
                     mime_type: Some("application/json".into()),
                     size: None,
                     icons: None,
+                    meta: None,
                 }
                 .no_annotation(),
             );
@@ -739,12 +759,13 @@ impl ServerHandler for ContextKeeperServer {
         Ok(ListResourcesResult {
             resources,
             next_cursor: None,
+            meta: None,
         })
     }
 
     async fn list_resource_templates(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, McpError> {
         Ok(ListResourceTemplatesResult {
@@ -758,16 +779,18 @@ impl ServerHandler for ContextKeeperServer {
                             .into(),
                     ),
                     mime_type: Some("application/json".into()),
+                    icons: None,
                 },
                 annotations: None,
             }],
             next_cursor: None,
+            meta: None,
         })
     }
 
     async fn read_resource(
         &self,
-        request: ReadResourceRequestParam,
+        request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, McpError> {
         let uri = &request.uri;
@@ -787,9 +810,9 @@ impl ServerHandler for ContextKeeperServer {
                 McpError::internal_error(format!("Serialization failed: {e}"), None)
             })?;
 
-            return Ok(ReadResourceResult {
-                contents: vec![ResourceContents::text(text, uri)],
-            });
+            return Ok(ReadResourceResult::new(vec![ResourceContents::text(
+                text, uri,
+            )]));
         }
 
         if let Some(name) = uri.strip_prefix("memory://entity/") {
@@ -814,6 +837,20 @@ impl ServerHandler for ContextKeeperServer {
                     .await
                     .map_err(to_mcp)?;
 
+                let related_ids: Vec<uuid::Uuid> = relations
+                    .iter()
+                    .flat_map(|r| [r.from_entity_id, r.to_entity_id])
+                    .collect();
+                let related_entities = self
+                    .repo
+                    .get_entities_by_ids(&related_ids)
+                    .await
+                    .map_err(to_mcp)?;
+                let name_map: HashMap<uuid::Uuid, String> = related_entities
+                    .into_iter()
+                    .map(|e| (e.id, e.name))
+                    .collect();
+
                 details.push(EntityDetail {
                     name: entity.name.clone(),
                     entity_type: entity.entity_type.to_string(),
@@ -825,7 +862,15 @@ impl ServerHandler for ContextKeeperServer {
                         .map(|r| RelationDetail {
                             relation_type: r.relation_type.to_string(),
                             from_entity_id: r.from_entity_id.to_string(),
+                            from_entity_name: name_map
+                                .get(&r.from_entity_id)
+                                .cloned()
+                                .unwrap_or_default(),
                             to_entity_id: r.to_entity_id.to_string(),
+                            to_entity_name: name_map
+                                .get(&r.to_entity_id)
+                                .cloned()
+                                .unwrap_or_default(),
                             confidence: r.confidence,
                         })
                         .collect(),
@@ -836,9 +881,9 @@ impl ServerHandler for ContextKeeperServer {
                 McpError::internal_error(format!("Serialization failed: {e}"), None)
             })?;
 
-            return Ok(ReadResourceResult {
-                contents: vec![ResourceContents::text(text, uri)],
-            });
+            return Ok(ReadResourceResult::new(vec![ResourceContents::text(
+                text, uri,
+            )]));
         }
 
         Err(McpError::resource_not_found(
@@ -851,7 +896,7 @@ impl ServerHandler for ContextKeeperServer {
 
     async fn list_prompts(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListPromptsResult, McpError> {
         Ok(ListPromptsResult {
@@ -859,44 +904,35 @@ impl ServerHandler for ContextKeeperServer {
                 Prompt::new(
                     "summarize-topic",
                     Some("Summarize everything known about a topic from the knowledge graph"),
-                    Some(vec![PromptArgument {
-                        name: "topic".into(),
-                        title: None,
-                        description: Some("The topic to summarize".into()),
-                        required: Some(true),
-                    }]),
+                    Some(vec![PromptArgument::new("topic")
+                        .with_description("The topic to summarize")
+                        .with_required(true)]),
                 ),
                 Prompt::new(
                     "what-changed",
                     Some("Describe what changed in the knowledge graph since a given date"),
-                    Some(vec![PromptArgument {
-                        name: "since".into(),
-                        title: None,
-                        description: Some(
-                            "ISO 8601 date/time to look back from (e.g. '2025-01-15T00:00:00Z')"
-                                .into(),
-                        ),
-                        required: Some(true),
-                    }]),
+                    Some(vec![PromptArgument::new("since")
+                        .with_description(
+                            "ISO 8601 date/time to look back from (e.g. '2025-01-15T00:00:00Z')",
+                        )
+                        .with_required(true)]),
                 ),
                 Prompt::new(
                     "add-context",
                     Some("Ingest context from the current conversation into the knowledge graph"),
-                    Some(vec![PromptArgument {
-                        name: "context".into(),
-                        title: None,
-                        description: Some("The conversation context or notes to remember".into()),
-                        required: Some(true),
-                    }]),
+                    Some(vec![PromptArgument::new("context")
+                        .with_description("The conversation context or notes to remember")
+                        .with_required(true)]),
                 ),
             ],
             next_cursor: None,
+            meta: None,
         })
     }
 
     async fn get_prompt(
         &self,
-        request: GetPromptRequestParam,
+        request: GetPromptRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<GetPromptResult, McpError> {
         let args = request.arguments.unwrap_or_default();
@@ -910,47 +946,41 @@ impl ServerHandler for ContextKeeperServer {
         match request.name.as_str() {
             "summarize-topic" => {
                 let topic = get_str("topic");
-                Ok(GetPromptResult {
-                    description: Some(format!("Summarize what is known about '{}'", topic)),
-                    messages: vec![PromptMessage::new_text(
-                        PromptMessageRole::User,
-                        format!(
-                            "Search the knowledge graph for everything related to '{}' using search_memory and expand_search, \
-                             then provide a comprehensive summary of all entities, relationships, and memories found. \
-                             Include temporal information about when things were recorded.",
-                            topic
-                        ),
-                    )],
-                })
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    format!(
+                        "Search the knowledge graph for everything related to '{}' using search_memory and expand_search, \
+                         then provide a comprehensive summary of all entities, relationships, and memories found. \
+                         Include temporal information about when things were recorded.",
+                        topic
+                    ),
+                )])
+                .with_description(format!("Summarize what is known about '{}'", topic)))
             }
             "what-changed" => {
                 let since = get_str("since");
-                Ok(GetPromptResult {
-                    description: Some(format!("Changes since {}", since)),
-                    messages: vec![PromptMessage::new_text(
-                        PromptMessageRole::User,
-                        format!(
-                            "Use list_recent to get recent memories, then use snapshot with timestamp '{}' \
-                             to see the graph state at that point. Compare with the current state and describe \
-                             what entities, relationships, or memories have been added or changed since then.",
-                            since
-                        ),
-                    )],
-                })
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    format!(
+                        "Use list_recent to get recent memories, then use snapshot with timestamp '{}' \
+                         to see the graph state at that point. Compare with the current state and describe \
+                         what entities, relationships, or memories have been added or changed since then.",
+                        since
+                    ),
+                )])
+                .with_description(format!("Changes since {}", since)))
             }
             "add-context" => {
                 let context = get_str("context");
-                Ok(GetPromptResult {
-                    description: Some("Add context to the knowledge graph".into()),
-                    messages: vec![PromptMessage::new_text(
-                        PromptMessageRole::User,
-                        format!(
-                            "Use add_memory to ingest the following context into the knowledge graph. \
-                             After ingestion, briefly confirm what entities and relations were extracted:\n\n{}",
-                            context
-                        ),
-                    )],
-                })
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    format!(
+                        "Use add_memory to ingest the following context into the knowledge graph. \
+                         After ingestion, briefly confirm what entities and relations were extracted:\n\n{}",
+                        context
+                    ),
+                )])
+                .with_description("Add context to the knowledge graph"))
             }
             other => Err(McpError::invalid_params(
                 format!("Unknown prompt: '{}'", other),

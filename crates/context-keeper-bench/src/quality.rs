@@ -205,6 +205,62 @@ pub fn consistency_score(entity_sets: &[HashSet<String>]) -> Option<f64> {
     Some(total / count as f64)
 }
 
+// ── Answer-level scoring (for LoCoMo / LongMemEval benchmarks) ──────────
+
+/// Tokenize text into lowercase words, stripping punctuation.
+fn answer_tokens(text: &str) -> HashSet<String> {
+    text.split_whitespace()
+        .map(|w| {
+            w.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|w| !w.is_empty())
+        .collect()
+}
+
+/// Exact match after normalization (lowercase, strip whitespace).
+pub fn answer_exact_match(gold: &str, predicted: &str) -> bool {
+    let norm = |s: &str| {
+        s.split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+    };
+    norm(gold) == norm(predicted)
+}
+
+/// Token-level F1 between a gold answer and a predicted answer.
+pub fn answer_f1(gold: &str, predicted: &str) -> f64 {
+    let gold_tokens = answer_tokens(gold);
+    let pred_tokens = answer_tokens(predicted);
+    if gold_tokens.is_empty() || pred_tokens.is_empty() {
+        return 0.0;
+    }
+    let overlap = gold_tokens.intersection(&pred_tokens).count() as f64;
+    let p = overlap / pred_tokens.len() as f64;
+    let r = overlap / gold_tokens.len() as f64;
+    if p + r == 0.0 {
+        0.0
+    } else {
+        2.0 * p * r / (p + r)
+    }
+}
+
+/// Answer-level scoring result.
+#[derive(Debug, Clone, Serialize)]
+pub struct AnswerScore {
+    pub exact_match: bool,
+    pub f1: f64,
+}
+
+/// Compute answer score from a gold answer and predicted text.
+pub fn score_answer(gold: &str, predicted: &str) -> AnswerScore {
+    AnswerScore {
+        exact_match: answer_exact_match(gold, predicted),
+        f1: answer_f1(gold, predicted),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,5 +422,32 @@ mod tests {
         let score = consistency_score(&[a, b]).unwrap();
         // Jaccard = 1/3
         assert!((score - 1.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn answer_exact_match_basic() {
+        assert!(answer_exact_match("Acme Corp", "Acme Corp"));
+        assert!(answer_exact_match("Acme Corp", "acme corp"));
+        assert!(answer_exact_match(" Acme  Corp ", "acme corp"));
+        assert!(!answer_exact_match("Acme Corp", "BigCo"));
+    }
+
+    #[test]
+    fn answer_f1_perfect() {
+        let score = answer_f1("Alice works at Acme", "Alice works at Acme");
+        assert!((score - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn answer_f1_partial() {
+        let score = answer_f1("Alice works at Acme", "Alice works at BigCo");
+        // 3/4 overlap (alice, works, at) P=3/4 R=3/4 F1=3/4
+        assert!((score - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn answer_f1_no_overlap() {
+        let score = answer_f1("Alice", "Bob");
+        assert!((score - 0.0).abs() < 1e-9);
     }
 }
