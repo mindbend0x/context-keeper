@@ -8,8 +8,8 @@ Persistent temporal knowledge graph memory for AI agents. Gives Claude Code cros
 |-----------|------|-------------|
 | MCP Server | `.mcp.json` | Registers `context-keeper-mcp` as a stdio MCP server |
 | Skills | `skills/` | Reusable prompt fragments for common memory workflows |
-| Agents | `agents/` | Autonomous agent definitions (planned) |
-| Hooks | `hooks/` | Event-driven hooks for automatic memory capture (planned) |
+| Agents | `agents/` | Autonomous agent definitions (⚠️ planned) |
+| Hooks | `hooks/` | Event-driven hooks for automatic memory capture (⚠️ planned) |
 
 ## MCP Tools
 
