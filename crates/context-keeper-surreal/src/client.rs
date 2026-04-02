@@ -73,9 +73,13 @@ pub async fn connect(config: &SurrealConfig) -> Result<Surreal<Any>> {
                 password: pass.to_string(),
             })
             .await
-            .map_err(|e| ContextKeeperError::StorageError(format!("Authentication failed: {}", e)))?;
+            .map_err(|e| {
+                ContextKeeperError::StorageError(format!("Authentication failed: {}", e))
+            })?;
         } else {
-            tracing::warn!("Remote connection without credentials — anonymous access may be denied");
+            tracing::warn!(
+                "Remote connection without credentials — anonymous access may be denied"
+            );
         }
     }
 

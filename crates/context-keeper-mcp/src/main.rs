@@ -20,6 +20,13 @@ use tracing_subscriber::EnvFilter;
 mod tools;
 use tools::ContextKeeperServer;
 
+type LlmServiceStack = (
+    Arc<dyn Embedder>,
+    Arc<dyn EntityExtractor>,
+    Arc<dyn RelationExtractor>,
+    Arc<dyn QueryRewriter>,
+);
+
 /// Returns the default storage backend string: `rocksdb:~/.context-keeper/data`
 /// with `~` expanded to the actual home directory.
 fn default_storage() -> String {
@@ -158,10 +165,10 @@ async fn main() -> Result<()> {
     let repo = Repository::new(db);
 
     // Import existing data for memory backend
-    if matches!(config.storage, StorageBackend::Memory) {
-        if std::path::Path::new(&cli.db_file_path).exists() {
-            repo.import_from_file(&cli.db_file_path).await?;
-        }
+    if matches!(config.storage, StorageBackend::Memory)
+        && std::path::Path::new(&cli.db_file_path).exists()
+    {
+        repo.import_from_file(&cli.db_file_path).await?;
     }
 
     tracing::info!("SurrealDB initialized, repository ready");
@@ -171,12 +178,7 @@ async fn main() -> Result<()> {
     let emb_api_url = cli.embedding_api_url.as_deref().or(cli.api_url.as_deref());
     let emb_api_key = cli.embedding_api_key.as_deref().or(cli.api_key.as_deref());
 
-    let (embedder, entity_extractor, relation_extractor, query_rewriter): (
-        Arc<dyn Embedder>,
-        Arc<dyn EntityExtractor>,
-        Arc<dyn RelationExtractor>,
-        Arc<dyn QueryRewriter>,
-    ) = match (
+    let (embedder, entity_extractor, relation_extractor, query_rewriter): LlmServiceStack = match (
         cli.api_url.as_deref(),
         cli.api_key.as_deref(),
         cli.embedding_model_name.as_deref(),
@@ -191,7 +193,12 @@ async fn main() -> Result<()> {
                 "Using LLM-powered extraction"
             );
             (
-                Arc::new(RigEmbedder::new(emb_url, emb_key, emb_model, embedding_dims)),
+                Arc::new(RigEmbedder::new(
+                    emb_url,
+                    emb_key,
+                    emb_model,
+                    embedding_dims,
+                )),
                 Arc::new(RigEntityExtractor::new(api_url, api_key, ext_model)),
                 Arc::new(RigRelationExtractor::new(api_url, api_key, ext_model)),
                 Arc::new(RigQueryRewriter::new(api_url, api_key, ext_model)),

@@ -8,7 +8,7 @@ RUST_LOG       ?= context_keeper=info,warn
 
 # ── Development ──────────────────────────────────────────────────────────────
 
-.PHONY: build test lint fmt check run run-http clean
+.PHONY: build test lint clippy fmt check run run-http clean
 
 build: ## Build the full workspace
 	cargo build
@@ -19,8 +19,10 @@ build-release: ## Build release binaries
 test: ## Run all workspace tests
 	cargo test --workspace
 
-lint: ## Run clippy with warnings as errors
-	cargo clippy --workspace -- -D warnings
+clippy: ## Run clippy (workspace + all targets, -D warnings; matches CI)
+	cargo clippy --workspace --all-targets -- -D warnings
+
+lint: clippy ## Same as clippy
 
 fmt: ## Check formatting
 	cargo fmt --check

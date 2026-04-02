@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 // ── Entity type taxonomy ────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EntityType {
     Person,
@@ -17,6 +17,7 @@ pub enum EntityType {
     Service,
     Concept,
     File,
+    #[default]
     Other,
 }
 
@@ -41,27 +42,41 @@ impl From<&str> for EntityType {
     fn from(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "person" => Self::Person,
-            "organization" | "org" | "company" | "firm" => Self::Organization,
-            "location" | "place" | "city" | "country" => Self::Location,
-            "event" => Self::Event,
-            "product" | "tool" | "app" => Self::Product,
-            "service" => Self::Service,
-            "concept" | "idea" | "topic" | "technology" => Self::Concept,
-            "file" | "document" | "lib" | "library" | "crate" => Self::File,
+            "organization" | "org" | "company" | "firm" | "institution" | "agency" | "corp"
+            | "corporation" => Self::Organization,
+            "location" | "place" | "city" | "country" | "region" | "state" | "continent" => {
+                Self::Location
+            }
+            "event" | "conference" | "meeting" | "summit" | "workshop" => Self::Event,
+            "product"
+            | "tool"
+            | "app"
+            | "application"
+            | "database"
+            | "db"
+            | "framework"
+            | "language"
+            | "programming language"
+            | "software"
+            | "hardware"
+            | "platform"
+            | "engine"
+            | "runtime"
+            | "compiler"
+            | "sdk" => Self::Product,
+            "service" | "api" | "saas" | "cloud service" | "hosting" => Self::Service,
+            "concept" | "idea" | "topic" | "technology" | "methodology" | "protocol"
+            | "standard" | "pattern" | "paradigm" | "algorithm" | "technique" => Self::Concept,
+            "file" | "document" | "lib" | "library" | "crate" | "module" | "package"
+            | "repository" | "repo" => Self::File,
             _ => Self::Other,
         }
     }
 }
 
-impl Default for EntityType {
-    fn default() -> Self {
-        Self::Other
-    }
-}
-
 // ── Canonical relation types ────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RelationType {
     WorksAt,
@@ -72,6 +87,7 @@ pub enum RelationType {
     CreatedBy,
     Knows,
     DependsOn,
+    #[default]
     RelatedTo,
 }
 
@@ -121,12 +137,6 @@ impl fmt::Display for RelationType {
 impl From<&str> for RelationType {
     fn from(s: &str) -> Self {
         Self::canonicalize(s)
-    }
-}
-
-impl Default for RelationType {
-    fn default() -> Self {
-        Self::RelatedTo
     }
 }
 
@@ -220,8 +230,9 @@ pub struct SearchResult {
 }
 
 /// Distance metric for vector similarity search.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DistanceMetric {
+    #[default]
     Cosine,
     Euclidean,
     Manhattan,
@@ -240,12 +251,6 @@ impl fmt::Display for DistanceMetric {
             Self::Hamming => write!(f, "HAMMING"),
             Self::Minkowski => write!(f, "MINKOWSKI"),
         }
-    }
-}
-
-impl Default for DistanceMetric {
-    fn default() -> Self {
-        Self::Cosine
     }
 }
 
@@ -284,7 +289,17 @@ mod tests {
 
     #[test]
     fn entity_type_organization_aliases() {
-        for alias in ["org", "company", "firm", "Organization", "COMPANY"] {
+        for alias in [
+            "org",
+            "company",
+            "firm",
+            "Organization",
+            "COMPANY",
+            "institution",
+            "agency",
+            "corp",
+            "corporation",
+        ] {
             assert_eq!(
                 EntityType::from(alias),
                 EntityType::Organization,
@@ -295,7 +310,16 @@ mod tests {
 
     #[test]
     fn entity_type_location_aliases() {
-        for alias in ["place", "city", "country", "LOCATION", "City"] {
+        for alias in [
+            "place",
+            "city",
+            "country",
+            "LOCATION",
+            "City",
+            "region",
+            "state",
+            "continent",
+        ] {
             assert_eq!(
                 EntityType::from(alias),
                 EntityType::Location,
@@ -306,7 +330,24 @@ mod tests {
 
     #[test]
     fn entity_type_product_aliases() {
-        for alias in ["product", "tool", "app", "Tool", "APP"] {
+        for alias in [
+            "product",
+            "tool",
+            "app",
+            "Tool",
+            "APP",
+            "database",
+            "db",
+            "framework",
+            "language",
+            "software",
+            "hardware",
+            "platform",
+            "engine",
+            "runtime",
+            "compiler",
+            "sdk",
+        ] {
             assert_eq!(
                 EntityType::from(alias),
                 EntityType::Product,
@@ -317,7 +358,19 @@ mod tests {
 
     #[test]
     fn entity_type_concept_aliases() {
-        for alias in ["concept", "idea", "topic", "technology", "Technology"] {
+        for alias in [
+            "concept",
+            "idea",
+            "topic",
+            "technology",
+            "Technology",
+            "methodology",
+            "protocol",
+            "standard",
+            "pattern",
+            "paradigm",
+            "algorithm",
+        ] {
             assert_eq!(
                 EntityType::from(alias),
                 EntityType::Concept,
@@ -328,7 +381,18 @@ mod tests {
 
     #[test]
     fn entity_type_file_aliases() {
-        for alias in ["file", "document", "lib", "library", "crate", "Library"] {
+        for alias in [
+            "file",
+            "document",
+            "lib",
+            "library",
+            "crate",
+            "Library",
+            "module",
+            "package",
+            "repository",
+            "repo",
+        ] {
             assert_eq!(EntityType::from(alias), EntityType::File, "alias: {alias}");
         }
     }

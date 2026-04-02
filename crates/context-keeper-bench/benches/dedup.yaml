@@ -1,0 +1,58 @@
+# Behavioral efficacy: Deduplication and entity merging.
+#
+# Tests that the same entity mentioned across multiple episodes merges correctly
+# into a single active entity with accumulated information.
+#
+# Run:
+#   cargo run -p context-keeper-bench -- --config crates/context-keeper-bench/benches/dedup.yaml
+
+providers:
+  - name: gpt-4o-mini
+    api_url: "${OPENAI_API_URL}"
+    api_key: "${OPENAI_API_KEY}"
+    extraction_model: gpt-4o-mini
+    embedding_model: text-embedding-3-small
+    embedding_dims: 1536
+
+scenarios:
+  - name: same_entity_two_episodes
+    operation: behavioral
+    iterations: 1
+    steps:
+      - action: ingest
+        text: "Alice works at Acme Corp as a software engineer."
+      - action: ingest
+        text: "Alice leads the backend team at Acme Corp."
+      - action: search
+        query: "Who is Alice?"
+        expected_entities: ["Alice"]
+
+  - name: entity_mentioned_in_different_contexts
+    operation: behavioral
+    iterations: 1
+    steps:
+      - action: ingest
+        text: "Acme Corp is a technology company based in San Francisco."
+      - action: ingest
+        text: "Bob recently joined Acme Corp as Head of Product."
+      - action: ingest
+        text: "Acme Corp announced a new AI product last week."
+      - action: search
+        query: "What is Acme Corp?"
+        expected_entities: ["Acme Corp"]
+
+  - name: alias_dedup
+    operation: behavioral
+    iterations: 1
+    steps:
+      - action: ingest
+        text: "Alice works at Acme Corporation."
+      - action: ingest
+        text: "Alice is an engineer at Acme Corp."
+      - action: search
+        query: "Where does Alice work?"
+        expected_entities: ["Alice"]
+
+settings:
+  storage_backend: memory
+  warmup_iterations: 0

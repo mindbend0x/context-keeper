@@ -192,7 +192,12 @@ async fn main() -> Result<()> {
                 "Using LLM-powered extraction"
             );
             (
-                Arc::new(RigEmbedder::new(emb_url, emb_key, emb_model, embedding_dims)),
+                Arc::new(RigEmbedder::new(
+                    emb_url,
+                    emb_key,
+                    emb_model,
+                    embedding_dims,
+                )),
                 Arc::new(RigEntityExtractor::new(api_url, api_key, ext_model)),
                 Arc::new(RigRelationExtractor::new(api_url, api_key, ext_model)),
             )

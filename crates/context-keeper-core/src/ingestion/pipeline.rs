@@ -3,7 +3,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::error::Result;
-use crate::models::{Entity, Episode, Memory, Relation};
+use crate::models::{Entity, EntityType, Episode, Memory, Relation};
 use crate::traits::{Embedder, EntityExtractor, EntityResolver, RelationExtractor};
 
 /// The output of a successful ingestion run.
@@ -83,13 +83,38 @@ const NEGATION_MARKERS: &[&str] = &[
     "dissolved",
 ];
 
+/// Markers that indicate a state transition (e.g. new employer, new location)
+/// rather than an explicit negation of the old state.
+const TRANSITION_MARKERS: &[&str] = &[
+    "joined",
+    "hired by",
+    "hired at",
+    "now at",
+    "now works",
+    "now with",
+    "started at",
+    "started working",
+    "began at",
+    "began working",
+    "appointed",
+    "accepted position",
+    "promoted to",
+    "relocated to",
+    "enrolled at",
+    "enrolled in",
+];
+
+/// Prepositions that introduce a slot value (e.g. "works at Acme").
+/// Used to detect conflicting slot-value pairs between summaries.
+const SLOT_PREPOSITIONS: &[&str] = &["at", "for", "in", "with"];
+
 /// Heuristic contradiction detection between old and new summaries.
 ///
-/// Returns `Some(reason)` if the new summary contradicts the old one. Two
-/// signals are checked:
-/// 1. Presence of negation markers in the new summary.
-/// 2. Very low word overlap combined with any negation marker — indicates the
-///    entity's state has fundamentally changed.
+/// Returns `Some(reason)` if the new summary contradicts the old one. Signals:
+/// 1. Explicit negation markers in the new summary.
+/// 2. Transition markers in the new summary (e.g. "joined", "hired at").
+/// 3. Conflicting slot-value pairs (e.g. "at Acme" vs "at BigCo").
+/// 4. Very low word overlap combined with any negation/transition marker.
 fn detect_contradiction(existing_summary: &str, new_summary: &str) -> Option<String> {
     let new_lower = new_summary.to_lowercase();
 
@@ -99,7 +124,18 @@ fn detect_contradiction(existing_summary: &str, new_summary: &str) -> Option<Str
         }
     }
 
+    for marker in TRANSITION_MARKERS {
+        if new_lower.contains(marker) {
+            return Some(format!("Transition marker '{marker}' found in new summary"));
+        }
+    }
+
     let existing_lower = existing_summary.to_lowercase();
+
+    if let Some(reason) = detect_slot_conflict(&existing_lower, &new_lower) {
+        return Some(reason);
+    }
+
     let existing_words: std::collections::HashSet<&str> =
         existing_lower.split_whitespace().collect();
     let new_words: std::collections::HashSet<&str> = new_lower.split_whitespace().collect();
@@ -110,16 +146,50 @@ fn detect_contradiction(existing_summary: &str, new_summary: &str) -> Option<Str
         return Some("Summaries share no common terms".to_string());
     }
 
-    // Low overlap + content-level negation markers in the combined text
     if total > 3 {
         let overlap_ratio = overlap as f64 / total as f64;
         let combined = format!("{} {}", existing_lower, new_lower);
-        let has_negation_signal = NEGATION_MARKERS.iter().any(|m| combined.contains(m));
-        if overlap_ratio < 0.25 && has_negation_signal {
+        let has_signal = NEGATION_MARKERS.iter().any(|m| combined.contains(m))
+            || TRANSITION_MARKERS.iter().any(|m| combined.contains(m));
+        if overlap_ratio < 0.3 && has_signal {
             return Some(format!(
-                "Low word overlap ({:.0}%) with negation signal",
+                "Low word overlap ({:.0}%) with negation/transition signal",
                 overlap_ratio * 100.0
             ));
+        }
+    }
+
+    None
+}
+
+/// Detect conflicting slot-value pairs between two summaries.
+///
+/// Looks for patterns like "at Acme" vs "at BigCo" — the same preposition
+/// followed by a different capitalized token indicates the entity's state
+/// changed to a different target.
+fn detect_slot_conflict(existing_lower: &str, new_lower: &str) -> Option<String> {
+    let existing_words: Vec<&str> = existing_lower.split_whitespace().collect();
+    let new_words: Vec<&str> = new_lower.split_whitespace().collect();
+
+    for prep in SLOT_PREPOSITIONS {
+        let existing_slots: Vec<&str> = existing_words
+            .windows(2)
+            .filter_map(|w| if w[0] == *prep { Some(w[1]) } else { None })
+            .collect();
+
+        let new_slots: Vec<&str> = new_words
+            .windows(2)
+            .filter_map(|w| if w[0] == *prep { Some(w[1]) } else { None })
+            .collect();
+
+        for e_slot in &existing_slots {
+            for n_slot in &new_slots {
+                if e_slot != n_slot {
+                    return Some(format!(
+                        "Conflicting slot: '{prep} {e_slot}' vs '{prep} {n_slot}'"
+                    ));
+                }
+            }
         }
     }
 
@@ -246,10 +316,15 @@ pub async fn ingest(
                     old_summary: best.summary.clone(),
                     new_summary: merged.clone(),
                 });
+                let resolved_type = if ext.entity_type == EntityType::Other {
+                    best.entity_type.clone()
+                } else {
+                    ext.entity_type.clone()
+                };
                 entities.push(Entity {
                     id: best.id,
                     name: best.name.clone(),
-                    entity_type: ext.entity_type.clone(),
+                    entity_type: resolved_type,
                     summary: merged,
                     embedding,
                     valid_from: best.valid_from,
@@ -336,4 +411,73 @@ pub async fn ingest(
         memories: vec![memory],
         diff,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_negation_markers() {
+        assert!(detect_contradiction("Works at Acme", "No longer at Acme").is_some());
+        assert!(detect_contradiction("Works at Acme", "Left Acme last month").is_some());
+        assert!(detect_contradiction("Works at Acme", "Quit Acme in June").is_some());
+        assert!(detect_contradiction("Works at Acme", "Retired from Acme").is_some());
+    }
+
+    #[test]
+    fn transition_markers() {
+        assert!(detect_contradiction("Works at Acme", "Joined BigCo as CTO").is_some());
+        assert!(detect_contradiction("Works at Acme", "Now works at BigCo").is_some());
+        assert!(detect_contradiction("Works at Acme", "Hired at BigCo recently").is_some());
+        assert!(detect_contradiction("Lives in Berlin", "Relocated to London").is_some());
+        assert!(detect_contradiction("Works at Acme", "Promoted to VP of BigCo").is_some());
+    }
+
+    #[test]
+    fn slot_conflict_detection() {
+        assert!(detect_contradiction("Works at Acme", "Works at BigCo").is_some());
+        assert!(detect_contradiction("Lives in Berlin", "Lives in London").is_some());
+        assert!(detect_contradiction("Employed at Google", "Employed at Meta").is_some());
+    }
+
+    #[test]
+    fn no_contradiction_on_additive_info() {
+        assert!(detect_contradiction("Works at Acme", "Works at Acme as Director").is_none());
+        assert!(
+            detect_contradiction("Engineer", "Senior engineer with expertise in Rust").is_none()
+        );
+    }
+
+    #[test]
+    fn no_contradiction_on_same_content() {
+        assert!(detect_contradiction("Works at Acme", "Works at Acme").is_none());
+    }
+
+    #[test]
+    fn zero_overlap_short_summaries_no_false_positive() {
+        assert!(detect_contradiction("Hi", "Ok").is_none());
+    }
+
+    #[test]
+    fn zero_overlap_long_summaries() {
+        assert!(detect_contradiction(
+            "Software engineer specializing in Rust",
+            "Marketing manager for consumer products"
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn merge_summaries_concatenates_novel_info() {
+        let merged = merge_summaries("Works at Acme", "Leads engineering team");
+        assert!(merged.contains("Works at Acme"));
+        assert!(merged.contains("Leads engineering team"));
+    }
+
+    #[test]
+    fn merge_summaries_replaces_when_no_novel_words() {
+        let merged = merge_summaries("Works at Acme", "Works at Acme");
+        assert_eq!(merged, "Works at Acme");
+    }
 }

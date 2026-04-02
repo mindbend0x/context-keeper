@@ -511,7 +511,7 @@ async fn test_graph_neighbors() -> Result<()> {
     repo.create_relation(&rel2).await?;
 
     let neighbors = repo.get_graph_neighbors(&[alice.id], 1).await?;
-    assert!(neighbors.len() >= 1);
+    assert!(!neighbors.is_empty());
     let names: Vec<&str> = neighbors.iter().map(|e| e.name.as_str()).collect();
     assert!(names.contains(&"Alice"));
 
