@@ -3,16 +3,22 @@ use std::time::Instant;
 use crate::backend::BenchBackend;
 use crate::ck_backend::ContextKeeperBackend;
 use crate::config::{BehavioralStep, BenchConfig, BenchInput, Operation, ScenarioConfig};
+use crate::judge::LlmJudge;
 use crate::metrics::{BehavioralResult, IterationMetrics, ScenarioResult, StepVerification};
 use crate::quality;
 
 /// Execute all scenarios against all providers, returning collected results.
-pub async fn run(config: &BenchConfig) -> Vec<ScenarioResult> {
+pub async fn run(config: &BenchConfig, use_judge: bool) -> Vec<ScenarioResult> {
     let mut results = Vec::new();
 
     for provider in &config.providers {
         tracing::info!(provider = %provider.name, "Building backend");
         let backend = ContextKeeperBackend::from_provider(provider);
+        let judge = if use_judge {
+            Some(LlmJudge::from_provider(provider))
+        } else {
+            None
+        };
 
         for scenario in &config.scenarios {
             if scenario.operation == Operation::Behavioral {
@@ -24,7 +30,7 @@ pub async fn run(config: &BenchConfig) -> Vec<ScenarioResult> {
                     "Running behavioral scenario"
                 );
 
-                let behavioral = run_behavioral(&backend, scenario).await;
+                let behavioral = run_behavioral(&backend, scenario, judge.as_ref()).await;
                 results.push(ScenarioResult::new_behavioral(
                     scenario.name.clone(),
                     provider.name.clone(),
@@ -79,7 +85,11 @@ pub async fn run(config: &BenchConfig) -> Vec<ScenarioResult> {
     results
 }
 
-async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -> BehavioralResult {
+async fn run_behavioral(
+    backend: &dyn BenchBackend,
+    scenario: &ScenarioConfig,
+    judge: Option<&LlmJudge>,
+) -> BehavioralResult {
     let mut all_verifications = Vec::new();
     let mut total_latency = std::time::Duration::ZERO;
     let mut errors = Vec::new();
@@ -119,6 +129,7 @@ async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -
                     expected_entities,
                     unexpected_entities,
                     gold_answer,
+                    reasoning_type,
                 } => match backend.search_with_text(query).await {
                     Ok((found_names, result_text)) => {
                         total_latency += start.elapsed();
@@ -144,6 +155,15 @@ async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -
                             .as_ref()
                             .map(|gold| crate::quality::score_answer(gold, &result_text));
 
+                        let answer_score = match (answer_score, gold_answer.as_ref(), judge) {
+                            (Some(mut score), Some(gold), Some(j)) => {
+                                score.llm_judge =
+                                    j.score(query, gold, &result_text).await;
+                                Some(score)
+                            }
+                            (score, _, _) => score,
+                        };
+
                         tracing::info!(
                             iteration = iter_idx + 1,
                             step = step_idx + 1,
@@ -153,6 +173,7 @@ async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -
                             missing = ?missing,
                             unwanted = ?unwanted,
                             answer_f1 = answer_score.as_ref().map(|s| s.f1),
+                            reasoning_type = ?reasoning_type,
                             "Search verification"
                         );
 
@@ -163,6 +184,7 @@ async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -
                             found_unexpected: unwanted,
                             pass,
                             answer_score,
+                            reasoning_type: reasoning_type.clone(),
                         });
                     }
                     Err(e) => {
@@ -184,6 +206,7 @@ async fn run_behavioral(backend: &dyn BenchBackend, scenario: &ScenarioConfig) -
         total_latency,
         verifications: all_verifications,
         errors,
+        estimated_tokens: backend.token_count(),
     }
 }
 
@@ -193,6 +216,7 @@ async fn run_single(
     input: &BenchInput,
 ) -> IterationMetrics {
     let text = input.text();
+    let tokens_before = backend.token_count().unwrap_or(0);
     let start = Instant::now();
 
     let result = match operation {
@@ -247,7 +271,14 @@ async fn run_single(
     };
 
     match result {
-        Ok(metrics) => metrics,
+        Ok(mut metrics) => {
+            let tokens_after = backend.token_count().unwrap_or(0);
+            let delta = tokens_after.saturating_sub(tokens_before);
+            if delta > 0 {
+                metrics.tokens_consumed = Some(delta);
+            }
+            metrics
+        }
         Err(e) => IterationMetrics::failure(start.elapsed(), e.to_string()),
     }
 }

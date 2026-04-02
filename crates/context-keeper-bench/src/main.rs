@@ -24,6 +24,10 @@ struct Cli {
     /// Suppress the ASCII table and only write JSON output.
     #[arg(long, default_value_t = false)]
     json_only: bool,
+
+    /// Skip LLM-as-Judge answer evaluation (faster, no extra LLM calls for scoring).
+    #[arg(long, default_value_t = false)]
+    no_judge: bool,
 }
 
 #[tokio::main]
@@ -72,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
         "Starting benchmark run"
     );
 
-    let results = context_keeper_bench::runner::run(&config).await;
+    let results = context_keeper_bench::runner::run(&config, !cli.no_judge).await;
 
     if !cli.json_only {
         context_keeper_bench::report::print_report(&results);

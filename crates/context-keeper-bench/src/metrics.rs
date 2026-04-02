@@ -286,6 +286,8 @@ pub struct BehavioralResult {
     pub total_latency: Duration,
     pub verifications: Vec<Vec<StepVerification>>,
     pub errors: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_tokens: Option<u64>,
 }
 
 impl BehavioralResult {
@@ -344,6 +346,58 @@ impl BehavioralResult {
         let total: f64 = scores.iter().map(|s| s.f1).sum();
         Some(total / scores.len() as f64)
     }
+
+    /// Mean LLM-as-Judge score across all steps that were scored.
+    pub fn mean_llm_judge_score(&self) -> Option<f64> {
+        let scores: Vec<f64> = self
+            .verifications
+            .iter()
+            .flat_map(|v| v.iter())
+            .filter_map(|v| v.answer_score.as_ref())
+            .filter_map(|s| s.llm_judge)
+            .collect();
+        if scores.is_empty() {
+            return None;
+        }
+        let total: f64 = scores.iter().sum();
+        Some(total / scores.len() as f64)
+    }
+
+    /// Accuracy breakdown by reasoning type.
+    /// Returns (reasoning_type, total_checks, passed_checks, pass_rate).
+    pub fn by_reasoning_type(&self) -> Vec<(String, usize, usize, f64)> {
+        let mut type_stats: std::collections::HashMap<String, (usize, usize)> =
+            std::collections::HashMap::new();
+
+        for checks in &self.verifications {
+            for v in checks {
+                let rt = v
+                    .reasoning_type
+                    .as_deref()
+                    .unwrap_or("unknown")
+                    .to_string();
+                let entry = type_stats.entry(rt).or_insert((0, 0));
+                entry.0 += 1;
+                if v.pass {
+                    entry.1 += 1;
+                }
+            }
+        }
+
+        let mut result: Vec<_> = type_stats
+            .into_iter()
+            .map(|(rt, (total, passed))| {
+                let rate = if total > 0 {
+                    passed as f64 / total as f64
+                } else {
+                    0.0
+                };
+                (rt, total, passed, rate)
+            })
+            .collect();
+        result.sort_by(|a, b| a.0.cmp(&b.0));
+        result
+    }
 }
 
 /// Verification result for a single search step in a behavioral scenario.
@@ -356,6 +410,8 @@ pub struct StepVerification {
     pub pass: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub answer_score: Option<crate::quality::AnswerScore>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_type: Option<String>,
 }
 
 #[cfg(test)]
