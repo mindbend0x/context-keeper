@@ -8,6 +8,7 @@ use context_keeper_rig::embeddings::RigEmbedder;
 use context_keeper_rig::extraction::{RigEntityExtractor, RigRelationExtractor};
 use context_keeper_rig::rewriting::RigQueryRewriter;
 use context_keeper_surreal::{apply_schema, connect_memory, Repository, SurrealConfig};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -29,6 +30,12 @@ pub struct ContextKeeperBackend {
     query_rewriter: RigQueryRewriter,
     repo: Mutex<Option<Repository>>,
     embedding_dims: usize,
+    estimated_tokens: AtomicU64,
+}
+
+/// Approximate token count from text length (chars / 4 is standard for English + OpenAI BPE).
+fn estimate_tokens(text: &str) -> u64 {
+    (text.len() as u64 + 3) / 4
 }
 
 impl ContextKeeperBackend {
@@ -63,6 +70,7 @@ impl ContextKeeperBackend {
             query_rewriter,
             repo: Mutex::new(None),
             embedding_dims: provider.embedding_dims,
+            estimated_tokens: AtomicU64::new(0),
         }
     }
 
@@ -88,12 +96,18 @@ impl BenchBackend for ContextKeeperBackend {
     }
 
     async fn entity_extraction(&self, text: &str) -> anyhow::Result<EntityExtractionOutput> {
+        self.estimated_tokens
+            .fetch_add(estimate_tokens(text), Ordering::Relaxed);
         let entities = self.entity_extractor.extract_entities(text).await?;
         Ok(EntityExtractionOutput { entities })
     }
 
     async fn relation_extraction(&self, text: &str) -> anyhow::Result<RelationExtractionOutput> {
+        self.estimated_tokens
+            .fetch_add(estimate_tokens(text), Ordering::Relaxed);
         let entities = self.entity_extractor.extract_entities(text).await?;
+        self.estimated_tokens
+            .fetch_add(estimate_tokens(text), Ordering::Relaxed);
         let relations = self
             .relation_extractor
             .extract_relations(text, &entities)
@@ -106,6 +120,10 @@ impl BenchBackend for ContextKeeperBackend {
 
     async fn ingestion(&self, text: &str, source: &str) -> anyhow::Result<IngestionOutput> {
         self.ensure_repo().await?;
+
+        // Entity extraction + relation extraction + embedding = ~3 LLM calls
+        self.estimated_tokens
+            .fetch_add(estimate_tokens(text) * 3, Ordering::Relaxed);
 
         let episode = Episode {
             id: Uuid::new_v4(),
@@ -164,6 +182,8 @@ impl BenchBackend for ContextKeeperBackend {
 
     async fn search(&self, query: &str) -> anyhow::Result<SearchOutput> {
         self.ensure_repo().await?;
+        self.estimated_tokens
+            .fetch_add(estimate_tokens(query), Ordering::Relaxed);
 
         let guard = self.repo.lock().await;
         let repo = guard.as_ref().unwrap();
@@ -187,6 +207,8 @@ impl BenchBackend for ContextKeeperBackend {
 
     async fn query_rewrite(&self, query: &str) -> anyhow::Result<QueryRewriteOutput> {
         use context_keeper_core::traits::QueryRewriter;
+        self.estimated_tokens
+            .fetch_add(estimate_tokens(query), Ordering::Relaxed);
         let variants = self.query_rewriter.rewrite(query).await?;
         Ok(QueryRewriteOutput { variants })
     }
@@ -198,6 +220,8 @@ impl BenchBackend for ContextKeeperBackend {
 
     async fn search_with_text(&self, query: &str) -> anyhow::Result<(Vec<String>, String)> {
         self.ensure_repo().await?;
+        self.estimated_tokens
+            .fetch_add(estimate_tokens(query), Ordering::Relaxed);
 
         let guard = self.repo.lock().await;
         let repo = guard.as_ref().unwrap();
@@ -230,6 +254,7 @@ impl BenchBackend for ContextKeeperBackend {
     }
 
     async fn reset(&self) -> anyhow::Result<()> {
+        self.estimated_tokens.store(0, Ordering::Relaxed);
         let mut guard = self.repo.lock().await;
         if guard.is_some() {
             let config = SurrealConfig {
@@ -241,5 +266,14 @@ impl BenchBackend for ContextKeeperBackend {
             *guard = Some(Repository::new(db));
         }
         Ok(())
+    }
+
+    fn token_count(&self) -> Option<u64> {
+        let count = self.estimated_tokens.load(Ordering::Relaxed);
+        if count > 0 {
+            Some(count)
+        } else {
+            None
+        }
     }
 }

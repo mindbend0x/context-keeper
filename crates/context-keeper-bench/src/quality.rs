@@ -251,6 +251,8 @@ pub fn answer_f1(gold: &str, predicted: &str) -> f64 {
 pub struct AnswerScore {
     pub exact_match: bool,
     pub f1: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_judge: Option<f64>,
 }
 
 /// Compute answer score from a gold answer and predicted text.
@@ -258,6 +260,7 @@ pub fn score_answer(gold: &str, predicted: &str) -> AnswerScore {
     AnswerScore {
         exact_match: answer_exact_match(gold, predicted),
         f1: answer_f1(gold, predicted),
+        llm_judge: None,
     }
 }
 

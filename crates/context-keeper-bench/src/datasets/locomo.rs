@@ -97,6 +97,7 @@ pub fn load(path: &Path) -> anyhow::Result<Vec<ScenarioConfig>> {
                 expected_entities: answer_tokens,
                 unexpected_entities: vec![],
                 gold_answer: Some(q.answer.clone()),
+                reasoning_type: q.reasoning_type.clone(),
             });
         }
 

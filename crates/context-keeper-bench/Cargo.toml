@@ -13,6 +13,7 @@ path = "src/main.rs"
 context-keeper-core = { workspace = true }
 context-keeper-rig = { workspace = true }
 context-keeper-surreal = { workspace = true, features = ["full"] }
+rig-core = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -257,11 +257,22 @@ pub fn print_behavioral(results: &[&ScenarioResult]) {
 
             if let Some(em_rate) = beh.mean_exact_match_rate() {
                 let f1 = beh.mean_answer_f1().unwrap_or(0.0);
+                let judge_part = beh
+                    .mean_llm_judge_score()
+                    .map(|s| format!("  Judge: {:.1}%", s * 100.0))
+                    .unwrap_or_default();
                 println!(
-                    "  {} answer scoring — EM: {:.1}%  F1: {:.3}",
+                    "  {} answer scoring — EM: {:.1}%  F1: {:.3}{judge_part}",
                     r.scenario_name,
                     em_rate * 100.0,
                     f1,
+                );
+            }
+
+            if let Some(tokens) = beh.estimated_tokens {
+                println!(
+                    "  {} token consumption — ~{} estimated tokens",
+                    r.scenario_name, tokens,
                 );
             }
         }
@@ -295,6 +306,43 @@ pub fn print_behavioral(results: &[&ScenarioResult]) {
                     );
                 }
                 println!();
+            }
+
+            let by_type = beh.by_reasoning_type();
+            let has_types = by_type.len() > 1
+                || by_type
+                    .first()
+                    .is_some_and(|(rt, _, _, _)| rt != "unknown");
+            if has_types {
+                let mut type_table = Table::new();
+                type_table
+                    .load_preset(UTF8_FULL)
+                    .apply_modifier(UTF8_ROUND_CORNERS);
+                type_table.set_header(vec![
+                    "Reasoning Type",
+                    "Checks",
+                    "Passed",
+                    "Accuracy",
+                ]);
+                for (rt, total, passed, rate) in &by_type {
+                    let rate_cell = if *rate >= 0.75 {
+                        Cell::new(format!("{:.1}%", rate * 100.0)).fg(Color::Green)
+                    } else if *rate >= 0.5 {
+                        Cell::new(format!("{:.1}%", rate * 100.0)).fg(Color::Yellow)
+                    } else {
+                        Cell::new(format!("{:.1}%", rate * 100.0)).fg(Color::Red)
+                    };
+                    type_table.add_row(vec![
+                        Cell::new(rt),
+                        Cell::new(total),
+                        Cell::new(passed),
+                        rate_cell,
+                    ]);
+                }
+                println!(
+                    "  {} — Accuracy by Reasoning Type:\n{type_table}\n",
+                    r.scenario_name
+                );
             }
         }
     }

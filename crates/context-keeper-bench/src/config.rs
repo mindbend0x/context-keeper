@@ -151,6 +151,8 @@ pub enum BehavioralStep {
         unexpected_entities: Vec<String>,
         #[serde(default)]
         gold_answer: Option<String>,
+        #[serde(default)]
+        reasoning_type: Option<String>,
     },
 }
 
