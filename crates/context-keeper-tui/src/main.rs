@@ -6,7 +6,8 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use clap::Parser;
 use context_keeper_tui::backend::TuiBackend;
-use context_keeper_tui::bootstrap::{build_local_backend, default_storage};
+use context_keeper_tui::bootstrap::build_local_backend;
+use context_keeper_surreal::default_storage_string;
 use context_keeper_tui::ui::run_tui;
 use dotenv::dotenv;
 use tracing_subscriber::EnvFilter;
@@ -39,7 +40,7 @@ struct Cli {
     )]
     db_file_path: String,
 
-    #[arg(long, env = "STORAGE_BACKEND", global = true, default_value_t = default_storage())]
+    #[arg(long, env = "STORAGE_BACKEND", global = true, default_value_t = default_storage_string())]
     storage: String,
 
     #[arg(long, env = "CK_NAMESPACE", global = true)]

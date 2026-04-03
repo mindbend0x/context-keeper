@@ -11,25 +11,16 @@ use context_keeper_rig::{
     embeddings::RigEmbedder,
     extraction::{RigEntityExtractor, RigRelationExtractor},
 };
-use context_keeper_surreal::{apply_schema, connect, Repository, StorageBackend, SurrealConfig};
+use context_keeper_surreal::{
+    apply_schema, connect, default_storage_string, parse_storage_backend, Repository,
+    StorageBackend, SurrealConfig,
+};
 use dotenv::dotenv;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
-
-/// Returns the default storage backend string: `rocksdb:~/.context-keeper/data`
-/// with `~` expanded to the actual home directory.
-fn default_storage() -> String {
-    match dirs::home_dir() {
-        Some(home) => format!(
-            "rocksdb:{}",
-            home.join(".context-keeper").join("data").display()
-        ),
-        None => "memory".to_string(),
-    }
-}
 
 #[derive(Parser)]
 #[command(
@@ -64,7 +55,7 @@ struct Cli {
     db_file_path: String,
 
     /// Storage backend: "rocksdb:<path>" (default: ~/.context-keeper/data), "memory", or "remote:<ws_url>"
-    #[arg(long, env = "STORAGE_BACKEND", global = true, default_value_t = default_storage())]
+    #[arg(long, env = "STORAGE_BACKEND", global = true, default_value_t = default_storage_string())]
     storage: String,
 
     /// Namespace to scope operations to (omit for global/default)
@@ -113,16 +104,6 @@ enum Commands {
         #[arg(short, long, default_value = "10")]
         limit: usize,
     },
-}
-
-fn parse_storage_backend(s: &str) -> StorageBackend {
-    if let Some(path) = s.strip_prefix("rocksdb:") {
-        StorageBackend::RocksDb(path.to_string())
-    } else if let Some(url) = s.strip_prefix("remote:") {
-        StorageBackend::Remote(url.to_string())
-    } else {
-        StorageBackend::Memory
-    }
 }
 
 #[tokio::main]

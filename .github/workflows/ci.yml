@@ -30,8 +30,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace
 
-  test:
-    name: Test
   fmt:
     name: Format
     runs-on: ubuntu-latest
@@ -76,18 +74,8 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
           sudo apt-get clean
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
-
-  build-macos:
-    name: Build (macos)
-    needs: fmt
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
       - name: Install mold linker
         run: sudo apt-get install -y mold
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --workspace
+      - run: cargo test --workspace

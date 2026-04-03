@@ -26,4 +26,4 @@ uuid.workspace = true
 dotenv.workspace = true
 rmcp.workspace = true
 axum = "0.8"
-dirs = "6"
+subtle = "2"

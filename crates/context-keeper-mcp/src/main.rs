@@ -10,7 +10,10 @@ use context_keeper_rig::{
     extraction::{RigEntityExtractor, RigRelationExtractor},
     rewriting::RigQueryRewriter,
 };
-use context_keeper_surreal::{apply_schema, connect, Repository, StorageBackend, SurrealConfig};
+use context_keeper_surreal::{
+    apply_schema, connect, default_storage_string, parse_storage_backend, Repository,
+    StorageBackend, SurrealConfig,
+};
 use dotenv::dotenv;
 use rmcp::transport::streamable_http_server::tower::StreamableHttpServerConfig;
 use rmcp::transport::{
@@ -29,18 +32,6 @@ type LlmServiceStack = (
     Arc<dyn RelationExtractor>,
     Arc<dyn QueryRewriter>,
 );
-
-/// Returns the default storage backend string: `rocksdb:~/.context-keeper/data`
-/// with `~` expanded to the actual home directory.
-fn default_storage() -> String {
-    match dirs::home_dir() {
-        Some(home) => format!(
-            "rocksdb:{}",
-            home.join(".context-keeper").join("data").display()
-        ),
-        None => "memory".to_string(),
-    }
-}
 
 #[derive(Parser)]
 #[command(
@@ -83,12 +74,23 @@ struct Cli {
     db_file_path: String,
 
     /// Storage backend: "rocksdb:<path>" (default: ~/.context-keeper/data), "memory", or "remote:<ws_url>"
-    #[arg(long, env = "STORAGE_BACKEND", default_value_t = default_storage())]
+    #[arg(long, env = "STORAGE_BACKEND", default_value_t = default_storage_string())]
     storage: String,
 
-    /// Comma-separated list of valid bearer tokens for HTTP auth. Empty = no auth.
+    /// Comma-separated list of valid bearer tokens for HTTP auth.
+    /// Required when MCP_TRANSPORT=http unless MCP_ALLOW_INSECURE_HTTP=1.
     #[arg(long, env = "MCP_AUTH_TOKENS")]
     auth_tokens: Option<String>,
+
+    /// Bind address for HTTP transport (default: 127.0.0.1).
+    /// Set to 0.0.0.0 to listen on all interfaces.
+    #[arg(long, env = "MCP_HTTP_HOST", default_value = "127.0.0.1")]
+    http_host: String,
+
+    /// Allow running HTTP transport without auth tokens.
+    /// Setting this acknowledges the endpoint will be unauthenticated.
+    #[arg(long, env = "MCP_ALLOW_INSECURE_HTTP")]
+    allow_insecure_http: bool,
 
     /// SurrealDB root username (for remote connections)
     #[arg(long, env = "SURREAL_USER")]
@@ -99,25 +101,21 @@ struct Cli {
     surreal_pass: Option<String>,
 }
 
-fn parse_storage_backend(s: &str) -> StorageBackend {
-    if let Some(path) = s.strip_prefix("rocksdb:") {
-        StorageBackend::RocksDb(path.to_string())
-    } else if let Some(url) = s.strip_prefix("remote:") {
-        StorageBackend::Remote(url.to_string())
-    } else {
-        StorageBackend::Memory
-    }
-}
-
 async fn bearer_auth(
     valid_tokens: Arc<Vec<String>>,
     req: Request,
     next: middleware::Next,
 ) -> Response {
+    use subtle::ConstantTimeEq;
+
     if let Some(auth) = req.headers().get("authorization") {
         if let Ok(auth_str) = auth.to_str() {
             if let Some(token) = auth_str.strip_prefix("Bearer ") {
-                if valid_tokens.iter().any(|t| t == token) {
+                let token_bytes = token.as_bytes();
+                if valid_tokens
+                    .iter()
+                    .any(|t| t.as_bytes().ct_eq(token_bytes).into())
+                {
                     return next.run(req).await;
                 }
             }
@@ -244,7 +242,15 @@ async fn main() -> Result<()> {
             service.waiting().await?;
         }
         "http" => {
-            let bind_addr = format!("0.0.0.0:{}", cli.http_port);
+            if valid_tokens.is_empty() && !cli.allow_insecure_http {
+                anyhow::bail!(
+                    "HTTP transport requires auth tokens (MCP_AUTH_TOKENS) or explicit \
+                     opt-in to insecure mode (MCP_ALLOW_INSECURE_HTTP=1). \
+                     Refusing to start an unauthenticated HTTP endpoint."
+                );
+            }
+
+            let bind_addr = format!("{}:{}", cli.http_host, cli.http_port);
             tracing::info!(addr = %bind_addr, "Serving MCP over streamable HTTP");
 
             let mut session_config = SessionConfig::default();
@@ -263,7 +269,10 @@ async fn main() -> Result<()> {
             );
 
             let router = if valid_tokens.is_empty() {
-                tracing::warn!("No auth tokens configured — HTTP endpoint is unauthenticated");
+                tracing::warn!(
+                    "MCP_ALLOW_INSECURE_HTTP is set — HTTP endpoint has NO authentication. \
+                     Do not expose this to untrusted networks."
+                );
                 axum::Router::new().nest_service("/mcp", http_service)
             } else {
                 tracing::info!(count = valid_tokens.len(), "Bearer token auth enabled");

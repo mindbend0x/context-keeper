@@ -9,31 +9,12 @@ use context_keeper_rig::{
     extraction::{RigEntityExtractor, RigRelationExtractor},
     rewriting::RigQueryRewriter,
 };
-use context_keeper_surreal::{apply_schema, connect, Repository, StorageBackend, SurrealConfig};
+use context_keeper_surreal::{
+    apply_schema, connect, parse_storage_backend, Repository, StorageBackend, SurrealConfig,
+};
 use tracing::info;
 
 use crate::backend::LocalBackend;
-
-/// Returns the default storage backend string: `rocksdb:~/.context-keeper/data`
-pub fn default_storage() -> String {
-    match dirs::home_dir() {
-        Some(home) => format!(
-            "rocksdb:{}",
-            home.join(".context-keeper").join("data").display()
-        ),
-        None => "memory".to_string(),
-    }
-}
-
-pub fn parse_storage_backend(s: &str) -> StorageBackend {
-    if let Some(path) = s.strip_prefix("rocksdb:") {
-        StorageBackend::RocksDb(path.to_string())
-    } else if let Some(url) = s.strip_prefix("remote:") {
-        StorageBackend::Remote(url.to_string())
-    } else {
-        StorageBackend::Memory
-    }
-}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn open_local_repository(
