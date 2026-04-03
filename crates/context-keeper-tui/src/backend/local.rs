@@ -84,6 +84,7 @@ impl TuiBackend for LocalBackend {
             self.relation_extractor.as_ref(),
             Some(resolver),
             None,
+            None,
         )
         .await?;
 
