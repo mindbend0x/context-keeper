@@ -4,6 +4,8 @@ title: Getting Started
 description: Install Context Keeper and start building your agent's memory in minutes.
 ---
 
+import DemoVideo from '@site/src/components/DemoVideo';
+
 # Getting Started
 
 Welcome to Context Keeper! This guide will help you install and run the system in minutes.
@@ -42,6 +44,11 @@ Binaries will be in `target/release/`.
 ## Quick Start with CLI
 
 The easiest way to try Context Keeper is via the CLI. Add some memories and search them:
+
+<DemoVideo
+  caption="Add a memory, search it, and inspect the extracted entity — all from the terminal."
+  alt="Terminal recording of Context Keeper CLI usage"
+/>
 
 ```bash
 # Add memories
@@ -133,5 +140,5 @@ Start with mock mode to explore the API. Upgrade to LLM mode once you're ready f
 ## Next Steps
 
 - **Architecture** — Learn how the ingestion pipeline and hybrid search work: [How It Works](/docs/how-it-works)
-- **MCP Tools** — Explore all 6 tools available via MCP: [MCP Reference](/docs/mcp-tools)
+- **MCP Tools** — Explore all 10 tools available via MCP: [MCP Reference](/docs/mcp-tools)
 - **Configuration** — Advanced setup and environment variables: [Configuration](/docs/configuration)

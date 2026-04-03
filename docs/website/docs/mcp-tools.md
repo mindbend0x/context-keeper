@@ -1,7 +1,7 @@
 ---
 sidebar_position: 5
 title: MCP Tools Reference
-description: Complete reference for all 6 MCP tools, resources, and prompts exposed by Context Keeper.
+description: Complete reference for all 10 MCP tools, resources, and prompts exposed by Context Keeper.
 ---
 
 ## Overview

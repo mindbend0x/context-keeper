@@ -23,4 +23,3 @@ clap.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 dotenv.workspace = true
-dirs = "6"
