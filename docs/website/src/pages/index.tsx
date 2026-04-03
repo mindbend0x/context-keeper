@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import Layout from "@theme/Layout";
 import Link from "@docusaurus/Link";
+import DemoTabs from "../components/DemoTabs";
 
 // ── Scroll reveal hook ──────────────────────────────────────────────
 function useScrollReveal() {
@@ -77,7 +78,22 @@ function Problem() {
   );
 }
 
-// ── Pipeline step component ─────────────────────────────────────────
+// ── Demo Showcase ──────────────────────────────────────────────────
+function DemoShowcase() {
+  return (
+    <section className="demo-showcase reveal" id="demo">
+      <div className="section-label">See It In Action</div>
+      <h2 className="section-title">One tool, every client</h2>
+      <p className="section-desc">
+        Context Keeper works wherever MCP does. Pick your client and see
+        persistent memory in action.
+      </p>
+      <DemoTabs />
+    </section>
+  );
+}
+
+// ── Pipeline step component ────────────────────────────────────────
 function PipelineStep({
   num,
   title,
@@ -168,7 +184,7 @@ function UseCases() {
 const features = [
   { icon: "\u{1F570}\u{FE0F}", title: "Temporal Knowledge Graph", desc: "Every entity and relation carries valid_from / valid_until timestamps. Point-in-time snapshots let you query the graph at any moment." },
   { icon: "\u{1F50E}", title: "Hybrid Search + RRF", desc: "HNSW vector similarity and BM25 keyword search, fused with Reciprocal Rank Fusion (K=60). LLM-powered query expansion." },
-  { icon: "\u{1F517}", title: "MCP Native", desc: "6 tools, browsable entity resources, and 3 prompt templates. Works with Claude Desktop, Cursor, and any MCP-compatible client." },
+  { icon: "\u{1F517}", title: "MCP Native", desc: "10 tools, browsable entity resources, and 3 prompt templates. Works with Claude Desktop, Cursor, and any MCP-compatible client." },
   { icon: "\u{2699}\u{FE0F}", title: "Trait-Based Architecture", desc: "Core defines pure traits for embedders, extractors, and query rewriters. Swap providers without touching the pipeline." },
   { icon: "\u{1F4BE}", title: "SurrealDB All-in-One", desc: "One database for documents, graph edges, vector indexes, and full-text search. No middleware glue." },
   { icon: "\u{1F433}", title: "Ship Anywhere", desc: "Run as an MCP server (stdio or HTTP), a CLI tool, or a Docker container. RocksDB persistence by default." },
@@ -380,6 +396,7 @@ export default function Home(): React.JSX.Element {
     >
       <Hero />
       <Problem />
+      <DemoShowcase />
       <HowItWorks />
       <UseCases />
       <Features />

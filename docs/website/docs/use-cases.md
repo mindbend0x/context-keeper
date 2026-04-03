@@ -4,9 +4,16 @@ title: Use Cases
 description: Concrete scenarios for using Context Keeper with AI agents, RAG pipelines, and developer tools.
 ---
 
+import DemoVideo from '@site/src/components/DemoVideo';
+
 ## Conversational Memory for Chat Agents
 
 Give long-lived chat agents like Claude Desktop or Cursor persistent memory across sessions. Instead of re-explaining the same facts in every conversation, the agent recalls relevant past conversations automatically.
+
+<DemoVideo
+  caption="Claude remembers preferences across conversations — no prompt engineering required."
+  alt="Demo of conversational memory with Claude Desktop"
+/>
 
 ### How It Works
 
@@ -58,6 +65,11 @@ Query time:
 ## Codebase Intelligence
 
 Equip your code agent with a persistent understanding of architectural decisions, ownership, dependencies, and historical changes. Useful for onboarding, code review, refactoring, and impact analysis.
+
+<DemoVideo
+  caption="An agent in Cursor stores project context and recalls it across sessions."
+  alt="Demo of codebase intelligence with Cursor"
+/>
 
 ### How It Works
 
@@ -114,6 +126,11 @@ Later:
 ## Multi-Agent Shared Memory
 
 Run Context Keeper over HTTP so multiple agents can share one knowledge graph. One agent researches a topic, another summarizes findings, a third validates answers — all pulling from the same persistent memory.
+
+<DemoVideo
+  caption="Two agents writing and reading from the same knowledge graph via HTTP."
+  alt="Demo of multi-agent shared memory over HTTP"
+/>
 
 ### How It Works
 

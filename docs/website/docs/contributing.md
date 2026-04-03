@@ -67,7 +67,7 @@ SurrealDB client with ~35+ CRUD methods, vector/keyword search, graph traversal,
 
 ### crates/context-keeper-mcp
 
-MCP server binary exposing 6 tools, resources, and prompts. Supports both stdio and HTTP transports.
+MCP server binary exposing 10 tools, resources, and prompts. Supports both stdio and HTTP transports.
 
 - Key file: `tools.rs`
 - Depends on: rmcp (MCP SDK), context-keeper-core, context-keeper-rig, context-keeper-surreal
