@@ -837,6 +837,20 @@ table th {
   gap: 0;
 }
 
+.demo-tabs [role="tabpanel"],
+.demo-tabs .margin-top--md,
+.demo-tabs [class*="tabItem"] {
+  width: 100%;
+}
+
+.demo-tabs .margin-top--md {
+  display: block;
+}
+
+.demo-tabs [class*="tabItem"][hidden] {
+  display: none;
+}
+
 .demo-tabs .tabs__item {
   font-family: var(--ifm-font-family-monospace);
   font-size: 0.82rem;
@@ -867,26 +881,28 @@ table th {
   border-radius: 10px;
   overflow: hidden;
   background: var(--ck-surface-alt);
+  aspect-ratio: 16 / 9;
 }
 
 .demo-video-frame video,
 .demo-video-frame img {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* Placeholder when no recording exists */
 .demo-placeholder {
   border: 2px dashed var(--ck-border);
   border-radius: 10px;
-  padding: 4rem 2rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
   background: var(--ck-surface-alt);
+  aspect-ratio: 16 / 9;
 }
 
 .demo-placeholder-icon {

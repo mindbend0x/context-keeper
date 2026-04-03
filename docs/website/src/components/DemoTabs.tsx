@@ -60,7 +60,7 @@ const demos: DemoEntry[] = [
 export default function DemoTabs() {
   return (
     <div className="demo-tabs-wrapper">
-      <Tabs defaultValue="cursor" className="demo-tabs">
+      <Tabs defaultValue="cursor" className="demo-tabs" lazy={false}>
         {demos.map((d) => (
           <TabItem
             key={d.value}
