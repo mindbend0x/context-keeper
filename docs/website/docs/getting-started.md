@@ -68,11 +68,11 @@ On your first run, Context Keeper initializes a RocksDB store at `~/.context-kee
 
 ## MCP Server Setup
 
-To use Context Keeper as an MCP server with Claude Desktop or Cursor, add it to your client config.
+Context Keeper works with any MCP-compatible client. Here's a quick setup for each:
 
-### Claude Desktop
+### Claude Code
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or the Windows equivalent:
+Add to `.claude/settings.json` in your project root (or `~/.claude/settings.json` for global):
 
 ```json
 {
@@ -84,24 +84,62 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 }
 ```
 
-Restart Claude Desktop, and Context Keeper tools will be available.
+### Claude Desktop
+
+Edit the config file for your platform:
+
+| Platform | Path |
+|----------|------|
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Linux | `~/.config/Claude/claude_desktop_config.json` |
+
+```json
+{
+  "mcpServers": {
+    "context-keeper": {
+      "command": "context-keeper-mcp"
+    }
+  }
+}
+```
+
+Restart Claude Desktop, and Context Keeper tools will appear in the hammer icon.
 
 ### Cursor
 
-Add the same config to your Cursor MCP settings, or use HTTP transport (see below).
+Add to your Cursor MCP settings or `.cursor/mcp.json`:
 
-### HTTP Transport
+```json
+{
+  "mcpServers": {
+    "context-keeper": {
+      "command": "context-keeper-mcp"
+    }
+  }
+}
+```
 
-For remote or containerized setups, run the server in HTTP mode:
+### ChatGPT & Perplexity
+
+These clients require HTTP transport. Start the server first:
 
 ```bash
 MCP_TRANSPORT=http MCP_HTTP_PORT=3000 context-keeper-mcp
 ```
 
-Then configure your client to point to `http://localhost:3000/mcp`.
+Then point the client to `http://localhost:3000/mcp`.
+
+### HTTP Transport
+
+For remote, containerized, or multi-agent setups, run in HTTP mode:
+
+```bash
+MCP_TRANSPORT=http MCP_HTTP_PORT=3000 context-keeper-mcp
+```
 
 :::info
-HTTP mode is useful for Docker deployments or when running the server on a separate machine.
+See the [detailed MCP server setup tutorial](/docs/tutorials/mcp-server-setup) for platform-specific paths, verification steps, and troubleshooting.
 :::
 
 ## Docker
@@ -139,6 +177,7 @@ Start with mock mode to explore the API. Upgrade to LLM mode once you're ready f
 
 ## Next Steps
 
-- **Architecture** — Learn how the ingestion pipeline and hybrid search work: [How It Works](/docs/how-it-works)
+- **Tutorials** — Step-by-step guides for each integration path: [MCP Server Setup](/docs/tutorials/mcp-server-setup) · [CLI Installation](/docs/tutorials/cli-installation) · [Docker](/docs/tutorials/running-with-docker)
+- **How It Works** — Understand the ingestion pipeline and hybrid search: [How It Works](/docs/how-it-works)
 - **MCP Tools** — Explore all 10 tools available via MCP: [MCP Reference](/docs/mcp-tools)
 - **Configuration** — Advanced setup and environment variables: [Configuration](/docs/configuration)

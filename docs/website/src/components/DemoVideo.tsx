@@ -1,8 +1,10 @@
 import React from "react";
+import Link from "@docusaurus/Link";
 
 interface DemoVideoProps {
   src?: string;
   poster?: string;
+  description?: string;
   caption: string;
   alt: string;
   ctaLabel?: string;
@@ -12,6 +14,7 @@ interface DemoVideoProps {
 export default function DemoVideo({
   src,
   poster,
+  description,
   caption,
   alt,
   ctaLabel,
@@ -41,14 +44,17 @@ export default function DemoVideo({
         <div className="demo-placeholder">
           <div className="demo-placeholder-icon">▶</div>
           <span>Recording coming soon</span>
+          {description && (
+            <p className="demo-placeholder-desc">{description}</p>
+          )}
         </div>
       )}
       <div className="demo-meta">
         <p className="demo-caption">{caption}</p>
         {ctaLabel && ctaHref && (
-          <a className="demo-cta" href={ctaHref}>
+          <Link className="demo-cta" to={ctaHref}>
             {ctaLabel} →
-          </a>
+          </Link>
         )}
       </div>
     </div>

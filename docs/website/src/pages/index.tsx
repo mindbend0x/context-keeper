@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import Layout from "@theme/Layout";
 import Link from "@docusaurus/Link";
 import DemoTabs from "../components/DemoTabs";
+import GraphScenario from "../components/GraphScenario";
 
 // ── Scroll reveal hook ──────────────────────────────────────────────
 function useScrollReveal() {
@@ -19,8 +20,31 @@ function useScrollReveal() {
   }, []);
 }
 
+// ── Rotating words hook ─────────────────────────────────────────────
+const rotatingWords = ["AI agents", "coding assistants", "research tools", "chat apps", "dev workflows"];
+
+function useRotatingWord(words: string[], intervalMs = 3000) {
+  const [index, setIndex] = React.useState(0);
+  const [animate, setAnimate] = React.useState(true);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setAnimate(false);
+      setTimeout(() => {
+        setIndex((i) => (i + 1) % words.length);
+        setAnimate(true);
+      }, 300);
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, [words.length, intervalMs]);
+
+  return { word: words[index], animate };
+}
+
 // ── Hero ────────────────────────────────────────────────────────────
 function Hero() {
+  const { word, animate } = useRotatingWord(rotatingWords);
+
   return (
     <section className="hero-landing">
       <div style={{ maxWidth: 800, margin: "0 auto" }}>
@@ -30,7 +54,9 @@ function Hero() {
         <h1 className="hero-title">
           Persistent memory for
           <br />
-          <span className="gradient-animated">AI agents</span>
+          <span className={`gradient-animated hero-rotating ${animate ? "hero-rotating-in" : "hero-rotating-out"}`}>
+            {word}
+          </span>
         </h1>
         <p className="hero-sub">
           A temporal knowledge graph that gives MCP-compatible assistants the
@@ -221,70 +247,17 @@ function Features() {
   );
 }
 
-// ── Architecture ────────────────────────────────────────────────────
-function Architecture() {
+// ── Scenario ───────────────────────────────────────────────────────
+function Scenario() {
   return (
-    <section className="landing-section reveal" id="architecture">
-      <div className="section-label">Architecture</div>
-      <h2 className="section-title">Five-crate Rust workspace</h2>
+    <section className="landing-section reveal" id="scenario">
+      <div className="section-label">In Practice</div>
+      <h2 className="section-title">Watch the graph grow</h2>
       <p className="section-desc">
-        Pure logic in core. LLM integrations in rig. Storage in surreal. CLI and
-        MCP are thin binaries that wire it together.
+        Every memory your agent adds builds up a connected knowledge graph.
+        Entities appear, relationships form, and facts evolve over time.
       </p>
-      <div className="arch-visual">
-        {/* Row 1: Binaries */}
-        <div className="arch-row arch-row-top">
-          <div className="arch-node arch-bin">
-            <span className="arch-node-icon">⌨️</span>
-            <span className="arch-node-name">cli</span>
-            <span className="arch-node-sub">Developer CLI</span>
-          </div>
-          <div className="arch-node arch-bin">
-            <span className="arch-node-icon">🔌</span>
-            <span className="arch-node-name">mcp</span>
-            <span className="arch-node-sub">MCP server</span>
-          </div>
-        </div>
-
-        {/* Connector lines */}
-        <div className="arch-connectors">
-          <svg width="100%" height="48" viewBox="0 0 600 48" preserveAspectRatio="xMidYMid meet">
-            <line x1="150" y1="0" x2="300" y2="44" stroke="var(--ck-accent)" strokeWidth="2" strokeDasharray="6 4" opacity="0.5" />
-            <line x1="450" y1="0" x2="300" y2="44" stroke="var(--ck-accent)" strokeWidth="2" strokeDasharray="6 4" opacity="0.5" />
-          </svg>
-        </div>
-
-        {/* Row 2: Core */}
-        <div className="arch-row arch-row-center">
-          <div className="arch-node arch-core">
-            <span className="arch-node-icon">⚙️</span>
-            <span className="arch-node-name">core</span>
-            <span className="arch-node-sub">Models · Pipeline · Search · Traits</span>
-          </div>
-        </div>
-
-        {/* Connector lines */}
-        <div className="arch-connectors">
-          <svg width="100%" height="48" viewBox="0 0 600 48" preserveAspectRatio="xMidYMid meet">
-            <line x1="200" y1="4" x2="200" y2="44" stroke="var(--ck-accent)" strokeWidth="2" strokeDasharray="6 4" opacity="0.5" />
-            <line x1="400" y1="4" x2="400" y2="44" stroke="var(--ck-accent)" strokeWidth="2" strokeDasharray="6 4" opacity="0.5" />
-          </svg>
-        </div>
-
-        {/* Row 3: Implementations */}
-        <div className="arch-row arch-row-bottom">
-          <div className="arch-node arch-impl">
-            <span className="arch-node-icon">🧠</span>
-            <span className="arch-node-name">rig</span>
-            <span className="arch-node-sub">LLM integrations</span>
-          </div>
-          <div className="arch-node arch-impl">
-            <span className="arch-node-icon">💾</span>
-            <span className="arch-node-name">surreal</span>
-            <span className="arch-node-sub">SurrealDB · 35+ methods</span>
-          </div>
-        </div>
-      </div>
+      <GraphScenario />
     </section>
   );
 }
@@ -400,7 +373,7 @@ export default function Home(): React.JSX.Element {
       <HowItWorks />
       <UseCases />
       <Features />
-      <Architecture />
+      <Scenario />
       <McpTools />
       <QuickStart />
       <Cta />

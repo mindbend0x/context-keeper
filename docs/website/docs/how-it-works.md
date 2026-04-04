@@ -75,6 +75,27 @@ Relations:
 
 Each entity and the full episode text are embedded using a semantic embedding model (e.g., `text-embedding-3-small`). These embeddings enable vector similarity search.
 
+#### What gets embedded
+
+- **Entity summaries** — The rich text description of each entity (not just the name)
+- **Full episode text** — The raw memory chunk, enabling semantic search over original content
+
+Relation types (e.g., "works_at") are not independently embedded — they're found via graph traversal from matching entities.
+
+#### Dimension tradeoffs
+
+| Dimensions | Model Example | Tradeoff |
+|-----------|---------------|----------|
+| 256 | text-embedding-3-small (truncated) | Fastest, lowest storage, slightly lower recall |
+| 1536 | text-embedding-3-small (default) | Good balance of speed and accuracy |
+| 3072 | text-embedding-3-large | Highest accuracy, more storage and compute |
+
+Configure via `EMBEDDING_DIMS`. The HNSW index is rebuilt to match.
+
+#### Mock embedder
+
+In mock mode, the `MockEmbedder` generates deterministic vectors by hashing the input text. This ensures reproducible test results without network calls. The vectors have the configured dimensionality but aren't semantically meaningful — they're purely for testing pipeline correctness.
+
 ### Step 5: Persistence & Entity Upsert
 
 Entities are stored with deduplication:
@@ -125,22 +146,45 @@ In parallel, the full episode text and entity summaries are indexed with BM25 (p
 
 ### Reciprocal Rank Fusion (K=60)
 
-The two ranked lists are merged via RRF. Each result in the vector list gets a score `1 / (60 + rank)`, same for keywords, then scores are summed. This balances semantic and lexical relevance without requiring a manual weight.
+The two ranked lists are merged via RRF. For each document `d`, the fused score is:
 
-Example:
+```
+RRF(d) = Σ  1 / (K + rank_r(d))
+         r
+```
+
+Where `r` ranges over the rankers (vector and keyword), and `rank_r(d)` is the position of document `d` in ranker `r`'s output (1-indexed). Documents not present in a ranker's list receive no contribution from that ranker.
+
+#### Why K=60?
+
+The constant K (set to 60, from the [Cormack et al. 2009 paper](https://dl.acm.org/doi/10.1145/1571941.1572114)) controls how much weight the top-ranked results receive relative to lower-ranked ones:
+
+- **Lower K (e.g., 1)**: Top results dominate. A rank-1 result gets score `1/2 = 0.5`, rank-10 gets `1/11 = 0.09` — a 5.5x difference.
+- **Higher K (e.g., 60)**: Rankings are flattened. Rank-1 gets `1/61 ≈ 0.016`, rank-10 gets `1/70 ≈ 0.014` — only a 1.1x difference.
+
+K=60 is the sweet spot: it prevents any single ranker from dominating while still rewarding higher ranks. This makes RRF robust across domains without requiring tuned weights.
+
+#### Worked example
+
 ```
 Query: "Who leads engineering?"
 
-Vector search returns:
-  1. Entity "Alice" (summary: "Head of Engineering") — score 0.95
-  2. Relation "leads" — score 0.85
+Vector search results:          Keyword search results:
+  1. Alice (0.95 sim)             1. "leads engineering team"
+  2. "leads" relation             2. Engineering Team entity
+  3. Engineering Team             3. Alice
+  4. Bob                          4. Bob
 
-Keyword search returns:
-  1. Relation "leads engineering team" — exact match
-  2. Entity "Engineering Team" — contains "engineering"
+RRF scores:
+  Alice:           1/(60+1) + 1/(60+3) = 0.01639 + 0.01587 = 0.03226  ← rank 1
+  "leads" relation: 1/(60+2) + 0       = 0.01613                       ← rank 3
+  Engineering Team: 1/(60+3) + 1/(60+2) = 0.01587 + 0.01613 = 0.03200  ← rank 2
+  Bob:             1/(60+4) + 1/(60+4) = 0.01563 + 0.01563 = 0.03125  ← rank 4
 
-RRF merges both, prioritizing results high in both lists.
+Final ranking: Alice → Engineering Team → Bob → "leads" relation
 ```
+
+Notice how Alice rises to #1 because she appears in both lists (ranks 1 and 3), even though she's only rank 3 in keyword search. This is the key property of RRF: **presence in multiple lists is rewarded**.
 
 ### Query Expansion
 
@@ -183,11 +227,53 @@ SurrealDB changefeeds track all mutations. You can subscribe to changes in real-
 
 ## Entity Resolution
 
-The system maintains a single canonical entity per composite key of **(name, type, namespace)**. This deduplication strategy:
+The system maintains a single canonical entity per composite key of **(name, type, namespace)**. When a new entity is extracted from text, the resolution process determines whether to create, merge, or invalidate:
 
-- Matches on all three fields — "Alice" the person and "Alice" the project are distinct entities
-- Enriches summaries with information from both inputs when the same entity appears in multiple contexts
-- Invalidates old facts when inputs contradict (e.g., "Alice works at Acme" vs. "Alice works at TechCorp")
+```mermaid
+flowchart TD
+    A["New entity extracted"] --> B{"Composite key exists?<br/>(name + type + namespace)"}
+    B -->|No| C["Create new entity"]
+    B -->|Yes| D{"Summaries contradict?"}
+    D -->|No| E["Merge: append new info<br/>to existing summary"]
+    D -->|Yes| F["Invalidate old entity<br/>(set valid_until = now)"]
+    F --> G["Create new entity<br/>(valid_from = now)"]
+
+    style A fill:#ea580c,stroke:#c2410c,color:#fff
+    style C fill:#22c55e,stroke:#16a34a,color:#fff
+    style E fill:#eab308,stroke:#ca8a04,color:#000
+    style F fill:#ef4444,stroke:#dc2626,color:#fff
+    style G fill:#22c55e,stroke:#16a34a,color:#fff
+```
+
+### Summary merging
+
+When the same entity appears in multiple inputs without contradiction, summaries are enriched:
+
+```
+Existing: "Alice is a senior engineer at Acme Corp"
+New input: "Alice leads the platform team and is based in SF"
+Merged:    "Alice is a senior engineer at Acme Corp. Leads the platform team, based in SF."
+```
+
+### Contradiction detection
+
+In LLM mode, the extractor detects when new information contradicts the existing summary. When this happens:
+
+1. The old entity is **invalidated** by setting `valid_until = now`
+2. A new entity is created with `valid_from = now` and the updated information
+3. The old entity remains in the database for historical queries
+
+Example:
+```
+Existing: "Alice works at Acme Corp" (valid_from: Jan 1)
+New input: "Alice joined TechCorp last month"
+→ Old entity invalidated: valid_until = Mar 15
+→ New entity created: "Alice works at TechCorp" (valid_from: Mar 15)
+```
+
+### Relation confidence
+
+When duplicate relations are found between the same entity pair, confidences are merged using the maximum value. This reflects that repeated observation of a relationship increases certainty.
 
 :::tip
 Composite keys were introduced in [ADR-001 R3](/docs/adr-001) to prevent false merges when different entities share the same name. Use `namespace` to further isolate entities across projects or tenants.
