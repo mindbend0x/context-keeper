@@ -10,6 +10,18 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Tutorials",
+      collapsed: false,
+      items: [
+        "tutorials/mcp-server-setup",
+        "tutorials/cli-installation",
+        "tutorials/running-locally",
+        "tutorials/running-with-docker",
+        "tutorials/http-transport",
+      ],
+    },
+    {
+      type: "category",
       label: "Concepts",
       collapsed: false,
       items: ["how-it-works", "use-cases"],

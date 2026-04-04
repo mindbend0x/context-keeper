@@ -278,6 +278,22 @@ table th {
   animation: shimmer 4s ease-in-out infinite;
 }
 
+/* Rotating hero text */
+.hero-rotating {
+  display: inline-block;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.hero-rotating-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.hero-rotating-out {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
 .hero-title {
   font-size: 3.5rem;
   font-weight: 700;
@@ -468,12 +484,12 @@ table th {
 
 .pipeline-step .step-num {
   font-family: var(--ifm-font-family-monospace);
-  font-size: 0.7rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: var(--ck-accent);
   background: var(--ck-accent-bg);
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -496,12 +512,12 @@ table th {
 
 .pipeline-arrow {
   position: absolute;
-  right: -9px;
+  right: -12px;
   top: 50%;
   transform: translateY(-50%);
   z-index: 2;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   background: var(--ck-arrow-bg);
   border: 1px solid var(--ck-border);
   border-radius: 50%;
@@ -509,7 +525,7 @@ table th {
   align-items: center;
   justify-content: center;
   color: var(--ck-accent);
-  font-size: 0.6rem;
+  font-size: 0.8rem;
 }
 
 @media (max-width: 640px) {
@@ -606,84 +622,220 @@ table th {
   margin-top: 0.2rem;
 }
 
-/* Architecture diagram — visual version */
-.arch-visual {
+/* Graph Scenario — animated use-case visualization */
+.graph-scenario {
   max-width: 640px;
-  margin: 2.5rem auto;
-  padding: 2rem 1rem;
+  margin: 2rem auto 0;
 }
 
-.arch-row {
+.graph-scenario-input {
   display: flex;
-  justify-content: center;
-  gap: 1.5rem;
-}
-
-.arch-connectors {
-  display: flex;
-  justify-content: center;
-  height: 48px;
-  overflow: visible;
-}
-
-.arch-connectors svg {
-  max-width: 600px;
-  width: 100%;
-}
-
-.arch-node {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 1.25rem 1.75rem;
-  border-radius: 12px;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.9rem 1.25rem;
+  border-radius: 10px;
   border: 1px solid var(--ck-border);
   background: var(--ck-surface);
-  transition: border-color 0.2s, box-shadow 0.3s, transform 0.2s;
-  min-width: 160px;
-  text-align: center;
-}
-
-.arch-node:hover {
-  border-color: var(--ck-border-hover);
-  box-shadow: 0 4px 20px var(--ck-glow);
-  transform: translateY(-2px);
-}
-
-.arch-node-icon {
-  font-size: 1.5rem;
-  margin-bottom: 0.25rem;
-}
-
-.arch-node-name {
   font-family: var(--ifm-font-family-monospace);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.graph-scenario-source {
+  font-size: 0.7rem;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: var(--ck-accent);
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--ck-accent);
+  opacity: 0.7;
+  flex-shrink: 0;
 }
 
-.arch-node-sub {
-  font-size: 0.72rem;
-  color: var(--ck-text-muted);
-  white-space: nowrap;
+.graph-scenario-memory {
+  color: var(--ck-text-secondary);
+  line-height: 1.4;
 }
 
-.arch-core {
-  border-color: var(--ck-accent-border);
-  background: var(--ck-accent-bg);
-  min-width: 280px;
+.graph-scenario-viz {
+  background: var(--ck-surface-alt, var(--ck-surface));
+  border: 1px solid var(--ck-border);
+  border-radius: 12px;
+  padding: 1rem;
+  min-height: 220px;
 }
 
-.arch-core .arch-node-name {
-  font-size: 1rem;
+.graph-scenario-svg {
+  width: 100%;
+  height: auto;
+}
+
+.graph-node-label {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.graph-node-type {
+  font-family: var(--ifm-font-family-base);
+  font-size: 9px;
+  fill: var(--ck-text-muted);
+  opacity: 0.6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.graph-edge-label {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 9px;
+  fill: var(--ck-text-muted);
+  opacity: 0.6;
+}
+
+/* Node/edge appearance animation */
+.graph-node-appear {
+  animation: graph-fade-in 0.6s ease both;
+}
+
+.graph-edge-appear {
+  animation: graph-fade-in 0.4s ease both;
+}
+
+@keyframes graph-fade-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Pulse ring on highlighted (new) entity */
+.graph-pulse-ring {
+  animation: graph-ring-pulse 2s ease-in-out infinite;
+}
+
+@keyframes graph-ring-pulse {
+  0%, 100% { r: 34; opacity: 0.3; }
+  50%      { r: 42; opacity: 0; }
+}
+
+/* Step dots */
+.graph-scenario-steps {
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.graph-step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ck-border);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.graph-step-dot.active {
+  background: var(--ck-accent);
+  border-color: var(--ck-accent);
+}
+
+.graph-step-dot:hover {
+  border-color: var(--ck-accent);
 }
 
 @media (max-width: 640px) {
-  .arch-row { flex-direction: column; align-items: center; gap: 0.75rem; }
-  .arch-connectors { display: none; }
-  .arch-node { min-width: 200px; }
-  .arch-visual { padding: 1rem 0; }
+  .graph-scenario-input { flex-direction: column; gap: 0.4rem; font-size: 0.8rem; }
+  .graph-scenario-viz { padding: 0.5rem; }
+}
+
+/* Architecture diagram — interactive SVG version */
+.arch-diagram-container {
+  max-width: 680px;
+  margin: 2.5rem auto 1rem;
+  padding: 0 1rem;
+}
+
+.arch-diagram-svg {
+  width: 100%;
+  height: auto;
+}
+
+.arch-layer-label {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  fill: var(--ck-text-muted);
+  opacity: 0.5;
+  text-transform: uppercase;
+}
+
+.arch-node-label {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 14px;
+  font-weight: 600;
+  fill: var(--ck-accent);
+}
+
+.arch-node-sub {
+  font-family: var(--ifm-font-family-base);
+  font-size: 10px;
+  fill: var(--ck-text-muted);
+}
+
+.arch-node-rect {
+  transition: opacity 0.25s, stroke 0.25s;
+}
+
+.arch-edge {
+  transition: stroke 0.25s, opacity 0.25s;
+}
+
+/* Animated data flow pulses */
+@keyframes arch-flow-ingest {
+  from { stroke-dashoffset: 80; }
+  to   { stroke-dashoffset: 0; }
+}
+
+@keyframes arch-flow-retrieve {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: 80; }
+}
+
+.arch-flow-pulse {
+  animation-duration: 3s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.arch-flow-ingest  { animation-name: arch-flow-ingest; }
+.arch-flow-retrieve { animation-name: arch-flow-retrieve; }
+.arch-flow-legend  { animation-name: arch-flow-ingest; animation-duration: 2s; }
+
+/* Legend */
+.arch-legend {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.arch-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--ck-text-muted);
+  font-family: var(--ifm-font-family-monospace);
+}
+
+@media (max-width: 640px) {
+  .arch-diagram-container { padding: 0; }
+  .arch-legend { gap: 1rem; font-size: 0.72rem; }
 }
 
 /* Tool cards */
@@ -830,11 +982,14 @@ table th {
   margin: 0 auto;
 }
 
-/* Tab bar styling — match site aesthetic */
+/* Tab bar styling — pill buttons */
 .demo-tabs .tabs {
+  display: flex;
+  flex-wrap: wrap;
   justify-content: center;
-  border-bottom: 1px solid var(--ck-border);
-  gap: 0;
+  gap: 0.5rem;
+  border-bottom: none;
+  padding: 0;
 }
 
 .demo-tabs [role="tabpanel"],
@@ -853,22 +1008,28 @@ table th {
 
 .demo-tabs .tabs__item {
   font-family: var(--ifm-font-family-monospace);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 500;
-  padding: 0.6rem 1.25rem;
-  border-bottom: 2px solid transparent;
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--ck-border);
+  border-radius: 999px;
   color: var(--ck-text-muted);
-  transition: color 0.15s, border-color 0.15s;
+  background: transparent;
+  transition: color 0.2s, border-color 0.2s, background 0.2s, box-shadow 0.2s;
+  white-space: nowrap;
 }
 
 .demo-tabs .tabs__item:hover {
   color: var(--ck-text-primary);
-  background: none;
+  border-color: var(--ck-text-muted);
+  background: var(--ck-surface);
 }
 
 .demo-tabs .tabs__item--active {
   color: var(--ck-accent);
-  border-bottom-color: var(--ck-accent);
+  border-color: var(--ck-accent);
+  background: rgba(251, 146, 60, 0.08);
+  box-shadow: 0 0 12px rgba(251, 146, 60, 0.1);
 }
 
 /* Video / GIF container */
@@ -967,9 +1128,41 @@ table th {
   box-shadow: none;
 }
 
+/* Demo placeholder description */
+.demo-placeholder-desc {
+  font-size: 0.85rem;
+  color: var(--ck-text-secondary);
+  max-width: 420px;
+  text-align: center;
+  line-height: 1.5;
+  margin: 0;
+  padding: 0 1rem;
+}
+
 /* Responsive */
 @media (max-width: 640px) {
   .demo-showcase { padding: 2rem 1.25rem 3rem; }
   .demo-meta { flex-direction: column; gap: 0.5rem; }
   .demo-placeholder { padding: 3rem 1.5rem; }
+}
+
+/* Tab pills on smaller screens */
+@media (max-width: 900px) {
+  .demo-tabs .tabs {
+    gap: 0.4rem;
+  }
+  .demo-tabs .tabs__item {
+    font-size: 0.72rem;
+    padding: 0.4rem 0.8rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .demo-tabs .tabs {
+    gap: 0.35rem;
+  }
+  .demo-tabs .tabs__item {
+    font-size: 0.68rem;
+    padding: 0.35rem 0.65rem;
+  }
 }

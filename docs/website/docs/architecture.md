@@ -4,6 +4,8 @@ title: Architecture
 description: Five-crate Rust workspace with trait-based decoupling and SurrealDB storage.
 ---
 
+import ArchitectureDiagram from '@site/src/components/ArchitectureDiagram';
+
 ## Overview
 
 Context Keeper is a five-crate Rust workspace designed with trait-based decoupling for modularity and testability. The **core** crate owns pure logic and trait definitions, **rig** implements LLM integrations, **surreal** handles storage, and **mcp** and **cli** are thin binaries that orchestrate the components.
@@ -11,12 +13,16 @@ Context Keeper is a five-crate Rust workspace designed with trait-based decoupli
 ## Crate Dependency Graph
 
 ```mermaid
-graph LR
+graph TD
     CLI["context-keeper-cli<br/><small>Developer CLI</small>"] --> CORE
+    CLI --> RIG
+    CLI --> SURREAL
     MCP["context-keeper-mcp<br/><small>MCP server binary</small>"] --> CORE
+    MCP --> RIG
+    MCP --> SURREAL
     RIG["context-keeper-rig<br/><small>LLM integrations</small>"] --> CORE
-    RIG --> SURREAL["context-keeper-surreal<br/><small>SurrealDB · 35+ CRUD methods</small>"]
-    CORE["context-keeper-core<br/><small>Models · Pipeline · Search · Traits</small>"] --> SURREAL
+    SURREAL["context-keeper-surreal<br/><small>SurrealDB · 35+ CRUD methods</small>"] --> CORE
+    CORE["context-keeper-core<br/><small>Models · Pipeline · Search · Traits</small>"]
 
     style CORE fill:#ea580c,stroke:#c2410c,color:#fff
     style RIG fill:#f97316,stroke:#ea580c,color:#fff
@@ -24,6 +30,12 @@ graph LR
     style CLI fill:#fb923c,stroke:#f97316,color:#000
     style MCP fill:#fb923c,stroke:#f97316,color:#000
 ```
+
+### Interactive view
+
+Hover over any crate to highlight its dependencies:
+
+<ArchitectureDiagram />
 
 ## Crate Roles
 
@@ -120,10 +132,105 @@ Useful for scripting and manual testing.
 
 ### Trait-Based Decoupling
 
-The core crate defines abstract traits (`Embedder`, `EntityExtractor`, `RelationExtractor`, `QueryRewriter`). Implementations live in the rig crate, allowing:
+The core crate defines abstract traits that form the extension points of the system. Implementations live in the rig crate, allowing:
 - **Testability** — Mock implementations for unit tests (no API keys needed)
 - **Modularity** — Swap implementations without touching core logic
 - **Future Extensibility** — Add local embedders, custom LLM models, etc.
+
+#### Core trait signatures
+
+These traits are defined in `context-keeper-core/src/traits.rs`:
+
+```rust
+/// Generates embedding vectors for text.
+#[async_trait]
+pub trait Embedder: Send + Sync {
+    async fn embed(&self, text: &str) -> Result<Vec<f64>>;
+    async fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f64>>>;
+}
+
+/// Extracts named entities from raw text.
+#[async_trait]
+pub trait EntityExtractor: Send + Sync {
+    async fn extract_entities(&self, text: &str) -> Result<Vec<ExtractedEntity>>;
+}
+
+/// Extracts relations between entities from raw text.
+#[async_trait]
+pub trait RelationExtractor: Send + Sync {
+    async fn extract_relations(
+        &self,
+        text: &str,
+        entities: &[ExtractedEntity],
+    ) -> Result<Vec<ExtractedRelation>>;
+}
+
+/// Rewrites a search query into semantic variants for expanded recall.
+#[async_trait]
+pub trait QueryRewriter: Send + Sync {
+    async fn rewrite(&self, query: &str) -> Result<Vec<String>>;
+}
+```
+
+All traits are `Send + Sync` and async, allowing them to be shared across threads via `Arc<dyn Trait>`.
+
+#### Implementing a custom embedder
+
+To add a custom embedding provider (e.g., a local model via Ollama):
+
+1. Create a new crate that depends on `context-keeper-core`:
+   ```toml
+   [dependencies]
+   context-keeper-core = { path = "../context-keeper-core" }
+   async-trait = "0.1"
+   ```
+
+2. Implement the `Embedder` trait:
+   ```rust
+   use context_keeper_core::traits::Embedder;
+
+   pub struct OllamaEmbedder {
+       endpoint: String,
+       model: String,
+   }
+
+   #[async_trait]
+   impl Embedder for OllamaEmbedder {
+       async fn embed(&self, text: &str) -> Result<Vec<f64>> {
+           // Call your embedding API here
+       }
+   }
+   ```
+
+3. Pass it to the pipeline in your binary:
+   ```rust
+   let embedder: Arc<dyn Embedder> = Arc::new(OllamaEmbedder::new(...));
+   let pipeline = IngestionPipeline::new(embedder, extractor, ...);
+   ```
+
+#### Dependency injection pattern
+
+The CLI and MCP binaries construct the pipeline by instantiating concrete implementations and passing them as trait objects:
+
+```rust
+// In context-keeper-mcp/src/main.rs (simplified)
+let embedder: Arc<dyn Embedder> = Arc::new(RigEmbedder::new(config));
+let entity_extractor: Arc<dyn EntityExtractor> = Arc::new(RigEntityExtractor::new(config));
+let relation_extractor: Arc<dyn RelationExtractor> = Arc::new(RigRelationExtractor::new(config));
+let query_rewriter: Arc<dyn QueryRewriter> = Arc::new(RigQueryRewriter::new(config));
+let repository = Arc::new(SurrealRepository::new(db).await?);
+
+let pipeline = IngestionPipeline::new(embedder, entity_extractor, relation_extractor, repository);
+let search = SearchEngine::new(repository, query_rewriter);
+```
+
+In tests, the same pipeline is constructed with mock implementations — no API keys, no network, instant execution:
+
+```rust
+let embedder = Arc::new(MockEmbedder::new(1536));
+let extractor = Arc::new(MockEntityExtractor::new());
+// ... same pipeline construction
+```
 
 ### SurrealDB as Single Engine
 
