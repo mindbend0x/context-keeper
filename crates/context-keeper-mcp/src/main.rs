@@ -36,7 +36,7 @@ type LlmServiceStack = (
 #[derive(Parser)]
 #[command(
     name = "context-keeper-mcp",
-    about = "MCP server for Context Keeper temporal knowledge graph"
+    about = "MCP server for Context Keeper (CTX.K) temporal knowledge graph"
 )]
 struct Cli {
     /// Transport mode: "stdio" (default) or "http"
