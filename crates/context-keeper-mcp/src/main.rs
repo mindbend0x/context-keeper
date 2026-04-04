@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use axum::{extract::Request, middleware, response::Response};
+use axum::{extract::Request, middleware, response::Response, routing::{get, post}};
 use clap::Parser;
 use context_keeper_core::traits::*;
 use context_keeper_rig::{
@@ -21,9 +21,13 @@ use rmcp::transport::{
     StreamableHttpService,
 };
 use rmcp::ServiceExt;
+use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::EnvFilter;
 
+mod oauth;
 mod tools;
+
+use oauth::{OAuthConfig, OAuthStore};
 use tools::ContextKeeperServer;
 
 type LlmServiceStack = (
@@ -78,7 +82,7 @@ struct Cli {
     storage: String,
 
     /// Comma-separated list of valid bearer tokens for HTTP auth.
-    /// Required when MCP_TRANSPORT=http unless MCP_ALLOW_INSECURE_HTTP=1.
+    /// Required when MCP_TRANSPORT=http unless MCP_ALLOW_INSECURE_HTTP=1 or MCP_OAUTH_ISSUER is set.
     #[arg(long, env = "MCP_AUTH_TOKENS")]
     auth_tokens: Option<String>,
 
@@ -91,6 +95,12 @@ struct Cli {
     /// Setting this acknowledges the endpoint will be unauthenticated.
     #[arg(long, env = "MCP_ALLOW_INSECURE_HTTP")]
     allow_insecure_http: bool,
+
+    /// Public base URL of this server (e.g., https://mcp.example.com).
+    /// Enables OAuth 2.1 authorization flow. When set, the server serves
+    /// discovery endpoints and accepts dynamically registered OAuth clients.
+    #[arg(long, env = "MCP_OAUTH_ISSUER")]
+    oauth_issuer: Option<String>,
 
     /// SurrealDB root username (for remote connections)
     #[arg(long, env = "SURREAL_USER")]
@@ -153,7 +163,6 @@ async fn main() -> Result<()> {
         ..SurrealConfig::default()
     };
 
-    // Ensure the data directory exists for RocksDB
     if let StorageBackend::RocksDb(ref path) = config.storage {
         if let Some(parent) = std::path::Path::new(path).parent() {
             std::fs::create_dir_all(parent).ok();
@@ -165,7 +174,6 @@ async fn main() -> Result<()> {
     apply_schema(&db, &config).await?;
     let repo = Repository::new(db);
 
-    // Import existing data for memory backend
     if matches!(config.storage, StorageBackend::Memory)
         && std::path::Path::new(&cli.db_file_path).exists()
     {
@@ -175,7 +183,6 @@ async fn main() -> Result<()> {
     tracing::info!("SurrealDB initialized, repository ready");
 
     // Build LLM services
-    // Embedding URL/key can be overridden separately (e.g., OpenAI for embeddings, HuggingFace for extraction)
     let emb_api_url = cli.embedding_api_url.as_deref().or(cli.api_url.as_deref());
     let emb_api_key = cli.embedding_api_key.as_deref().or(cli.api_key.as_deref());
 
@@ -216,7 +223,6 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Build MCP server
     let server = ContextKeeperServer::new(
         repo,
         embedder,
@@ -235,6 +241,8 @@ async fn main() -> Result<()> {
             .collect(),
     );
 
+    let oauth_enabled = cli.oauth_issuer.is_some();
+
     match cli.transport.as_str() {
         "stdio" => {
             tracing::info!("Serving MCP over stdio");
@@ -242,11 +250,13 @@ async fn main() -> Result<()> {
             service.waiting().await?;
         }
         "http" => {
-            if valid_tokens.is_empty() && !cli.allow_insecure_http {
+            let has_auth =
+                !valid_tokens.is_empty() || oauth_enabled || cli.allow_insecure_http;
+            if !has_auth {
                 anyhow::bail!(
-                    "HTTP transport requires auth tokens (MCP_AUTH_TOKENS) or explicit \
-                     opt-in to insecure mode (MCP_ALLOW_INSECURE_HTTP=1). \
-                     Refusing to start an unauthenticated HTTP endpoint."
+                    "HTTP transport requires auth tokens (MCP_AUTH_TOKENS), \
+                     OAuth (MCP_OAUTH_ISSUER), or explicit opt-in to insecure mode \
+                     (MCP_ALLOW_INSECURE_HTTP=1). Refusing to start an unauthenticated HTTP endpoint."
                 );
             }
 
@@ -268,7 +278,57 @@ async fn main() -> Result<()> {
                 http_config,
             );
 
-            let router = if valid_tokens.is_empty() {
+            let router = if let Some(issuer) = cli.oauth_issuer {
+                let issuer = issuer.trim_end_matches('/').to_string();
+                let oauth_store = Arc::new(OAuthStore::new());
+                let oauth_cfg = OAuthConfig {
+                    issuer: issuer.clone(),
+                    oauth_store: oauth_store.clone(),
+                    static_tokens: valid_tokens.clone(),
+                };
+
+                let cors = CorsLayer::new()
+                    .allow_origin(Any)
+                    .allow_methods(Any)
+                    .allow_headers(Any);
+
+                let oauth_routes = axum::Router::new()
+                    .route(
+                        "/.well-known/oauth-protected-resource",
+                        get(oauth::protected_resource_metadata),
+                    )
+                    .route(
+                        "/.well-known/oauth-authorization-server",
+                        get(oauth::authorization_server_metadata),
+                    )
+                    .route("/oauth/register", post(oauth::oauth_register))
+                    .route("/oauth/token", post(oauth::oauth_token))
+                    .layer(cors)
+                    .with_state(oauth_cfg.clone());
+
+                let authorize_routes = axum::Router::new()
+                    .route("/oauth/authorize", get(oauth::oauth_authorize))
+                    .route("/oauth/approve", post(oauth::oauth_approve))
+                    .with_state(oauth_cfg.clone());
+
+                let mcp_routes = axum::Router::new()
+                    .nest_service("/mcp", http_service)
+                    .layer(middleware::from_fn_with_state(
+                        oauth_cfg.clone(),
+                        oauth::unified_auth_middleware,
+                    ));
+
+                tracing::info!(
+                    issuer = %issuer,
+                    static_tokens = valid_tokens.len(),
+                    "OAuth 2.1 + Bearer token auth enabled"
+                );
+
+                axum::Router::new()
+                    .merge(oauth_routes)
+                    .merge(authorize_routes)
+                    .merge(mcp_routes)
+            } else if valid_tokens.is_empty() {
                 tracing::warn!(
                     "MCP_ALLOW_INSECURE_HTTP is set — HTTP endpoint has NO authentication. \
                      Do not expose this to untrusted networks."

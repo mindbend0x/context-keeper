@@ -31,9 +31,11 @@ services:
       MCP_HTTP_PORT: "4337"
       MCP_HTTP_HOST: "0.0.0.0"
       # Auth — set MCP_AUTH_TOKENS via the deployment platform, or
-      # set MCP_ALLOW_INSECURE_HTTP=1 to opt in to unauthenticated mode.
+      # set MCP_ALLOW_INSECURE_HTTP=1 to opt in to unauthenticated mode,
+      # or set MCP_OAUTH_ISSUER to enable OAuth 2.1.
       MCP_AUTH_TOKENS: "${MCP_AUTH_TOKENS:-}"
       MCP_ALLOW_INSECURE_HTTP: "${MCP_ALLOW_INSECURE_HTTP:-}"
+      MCP_OAUTH_ISSUER: "${MCP_OAUTH_ISSUER:-}"
       # LLM — omit keys to use mock extraction (no API calls)
       OPENAI_API_URL: "${OPENAI_API_URL:-}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
