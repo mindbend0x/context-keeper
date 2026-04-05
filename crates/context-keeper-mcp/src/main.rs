@@ -290,7 +290,10 @@ async fn main() -> Result<()> {
                 let cors = CorsLayer::new()
                     .allow_origin(Any)
                     .allow_methods(Any)
-                    .allow_headers(Any);
+                    .allow_headers(Any)
+                    .expose_headers([
+                        "www-authenticate".parse().unwrap(),
+                    ]);
 
                 let oauth_routes = axum::Router::new()
                     .route(
@@ -303,7 +306,7 @@ async fn main() -> Result<()> {
                     )
                     .route("/oauth/register", post(oauth::oauth_register))
                     .route("/oauth/token", post(oauth::oauth_token))
-                    .layer(cors)
+                    .layer(cors.clone())
                     .with_state(oauth_cfg.clone());
 
                 let authorize_routes = axum::Router::new()
@@ -316,7 +319,8 @@ async fn main() -> Result<()> {
                     .layer(middleware::from_fn_with_state(
                         oauth_cfg.clone(),
                         oauth::unified_auth_middleware,
-                    ));
+                    ))
+                    .layer(cors);
 
                 tracing::info!(
                     issuer = %issuer,
