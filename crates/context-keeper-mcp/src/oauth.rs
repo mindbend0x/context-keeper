@@ -127,6 +127,14 @@ pub async fn authorization_server_metadata(
     metadata.scopes_supported = Some(vec!["mcp:tools".into()]);
     metadata.response_types_supported = Some(vec!["code".into()]);
     metadata.code_challenge_methods_supported = Some(vec!["S256".into(), "plain".into()]);
+    metadata.additional_fields.insert(
+        "grant_types_supported".into(),
+        serde_json::json!(["authorization_code", "refresh_token"]),
+    );
+    metadata.additional_fields.insert(
+        "token_endpoint_auth_methods_supported".into(),
+        serde_json::json!(["none"]),
+    );
     (StatusCode::OK, Json(metadata))
 }
 
@@ -136,7 +144,7 @@ pub async fn authorization_server_metadata(
 
 #[derive(Debug, Deserialize)]
 pub struct RegistrationRequest {
-    client_name: String,
+    client_name: Option<String>,
     redirect_uris: Vec<String>,
     #[serde(default)]
     #[allow(dead_code)]
@@ -145,8 +153,10 @@ pub struct RegistrationRequest {
     #[allow(dead_code)]
     response_types: Vec<String>,
     #[serde(default)]
-    #[allow(dead_code)]
     token_endpoint_auth_method: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    scope: Option<String>,
 }
 
 pub async fn oauth_register(
@@ -165,11 +175,22 @@ pub async fn oauth_register(
     }
 
     let client_id = format!("client-{}", Uuid::new_v4());
-    let client_secret = random_string(32);
+    let is_public = req
+        .token_endpoint_auth_method
+        .as_deref()
+        .map(|m| m == "none")
+        .unwrap_or(true);
 
-    let client =
+    let client = if is_public {
         OAuthClientConfig::new(client_id.clone(), req.redirect_uris[0].clone())
-            .with_client_secret(client_secret.clone());
+    } else {
+        let secret = random_string(32);
+        OAuthClientConfig::new(client_id.clone(), req.redirect_uris[0].clone())
+            .with_client_secret(secret)
+    };
+
+    let client_secret = client.client_secret.clone();
+    let display_name = req.client_name.as_deref().unwrap_or("unnamed");
 
     cfg.oauth_store
         .clients
@@ -177,11 +198,15 @@ pub async fn oauth_register(
         .await
         .insert(client_id.clone(), client);
 
-    tracing::info!(client_id = %client_id, name = %req.client_name, "OAuth client registered");
+    tracing::info!(client_id = %client_id, name = %display_name, public = %is_public, "OAuth client registered");
 
     let mut response = ClientRegistrationResponse::new(client_id, req.redirect_uris);
-    response.client_secret = Some(client_secret);
-    response.client_name = Some(req.client_name);
+    response.client_secret = client_secret;
+    response.client_name = req.client_name;
+    response.additional_fields.insert(
+        "token_endpoint_auth_method".into(),
+        serde_json::json!(if is_public { "none" } else { "client_secret_post" }),
+    );
 
     (StatusCode::CREATED, Json(response)).into_response()
 }
@@ -205,6 +230,12 @@ pub async fn oauth_authorize(
     Query(params): Query<AuthorizeQuery>,
     State(cfg): State<OAuthConfig>,
 ) -> impl IntoResponse {
+    tracing::info!(
+        client_id = %params.client_id,
+        has_pkce = params.code_challenge.is_some(),
+        "Authorization request received"
+    );
+
     if params.response_type != "code" {
         return (
             StatusCode::BAD_REQUEST,
@@ -333,15 +364,32 @@ pub struct TokenRequest {
     #[serde(default)]
     #[allow(dead_code)]
     refresh_token: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    resource: Option<String>,
 }
 
 pub async fn oauth_token(
     State(cfg): State<OAuthConfig>,
     request: Request<Body>,
 ) -> impl IntoResponse {
+    let content_type = request
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
+    let auth_header = request
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     let bytes = match axum::body::to_bytes(request.into_body(), 1024 * 64).await {
         Ok(b) => b,
-        Err(_) => {
+        Err(e) => {
+            tracing::warn!("Token request body read error: {e}");
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({"error": "invalid_request"})),
@@ -350,9 +398,21 @@ pub async fn oauth_token(
         }
     };
 
+    tracing::debug!(
+        content_type = %content_type,
+        has_auth_header = auth_header.is_some(),
+        body_len = bytes.len(),
+        "Token exchange request received"
+    );
+
     let token_req: TokenRequest = match serde_urlencoded::from_bytes(&bytes) {
         Ok(r) => r,
         Err(e) => {
+            tracing::warn!(
+                error = %e,
+                body = %String::from_utf8_lossy(&bytes),
+                "Token request form decode failed"
+            );
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
@@ -365,6 +425,7 @@ pub async fn oauth_token(
     };
 
     if token_req.grant_type != "authorization_code" {
+        tracing::warn!(grant_type = %token_req.grant_type, "Unsupported grant type");
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -375,13 +436,32 @@ pub async fn oauth_token(
             .into_response();
     }
 
+    let mut effective_client_id = token_req.client_id.clone();
+    if effective_client_id.is_empty() {
+        if let Some(ref auth) = auth_header {
+            if let Some(basic) = auth.strip_prefix("Basic ") {
+                if let Ok(decoded) = base64_decode(basic) {
+                    if let Some((cid, _)) = decoded.split_once(':') {
+                        effective_client_id = cid.to_string();
+                    }
+                }
+            }
+        }
+    }
+
     let sessions = cfg.oauth_store.auth_sessions.read().await;
     let session = sessions.values().find(|s| {
         s.auth_code.as_deref() == Some(&token_req.code)
-            && (token_req.client_id.is_empty() || s.client_id == token_req.client_id)
+            && (effective_client_id.is_empty() || s.client_id == effective_client_id)
     });
 
     let Some(session) = session else {
+        tracing::warn!(
+            code_prefix = token_req.code.get(..20).unwrap_or(&token_req.code),
+            client_id = %effective_client_id,
+            session_count = sessions.len(),
+            "Token exchange failed: no matching session for code"
+        );
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -411,6 +491,12 @@ pub async fn oauth_token(
         };
 
         if !valid {
+            tracing::warn!(
+                method = method,
+                has_verifier = !verifier.is_empty(),
+                client_id = %session.client_id,
+                "PKCE verification failed"
+            );
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
@@ -441,15 +527,23 @@ pub async fn oauth_token(
 
     tracing::info!(client_id = %session.client_id, "Access token issued");
 
+    let mut body = serde_json::json!({
+        "access_token": access_token,
+        "token_type": "Bearer",
+        "expires_in": 3600,
+        "refresh_token": refresh_token,
+    });
+    if let Some(scope) = &session.scope {
+        body["scope"] = serde_json::json!(scope);
+    }
+
     (
         StatusCode::OK,
-        Json(serde_json::json!({
-            "access_token": access_token,
-            "token_type": "Bearer",
-            "expires_in": 3600,
-            "refresh_token": refresh_token,
-            "scope": session.scope,
-        })),
+        [
+            ("cache-control", "no-store"),
+            ("pragma", "no-cache"),
+        ],
+        Json(body),
     )
         .into_response()
 }
@@ -457,6 +551,14 @@ pub async fn oauth_token(
 fn base64_url_encode(bytes: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn base64_decode(input: &str) -> Result<String, ()> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(input.trim())
+        .map_err(|_| ())?;
+    String::from_utf8(bytes).map_err(|_| ())
 }
 
 // ---------------------------------------------------------------------------
@@ -470,6 +572,8 @@ pub async fn unified_auth_middleware(
 ) -> Response {
     use subtle::ConstantTimeEq;
 
+    let path = req.uri().path().to_string();
+
     if let Some(auth) = req.headers().get("authorization") {
         if let Ok(auth_str) = auth.to_str() {
             if let Some(token) = auth_str.strip_prefix("Bearer ") {
@@ -479,14 +583,24 @@ pub async fn unified_auth_middleware(
                     .iter()
                     .any(|t| t.as_bytes().ct_eq(token_bytes).into())
                 {
+                    tracing::debug!(path = %path, "Authenticated via static token");
                     return next.run(req).await;
                 }
 
                 if cfg.oauth_store.validate_token(token).await.is_some() {
+                    tracing::debug!(path = %path, "Authenticated via OAuth token");
                     return next.run(req).await;
                 }
+
+                tracing::debug!(
+                    path = %path,
+                    token_prefix = token.get(..20).unwrap_or(token),
+                    "Bearer token rejected (no match)"
+                );
             }
         }
+    } else {
+        tracing::debug!(path = %path, "No Authorization header, returning 401 with OAuth discovery");
     }
 
     let resource_metadata_url = format!(
