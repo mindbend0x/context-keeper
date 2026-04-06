@@ -28,6 +28,14 @@ struct Cli {
     /// Skip LLM-as-Judge answer evaluation (faster, no extra LLM calls for scoring).
     #[arg(long, default_value_t = false)]
     no_judge: bool,
+
+    /// Generate a self-contained HTML dashboard at this path.
+    #[arg(long)]
+    html: Option<PathBuf>,
+
+    /// Previous JSON result files for the trend chart (repeatable).
+    #[arg(long = "history")]
+    history: Vec<PathBuf>,
 }
 
 #[tokio::main]
@@ -89,6 +97,14 @@ async fn main() -> anyhow::Result<()> {
     } else if cli.json_only {
         let json = context_keeper_bench::report::to_json(&results)?;
         println!("{json}");
+    }
+
+    if let Some(html_path) = &cli.html {
+        let history_refs: Vec<&std::path::Path> =
+            cli.history.iter().map(|p| p.as_path()).collect();
+        let html = context_keeper_bench::report::to_html(&results, &history_refs)?;
+        std::fs::write(html_path, &html)?;
+        tracing::info!(path = %html_path.display(), "HTML dashboard written");
     }
 
     Ok(())

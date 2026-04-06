@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
 use context_keeper_core::traits::{ExtractedEntity, ExtractedRelation};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::{DetailedInput, ExpectedRelation};
 
 /// Quality metrics for a single benchmark iteration.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualityMetrics {
     pub entity_precision: f64,
     pub entity_recall: f64,
@@ -247,7 +247,7 @@ pub fn answer_f1(gold: &str, predicted: &str) -> f64 {
 }
 
 /// Answer-level scoring result.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnswerScore {
     pub exact_match: bool,
     pub f1: f64,
