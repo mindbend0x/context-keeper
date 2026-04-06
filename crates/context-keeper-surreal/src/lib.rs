@@ -1,11 +1,13 @@
 pub mod client;
 pub mod repository;
 pub mod schema;
+pub mod tenant_router;
 pub mod vector_store;
 
 pub use client::{connect, connect_memory, StorageBackend, SurrealConfig};
 pub use repository::Repository;
 pub use schema::apply_schema;
+pub use tenant_router::{TenantRouter, DEFAULT_TENANT_ID};
 
 /// Returns the default storage backend string: `rocksdb:~/.context-keeper/data`
 /// with `~` expanded to the actual home directory.

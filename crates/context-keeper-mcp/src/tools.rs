@@ -3,18 +3,18 @@
 //! Each tool corresponds to a capability exposed to MCP clients
 //! (Claude Desktop, Cursor, etc.).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use context_keeper_core::{
     ingestion,
-    models::{AgentInfo, Episode},
-    search::{fuse_rrf, QueryExpander},
+    models::{AgentInfo, Episode, Note},
+    search::{fuse_rrf, fuse_rrf_mixed, QueryExpander},
     traits::{Embedder, EntityExtractor, EntityResolver, QueryRewriter, RelationExtractor},
     ContextKeeperError,
 };
-use context_keeper_surreal::Repository;
+use context_keeper_surreal::{Repository, TenantRouter, DEFAULT_TENANT_ID};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
@@ -24,6 +24,8 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use crate::tenant::TenantContext;
 
 fn to_mcp(err: ContextKeeperError) -> McpError {
     match err {
@@ -121,6 +123,70 @@ pub struct CrossNamespaceSearchInput {
     pub entity_type: Option<String>,
 }
 
+// ── Note tool inputs ─────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SaveNoteInput {
+    #[schemars(
+        description = "A unique key for this note. If a note with this key already exists in the same namespace, its content will be updated."
+    )]
+    pub key: String,
+    #[schemars(description = "The text content to store as a note")]
+    pub content: String,
+    #[schemars(description = "Optional tags to categorize the note for filtering")]
+    pub tags: Option<Vec<String>>,
+    #[schemars(
+        description = "Namespace to scope this note to. Omit for the default global namespace."
+    )]
+    pub namespace: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetNoteInput {
+    #[schemars(description = "The key of the note to retrieve")]
+    pub key: String,
+    #[schemars(
+        description = "Namespace to look up in. Omit for the default global namespace."
+    )]
+    pub namespace: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SearchNotesInput {
+    #[schemars(description = "The search query string")]
+    pub query: String,
+    #[schemars(description = "Filter notes that have any of these tags")]
+    pub tags: Option<Vec<String>>,
+    #[schemars(description = "Maximum number of results to return (default: 10)")]
+    pub limit: Option<usize>,
+    #[schemars(
+        description = "Namespace to search within. Omit for the default global namespace."
+    )]
+    pub namespace: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListNotesInput {
+    #[schemars(description = "Filter notes that have any of these tags")]
+    pub tags: Option<Vec<String>>,
+    #[schemars(description = "Maximum number of notes to return (default: 20)")]
+    pub limit: Option<usize>,
+    #[schemars(
+        description = "Namespace to list notes from. Omit for the default global namespace."
+    )]
+    pub namespace: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DeleteNoteInput {
+    #[schemars(description = "The key of the note to delete")]
+    pub key: String,
+    #[schemars(
+        description = "Namespace of the note. Omit for the default global namespace."
+    )]
+    pub namespace: Option<String>,
+}
+
 // ── Serializable response types ──────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -158,6 +224,8 @@ struct SearchResultItem {
     name: String,
     entity_type: String,
     summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    memory_content: Option<String>,
     score: f32,
 }
 
@@ -202,12 +270,33 @@ struct MemoryItem {
     created_at: String,
 }
 
+#[derive(Debug, Serialize)]
+struct NoteItem {
+    key: String,
+    content: String,
+    tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    namespace: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ScoredNoteItem {
+    key: String,
+    content: String,
+    tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    namespace: Option<String>,
+    score: f64,
+}
+
 // ── MCP Server ───────────────────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct ContextKeeperServer {
     tool_router: ToolRouter<Self>,
-    repo: Repository,
+    tenant_router: Arc<TenantRouter>,
     embedder: Arc<dyn Embedder>,
     entity_extractor: Arc<dyn EntityExtractor>,
     relation_extractor: Arc<dyn RelationExtractor>,
@@ -216,7 +305,7 @@ pub struct ContextKeeperServer {
 
 impl ContextKeeperServer {
     pub fn new(
-        repo: Repository,
+        tenant_router: Arc<TenantRouter>,
         embedder: Arc<dyn Embedder>,
         entity_extractor: Arc<dyn EntityExtractor>,
         relation_extractor: Arc<dyn RelationExtractor>,
@@ -224,12 +313,30 @@ impl ContextKeeperServer {
     ) -> Self {
         Self {
             tool_router: Self::tool_router(),
-            repo,
+            tenant_router,
             embedder,
             entity_extractor,
             relation_extractor,
             query_rewriter,
         }
+    }
+
+    /// Extract the tenant-scoped [`Repository`] from rmcp request extensions.
+    ///
+    /// For HTTP: `TenantContext` was inserted into `http::request::Parts` by
+    /// auth middleware; rmcp stores Parts in `RequestContext.extensions`.
+    /// For stdio: falls back to the default tenant.
+    async fn repo_for(&self, ctx: &RequestContext<RoleServer>) -> Result<Repository, McpError> {
+        let tenant_id = ctx
+            .extensions
+            .get::<http::request::Parts>()
+            .and_then(|parts| parts.extensions.get::<TenantContext>())
+            .map(|tc| tc.tenant_id.as_str())
+            .unwrap_or(DEFAULT_TENANT_ID);
+        self.tenant_router
+            .get_or_create(tenant_id)
+            .await
+            .map_err(to_mcp)
     }
 }
 
@@ -243,8 +350,10 @@ impl ContextKeeperServer {
     )]
     async fn add_memory(
         &self,
+        ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<AddMemoryInput>,
     ) -> Result<String, McpError> {
+        let repo = self.repo_for(&ctx).await?;
         let source = input.source.unwrap_or_else(|| "mcp".to_string());
         let agent = input.agent_id.map(|id| AgentInfo {
             agent_id: id,
@@ -261,7 +370,7 @@ impl ContextKeeperServer {
             created_at: Utc::now(),
         };
 
-        let resolver: &dyn EntityResolver = &self.repo;
+        let resolver: &dyn EntityResolver = &repo;
         let result = ingestion::ingest(
             &episode,
             self.embedder.as_ref(),
@@ -275,7 +384,7 @@ impl ContextKeeperServer {
         .map_err(to_mcp)?;
 
         for inv in &result.diff.entities_invalidated {
-            self.repo
+            repo
                 .invalidate_entity(inv.invalidated_id)
                 .await
                 .map_err(to_mcp)?;
@@ -283,28 +392,27 @@ impl ContextKeeperServer {
 
         let mut relations_invalidated = 0usize;
         for entity_id in &result.diff.entity_ids_to_invalidate_relations {
-            relations_invalidated += self
-                .repo
+            relations_invalidated += repo
                 .invalidate_relations_for_entity(*entity_id)
                 .await
                 .map_err(to_mcp)?;
         }
 
-        self.repo.create_episode(&episode).await.map_err(to_mcp)?;
+        repo.create_episode(&episode).await.map_err(to_mcp)?;
 
         for entity in &result.entities {
-            self.repo.upsert_entity(entity).await.map_err(to_mcp)?;
+            repo.upsert_entity(entity).await.map_err(to_mcp)?;
         }
 
         let mut relations_merged = 0usize;
         for relation in &result.relations {
-            let created = self.repo.create_relation(relation).await.map_err(to_mcp)?;
+            let created = repo.create_relation(relation).await.map_err(to_mcp)?;
             if !created {
                 relations_merged += 1;
             }
         }
         for memory in &result.memories {
-            self.repo.create_memory(memory).await.map_err(to_mcp)?;
+            repo.create_memory(memory).await.map_err(to_mcp)?;
         }
 
         let response = AddMemoryResponse {
@@ -349,42 +457,49 @@ impl ContextKeeperServer {
     )]
     async fn search_memory(
         &self,
+        ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<SearchMemoryInput>,
     ) -> Result<String, McpError> {
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(5);
         let type_filter = input.entity_type.as_deref();
         let ns = input.namespace.as_deref();
 
         let query_embedding = self.embedder.embed(&input.query).await.map_err(to_mcp)?;
 
-        let vector_results = self
-            .repo
+        let entity_vector = repo
             .search_entities_by_vector(&query_embedding, limit, type_filter, ns)
             .await
             .map_err(to_mcp)?;
-
-        let keyword_results = self
-            .repo
+        let entity_keyword = repo
             .search_entities_by_keyword(&input.query, type_filter, ns)
             .await
             .map_err(to_mcp)?;
 
-        let fused = fuse_rrf(vec![
-            vector_results.into_iter().map(|(e, _)| e).collect(),
-            keyword_results,
-        ]);
+        let memory_vector = repo
+            .search_memories_by_vector(&query_embedding, limit, ns)
+            .await
+            .map_err(to_mcp)?;
+        let memory_keyword = repo
+            .search_memories_by_keyword(&input.query, ns)
+            .await
+            .map_err(to_mcp)?;
+
+        let fused = fuse_rrf_mixed(
+            vec![
+                entity_vector.into_iter().map(|(e, _)| e).collect(),
+                entity_keyword,
+            ],
+            vec![
+                memory_vector.into_iter().map(|(m, _)| m).collect(),
+                memory_keyword,
+            ],
+        );
 
         let items: Vec<SearchResultItem> = fused
             .iter()
             .take(limit)
-            .filter_map(|r| {
-                r.entity.as_ref().map(|e| SearchResultItem {
-                    name: e.name.clone(),
-                    entity_type: e.entity_type.to_string(),
-                    summary: e.summary.clone(),
-                    score: r.score,
-                })
-            })
+            .filter_map(search_result_to_item)
             .collect();
 
         serde_json::to_string_pretty(&items)
@@ -398,8 +513,10 @@ impl ContextKeeperServer {
     )]
     async fn expand_search(
         &self,
+        ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<ExpandSearchInput>,
     ) -> Result<String, McpError> {
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(10);
         let type_filter = input.entity_type.as_deref();
         let ns = input.namespace.as_deref();
@@ -410,39 +527,41 @@ impl ContextKeeperServer {
             .await
             .map_err(to_mcp)?;
 
-        let mut ranked_lists = Vec::new();
+        let mut entity_lists = Vec::new();
+        let mut memory_lists = Vec::new();
         for variant in &variants {
             let query_embedding = self.embedder.embed(variant).await.map_err(to_mcp)?;
 
-            let vector_results = self
-                .repo
+            let entity_vector = repo
                 .search_entities_by_vector(&query_embedding, limit, type_filter, ns)
                 .await
                 .map_err(to_mcp)?;
-
-            let keyword_results = self
-                .repo
+            let entity_keyword = repo
                 .search_entities_by_keyword(variant, type_filter, ns)
                 .await
                 .map_err(to_mcp)?;
 
-            ranked_lists.push(vector_results.into_iter().map(|(e, _)| e).collect());
-            ranked_lists.push(keyword_results);
+            let memory_vector = repo
+                .search_memories_by_vector(&query_embedding, limit, ns)
+                .await
+                .map_err(to_mcp)?;
+            let memory_keyword = repo
+                .search_memories_by_keyword(variant, ns)
+                .await
+                .map_err(to_mcp)?;
+
+            entity_lists.push(entity_vector.into_iter().map(|(e, _)| e).collect());
+            entity_lists.push(entity_keyword);
+            memory_lists.push(memory_vector.into_iter().map(|(m, _)| m).collect());
+            memory_lists.push(memory_keyword);
         }
 
-        let fused = fuse_rrf(ranked_lists);
+        let fused = fuse_rrf_mixed(entity_lists, memory_lists);
 
         let items: Vec<SearchResultItem> = fused
             .iter()
             .take(limit)
-            .filter_map(|r| {
-                r.entity.as_ref().map(|e| SearchResultItem {
-                    name: e.name.clone(),
-                    entity_type: e.entity_type.to_string(),
-                    summary: e.summary.clone(),
-                    score: r.score,
-                })
-            })
+            .filter_map(search_result_to_item)
             .collect();
 
         serde_json::to_string_pretty(&items)
@@ -455,10 +574,11 @@ impl ContextKeeperServer {
     )]
     async fn get_entity(
         &self,
+        ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<GetEntityInput>,
     ) -> Result<String, McpError> {
-        let entities = self
-            .repo
+        let repo = self.repo_for(&ctx).await?;
+        let entities = repo
             .find_entities_by_name(&input.name, None, input.namespace.as_deref())
             .await
             .map_err(to_mcp)?;
@@ -469,8 +589,7 @@ impl ContextKeeperServer {
 
         let mut details = Vec::new();
         for entity in &entities {
-            let relations = self
-                .repo
+            let relations = repo
                 .get_relations_for_entity(entity.id)
                 .await
                 .map_err(to_mcp)?;
@@ -479,8 +598,7 @@ impl ContextKeeperServer {
                 .iter()
                 .flat_map(|r| [r.from_entity_id, r.to_entity_id])
                 .collect();
-            let related_entities = self
-                .repo
+            let related_entities = repo
                 .get_entities_by_ids(&related_ids)
                 .await
                 .map_err(to_mcp)?;
@@ -522,16 +640,18 @@ impl ContextKeeperServer {
     )]
     async fn snapshot(
         &self,
+        ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<SnapshotInput>,
     ) -> Result<String, McpError> {
+        let repo = self.repo_for(&ctx).await?;
         let at: DateTime<Utc> = input
             .timestamp
             .parse()
             .map_err(|e| McpError::invalid_params(format!("Invalid timestamp: {e}"), None))?;
 
-        let entities = self.repo.entities_at(at).await.map_err(to_mcp)?;
+        let entities = repo.entities_at(at).await.map_err(to_mcp)?;
 
-        let relations = self.repo.relations_at(at).await.map_err(to_mcp)?;
+        let relations = repo.relations_at(at).await.map_err(to_mcp)?;
 
         let response = SnapshotResponse {
             timestamp: at.to_rfc3339(),
@@ -557,12 +677,13 @@ impl ContextKeeperServer {
     )]
     async fn list_recent(
         &self,
+        ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<ListRecentInput>,
     ) -> Result<String, McpError> {
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(10);
 
-        let memories = self
-            .repo
+        let memories = repo
             .list_recent_memories(limit)
             .await
             .map_err(to_mcp)?;
@@ -583,8 +704,9 @@ impl ContextKeeperServer {
     #[tool(
         description = "List all AI agents that have contributed to the knowledge graph, including their namespaces and episode counts. Useful for multi-agent setups to see who has been writing memories."
     )]
-    async fn list_agents(&self) -> Result<String, McpError> {
-        let agents = self.repo.list_agents().await.map_err(to_mcp)?;
+    async fn list_agents(&self, ctx: RequestContext<RoleServer>) -> Result<String, McpError> {
+        let repo = self.repo_for(&ctx).await?;
+        let agents = repo.list_agents().await.map_err(to_mcp)?;
 
         if agents.is_empty() {
             return Ok("No agents have contributed to the knowledge graph yet.".to_string());
@@ -598,8 +720,9 @@ impl ContextKeeperServer {
     #[tool(
         description = "List all namespaces in the knowledge graph with entity counts. Namespaces partition the graph so different projects or teams can have isolated memory spaces."
     )]
-    async fn list_namespaces(&self) -> Result<String, McpError> {
-        let namespaces = self.repo.list_namespaces().await.map_err(to_mcp)?;
+    async fn list_namespaces(&self, ctx: RequestContext<RoleServer>) -> Result<String, McpError> {
+        let repo = self.repo_for(&ctx).await?;
+        let namespaces = repo.list_namespaces().await.map_err(to_mcp)?;
 
         if namespaces.is_empty() {
             return Ok(
@@ -617,11 +740,12 @@ impl ContextKeeperServer {
     )]
     async fn agent_activity(
         &self,
+        ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<AgentActivityInput>,
     ) -> Result<String, McpError> {
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(20);
-        let episodes = self
-            .repo
+        let episodes = repo
             .list_episodes_by_agent(&input.agent_id, limit)
             .await
             .map_err(to_mcp)?;
@@ -648,50 +772,58 @@ impl ContextKeeperServer {
 
     /// Search across all namespaces regardless of the caller's default namespace.
     #[tool(
-        description = "Search the entire knowledge graph across all namespaces using hybrid vector + keyword search. Unlike search_memory, this always searches globally, ignoring namespace scoping."
+        description = "Search across all application-level namespaces within the current tenant's knowledge graph using hybrid vector + keyword search. Unlike search_memory, this always searches globally across namespaces, ignoring namespace scoping. Scoped to the authenticated tenant's data boundary."
     )]
     async fn cross_namespace_search(
         &self,
+        ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<CrossNamespaceSearchInput>,
     ) -> Result<String, McpError> {
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(10);
         let type_filter = input.entity_type.as_deref();
 
         let query_embedding = self.embedder.embed(&input.query).await.map_err(to_mcp)?;
 
-        let vector_results = self
-            .repo
+        let entity_vector = repo
             .search_entities_by_vector(&query_embedding, limit, type_filter, None)
             .await
             .map_err(to_mcp)?;
-
-        let keyword_results = self
-            .repo
+        let entity_keyword = repo
             .search_entities_by_keyword(&input.query, type_filter, None)
             .await
             .map_err(to_mcp)?;
 
-        let fused = fuse_rrf(vec![
-            vector_results.into_iter().map(|(e, _)| e).collect(),
-            keyword_results,
-        ]);
+        let memory_vector = repo
+            .search_memories_by_vector(&query_embedding, limit, None)
+            .await
+            .map_err(to_mcp)?;
+        let memory_keyword = repo
+            .search_memories_by_keyword(&input.query, None)
+            .await
+            .map_err(to_mcp)?;
+
+        let fused = fuse_rrf_mixed(
+            vec![
+                entity_vector.into_iter().map(|(e, _)| e).collect(),
+                entity_keyword,
+            ],
+            vec![
+                memory_vector.into_iter().map(|(m, _)| m).collect(),
+                memory_keyword,
+            ],
+        );
 
         let items: Vec<SearchResultItem> = fused
             .iter()
             .take(limit)
-            .filter_map(|r| {
-                r.entity.as_ref().map(|e| SearchResultItem {
-                    name: e.name.clone(),
-                    entity_type: e.entity_type.to_string(),
-                    summary: e.summary.clone(),
-                    score: r.score,
-                })
-            })
+            .filter_map(search_result_to_item)
             .collect();
 
         serde_json::to_string_pretty(&items)
             .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
     }
+
 }
 
 #[tool_handler]
@@ -715,7 +847,7 @@ impl ServerHandler for ContextKeeperServer {
              snapshot for point-in-time queries, and list_recent for recent memories. \
              For multi-agent workflows: list_agents shows contributing agents, list_namespaces \
              shows available scopes, agent_activity shows a specific agent's contributions, and \
-             cross_namespace_search searches globally across all namespaces.",
+             cross_namespace_search searches globally across all namespaces within a tenant.",
         )
     }
 
@@ -724,8 +856,9 @@ impl ServerHandler for ContextKeeperServer {
     async fn list_resources(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
+        let repo = self.repo_for(&context).await?;
         let mut resources: Vec<Resource> = vec![RawResource {
             uri: "memory://recent".into(),
             name: "recent-memories".into(),
@@ -738,7 +871,7 @@ impl ServerHandler for ContextKeeperServer {
         }
         .no_annotation()];
 
-        let entities = self.repo.get_all_active_entities().await.map_err(to_mcp)?;
+        let entities = repo.get_all_active_entities().await.map_err(to_mcp)?;
 
         for entity in &entities {
             resources.push(
@@ -791,12 +924,13 @@ impl ServerHandler for ContextKeeperServer {
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, McpError> {
+        let repo = self.repo_for(&context).await?;
         let uri = &request.uri;
 
         if uri == "memory://recent" {
-            let memories = self.repo.list_recent_memories(20).await.map_err(to_mcp)?;
+            let memories = repo.list_recent_memories(20).await.map_err(to_mcp)?;
 
             let items: Vec<MemoryItem> = memories
                 .iter()
@@ -816,8 +950,7 @@ impl ServerHandler for ContextKeeperServer {
         }
 
         if let Some(name) = uri.strip_prefix("memory://entity/") {
-            let entities = self
-                .repo
+            let entities = repo
                 .find_entities_by_name(name, None, None)
                 .await
                 .map_err(to_mcp)?;
@@ -831,8 +964,7 @@ impl ServerHandler for ContextKeeperServer {
 
             let mut details = Vec::new();
             for entity in &entities {
-                let relations = self
-                    .repo
+                let relations = repo
                     .get_relations_for_entity(entity.id)
                     .await
                     .map_err(to_mcp)?;
@@ -841,8 +973,7 @@ impl ServerHandler for ContextKeeperServer {
                     .iter()
                     .flat_map(|r| [r.from_entity_id, r.to_entity_id])
                     .collect();
-                let related_entities = self
-                    .repo
+                let related_entities = repo
                     .get_entities_by_ids(&related_ids)
                     .await
                     .map_err(to_mcp)?;
