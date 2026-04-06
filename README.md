@@ -2,6 +2,20 @@
 
 Temporal knowledge graph memory for AI agents. Give Claude, Cursor, or any MCP-compatible assistant a persistent memory that tracks entities, relationships, and changes over time — no API key required to get started.
 
+## Demo
+
+See temporal reasoning in action — no API key or Docker required:
+
+```bash
+cargo run --example temporal_demo -p context-keeper-cli
+```
+
+<!-- asciinema player (uncomment once cast file is uploaded):
+[![asciicast](https://asciinema.org/a/PLACEHOLDER.svg)](https://asciinema.org/a/PLACEHOLDER)
+-->
+
+The demo ingests Alice and Bob at Acme Corp, updates Alice's job to BigCo, then shows that searches reflect the change while historical snapshots preserve the original state. Run with `-- --output results.json` to save latency metrics to a file.
+
 ## Quickstart: MCP Server (Claude Desktop / Cursor)
 
 **1. Install**
@@ -131,13 +145,27 @@ HTTP mode serves at `http://localhost:3000/mcp` by default (configurable via `--
 
 Ready-made setup for popular MCP clients:
 
+- **Claude Code** — Plugin with skills and MCP server registration. See [`plugins/claude/`](plugins/claude/).
 - **Claude Desktop** — One-command installer with stdio/HTTP support. See [`plugins/claude-desktop/`](plugins/claude-desktop/).
 - **Cursor / VS Code** — Extension with sidebar panel, search command, and add-from-selection. See [`plugins/cursor/`](plugins/cursor/).
 - **Obsidian** — Config template at [`configs/obsidian-mcp.json`](configs/obsidian-mcp.json).
 
 All integrations share the same `~/.context-keeper/data` RocksDB store by default, so memories are available across every client.
 
-Example config templates for quick manual setup live in [`configs/`](configs/).
+Example config templates for quick manual setup live in [`configs/`](configs/). For developers working from a clone, [`configs/claude-dev.json`](configs/claude-dev.json) runs `cargo run` directly without a pre-built binary.
+
+**Quick config for any client:**
+
+```bash
+# Claude Desktop (default)
+./scripts/configure-mcp.sh --api-url https://api.openai.com/v1 --api-key sk-...
+
+# Cursor
+./scripts/configure-mcp.sh --target cursor --api-url https://api.openai.com/v1 --api-key sk-...
+
+# Claude Code
+./scripts/configure-mcp.sh --target claude-code
+```
 
 ## Using Real LLM Extraction
 

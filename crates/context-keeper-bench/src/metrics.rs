@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::Operation;
 use crate::quality::{self, QualityMetrics};
 
 /// Metrics for a single iteration of a benchmark scenario.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IterationMetrics {
     pub latency: Duration,
     pub entity_count: Option<usize>,
@@ -56,7 +56,7 @@ impl IterationMetrics {
 }
 
 /// Aggregated results for one (scenario, provider) pair.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScenarioResult {
     pub scenario_name: String,
     pub provider_name: String,
@@ -243,7 +243,7 @@ impl ScenarioResult {
 }
 
 /// Pre-computed summary statistics.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AggregatedMetrics {
     pub total_iterations: usize,
     pub successful_iterations: usize,
@@ -280,7 +280,7 @@ fn avg_optional_f64(iter: impl Iterator<Item = f64>) -> Option<f64> {
 }
 
 /// Results from a multi-step behavioral scenario.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BehavioralResult {
     pub iterations: usize,
     pub total_latency: Duration,
@@ -401,7 +401,7 @@ impl BehavioralResult {
 }
 
 /// Verification result for a single search step in a behavioral scenario.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepVerification {
     pub query: String,
     pub found_entities: Vec<String>,

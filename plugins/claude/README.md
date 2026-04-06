@@ -8,12 +8,11 @@ Persistent temporal knowledge graph memory for AI agents. Gives Claude Code cros
 |-----------|------|-------------|
 | MCP Server | `.mcp.json` | Registers `context-keeper-mcp` as a stdio MCP server |
 | Skills | `skills/` | Reusable prompt fragments for common memory workflows |
-| Agents | `agents/` | Autonomous agent definitions (⚠️ planned) |
-| Hooks | `hooks/` | Event-driven hooks for automatic memory capture (⚠️ planned) |
+| Install Script | `scripts/install.sh` | Builds the binary and writes config |
 
 ## MCP Tools
 
-The plugin exposes six MCP tools via the `context-keeper` server:
+The plugin exposes these MCP tools via the `context-keeper` server:
 
 | Tool | Description |
 |------|-------------|
@@ -24,78 +23,46 @@ The plugin exposes six MCP tools via the `context-keeper` server:
 | `snapshot` | Point-in-time view of the knowledge graph at any timestamp |
 | `list_recent` | Retrieve the N most recently added memories |
 
-Additional tools are available for multi-agent workflows: `list_agents`, `list_namespaces`, `agent_activity`, and `cross_namespace_search`.
+Additional tools for multi-agent workflows: `list_agents`, `list_namespaces`, `agent_activity`, `cross_namespace_search`.
 
 ## Installation
 
-### Claude Code (plugin system)
+### Quick (Claude Code plugin system)
 
 ```bash
-claude plugin add context-keeper
-```
-
-Or clone and install locally:
-
-```bash
-git clone https://github.com/0x313/context-keeper
-cd context-keeper
 claude plugin add ./plugins/claude
 ```
 
-### Manual Setup
-
-Copy `.mcp.json` into your project root or `~/.claude/` directory:
+### Script
 
 ```bash
-cp plugins/claude/.mcp.json ~/.claude/.mcp.json
-```
-
-Ensure `context-keeper-mcp` is in your `PATH`, or edit `.mcp.json` to use an absolute path:
-
-```json
-{
-  "mcpServers": {
-    "context-keeper": {
-      "command": "/absolute/path/to/context-keeper-mcp",
-      "args": ["--transport", "stdio"],
-      "env": {
-        "STORAGE_BACKEND": "memory",
-        "DB_FILE_PATH": "context.sql"
-      }
-    }
-  }
-}
-```
-
-### Claude Desktop (legacy)
-
-Use the installer scripts in `scripts/`:
-
-```bash
-# macOS / Linux
+# Local project install
 ./plugins/claude/scripts/install.sh
 
-# Windows (PowerShell)
-.\plugins\claude\scripts\install.ps1
+# Global install
+./plugins/claude/scripts/install.sh --global
+
+# With LLM extraction
+./plugins/claude/scripts/install.sh --api-url https://api.openai.com/v1 --api-key sk-...
 ```
 
-See `scripts/config.stdio.json` and `scripts/config.http.json` for reference configurations.
+### Manual
 
-## Quick Start
+Copy `.mcp.json` into your project root or `~/.claude/`:
 
-Once installed, Claude Code automatically has access to the memory tools. Try:
-
-```
-Remember that our API uses JWT tokens with RS256 signing and tokens expire after 1 hour.
+```bash
+cp plugins/claude/.mcp.json .mcp.json
 ```
 
-Claude will call `add_memory` to store this. Later, in any session:
+Ensure `context-keeper-mcp` is in your `PATH`, or edit `.mcp.json` to use an absolute path.
 
-```
-What do we know about our authentication setup?
-```
+### Claude Desktop
 
-Claude will call `search_memory` to retrieve the stored context.
+Use the installer in `plugins/claude-desktop/`:
+
+```bash
+./plugins/claude-desktop/install.sh
+```
 
 ## Configuration
 
@@ -108,10 +75,9 @@ Environment variables in `.mcp.json`:
 | `OPENAI_API_URL` | — | OpenAI-compatible API URL (enables real entity extraction) |
 | `OPENAI_API_KEY` | — | API key for LLM services |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Model for vector embeddings |
-| `EMBEDDING_DIMS` | `1536` | Embedding vector dimensions |
 | `EXTRACTION_MODEL` | `gpt-4o-mini` | Model for entity/relation extraction |
 
-Without LLM credentials, the server runs in mock mode with keyword-only search (no embeddings or LLM extraction).
+Without LLM credentials, the server runs in mock mode with keyword-only search.
 
 ## Skills
 
@@ -120,22 +86,6 @@ Without LLM credentials, the server runs in mock mode with keyword-only search (
 | `search-context` | Deep multi-query context retrieval from the knowledge graph |
 | `save-session-context` | Capture session decisions, learnings, and trade-offs to memory |
 | `review-with-memory` | Memory-augmented code review: pre-search context, then save findings |
-
-## Agents
-
-| Agent | Model | Description |
-|-------|-------|-------------|
-| `memory-curator` | Haiku | Background agent that reviews and deduplicates stored memories |
-| `context-searcher` | Sonnet | Read-only research agent for deep multi-angle knowledge graph search |
-| `session-recorder` | Haiku | Summarizes session decisions and persists them to memory |
-
-## Hooks
-
-| Event | Trigger | Description |
-|-------|---------|-------------|
-| `SessionStart` | Session begins | Injects a context reminder to check memory before starting work |
-| `Stop` | Claude finishes | Logs session end timestamp to `~/.context-keeper/session-log.jsonl` |
-| `PostToolUse` | Write or Edit | Logs file write/edit events to the session log |
 
 ## License
 
