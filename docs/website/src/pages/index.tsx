@@ -21,7 +21,13 @@ function useScrollReveal() {
 }
 
 // ── Rotating words hook ─────────────────────────────────────────────
-const rotatingWords = ["AI agents", "coding assistants", "research tools", "chat apps", "dev workflows"];
+const rotatingWords = [
+  "AI agents", 
+  "coding assistants", 
+  "notetaking tools", 
+  "chat apps", 
+  "workflows",
+];
 
 function useRotatingWord(words: string[], intervalMs = 3000) {
   const [index, setIndex] = React.useState(0);
@@ -52,14 +58,14 @@ function Hero() {
           <span className="dot" /> Open source &middot; MIT License
         </div>
         <h1 className="hero-title">
-          Persistent memory for
+          Persistent memory across
           <br />
           <span className={`gradient-animated hero-rotating ${animate ? "hero-rotating-in" : "hero-rotating-out"}`}>
             {word}
           </span>
         </h1>
         <p className="hero-sub">
-          A temporal knowledge graph that gives MCP-compatible assistants the
+          CTX.K (Context Keeper) is a temporal knowledge graph that gives MCP-compatible assistants the
           ability to remember. Entities, relationships, and how they change over
           time &mdash; searchable, snapshotable, and built in Rust.
         </p>

@@ -52,7 +52,7 @@ const config: Config = {
     },
 
     navbar: {
-      title: "Context Keeper",
+      title: "CTX.K",
       style: "dark",
       items: [
         {
