@@ -15,25 +15,19 @@ env:
 
 jobs:
   build:
-    name: Build (${{ matrix.target }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: linux
-            runner: [self-hosted, fzc]
-          - target: macos
-            runner: macos-latest
+    name: Build
+    runs-on: [self-hosted, linux, fzc]
     steps:
       - uses: actions/checkout@v4
+      - name: Install mold linker
+        run: sudo apt-get install -y mold
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace
 
   fmt:
     name: Format
-    runs-on: [self-hosted, fzc]
+    runs-on: [self-hosted, linux, fzc]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -44,9 +38,11 @@ jobs:
   check:
     name: Clippy
     needs: fmt
-    runs-on: [self-hosted, fzc]
+    runs-on: [self-hosted, linux, fzc]
     steps:
       - uses: actions/checkout@v4
+      - name: Install mold linker
+        run: sudo apt-get install -y mold
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -56,9 +52,11 @@ jobs:
   test:
     name: Test
     needs: fmt
-    runs-on: [self-hosted, fzc]
+    runs-on: [self-hosted, linux, fzc]
     steps:
       - uses: actions/checkout@v4
+      - name: Install mold linker
+        run: sudo apt-get install -y mold
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace

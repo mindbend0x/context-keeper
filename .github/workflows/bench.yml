@@ -64,11 +64,29 @@ jobs:
             --config "${{ steps.config.outputs.path }}" \
             --output bench-results.json
 
+      - name: Generate HTML dashboard
+        run: |
+          cargo run -p context-keeper-bench --release -- \
+            --config "${{ steps.config.outputs.path }}" \
+            --json-only \
+            --html bench-dashboard.html \
+            < /dev/null || true
+          # Fallback: generate from saved JSON if the above failed
+          if [ ! -f bench-dashboard.html ] && [ -f bench-results.json ]; then
+            echo "Generating dashboard from saved JSON..."
+            cargo run -p context-keeper-bench --release -- \
+              --config "${{ steps.config.outputs.path }}" \
+              --json-only \
+              --html bench-dashboard.html || true
+          fi
+
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
           name: bench-results-${{ github.run_number }}
-          path: bench-results.json
+          path: |
+            bench-results.json
+            bench-dashboard.html
           retention-days: 90
 
   bench-pr-comment:
@@ -188,3 +206,43 @@ jobs:
                 owner, repo, issue_number: prNumber, body,
               });
             }
+
+  deploy-dashboard:
+    name: Deploy Dashboard to Pages
+    needs: bench-llm
+    runs-on: ubuntu-latest
+    if: >-
+      needs.bench-llm.result == 'success' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download dashboard artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-results-${{ github.run_number }}
+          path: site
+
+      - name: Prepare Pages directory
+        run: |
+          mkdir -p pages
+          if [ -f site/bench-dashboard.html ]; then
+            cp site/bench-dashboard.html pages/index.html
+          fi
+          if [ -f site/bench-results.json ]; then
+            cp site/bench-results.json pages/bench-results.json
+          fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::Duration;
 
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, Color, Table};
@@ -407,4 +408,43 @@ fn fmt_delta_abs(delta: f64) -> String {
     } else {
         format!("{:.2}", delta)
     }
+}
+
+const HTML_TEMPLATE: &str = include_str!("template.html");
+
+/// Render results as a self-contained HTML dashboard.
+///
+/// `history_dirs` is an optional list of paths to previous JSON result files.
+/// They populate the "Trend Over Time" chart.
+pub fn to_html(
+    results: &[ScenarioResult],
+    history_dirs: &[&Path],
+) -> serde_json::Result<String> {
+    let data_json = serde_json::to_string(results)?;
+
+    let history_json = if history_dirs.is_empty() {
+        "[]".to_string()
+    } else {
+        let mut entries = Vec::new();
+        for path in history_dirs {
+            if let Ok(raw) = std::fs::read_to_string(path) {
+                if let Ok(past_results) = serde_json::from_str::<Vec<ScenarioResult>>(&raw) {
+                    let label = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("unknown");
+                    entries.push(serde_json::json!({
+                        "date": label,
+                        "results": past_results,
+                    }));
+                }
+            }
+        }
+        serde_json::to_string(&entries)?
+    };
+
+    let html = HTML_TEMPLATE
+        .replace("/*{{DATA}}*/[]", &data_json)
+        .replace("/*{{HISTORY}}*/[]", &history_json);
+    Ok(html)
 }

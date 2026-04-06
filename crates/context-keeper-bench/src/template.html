@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Context Keeper — Benchmark Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e4e6eb;
+    --muted: #8b8fa3;
+    --accent: #3b82f6;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --orange: #f97316;
+    --purple: #a78bfa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+  header {
+    text-align: center;
+    padding: 3rem 0 2rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2rem;
+  }
+  header h1 { font-size: 2rem; font-weight: 700; }
+  header p { color: var(--muted); margin-top: .5rem; }
+  .meta { display: flex; justify-content: center; gap: 2rem; margin-top: 1rem; font-size: .85rem; color: var(--muted); }
+  .section { margin-bottom: 3rem; }
+  .section h2 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    padding-bottom: .5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .9rem;
+  }
+  th, td {
+    padding: .6rem .8rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  th { color: var(--muted); font-weight: 500; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
+  tr:hover td { background: rgba(59, 130, 246, 0.05); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--green); }
+  .warn { color: var(--yellow); }
+  .bad { color: var(--red); }
+  .chart-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 768px) { .chart-row { grid-template-columns: 1fr; } }
+  .empty { color: var(--muted); text-align: center; padding: 2rem; }
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: .8rem;
+    padding: 2rem 0;
+    border-top: 1px solid var(--border);
+    margin-top: 2rem;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Context Keeper Benchmark Dashboard</h1>
+    <p>Auto-generated from <code>ck-bench</code> results</p>
+    <div class="meta">
+      <span>Generated: <span id="genTime"></span></span>
+      <span>Scenarios: <span id="scenarioCount"></span></span>
+    </div>
+  </header>
+
+  <!-- Section 1: Accuracy Comparison -->
+  <div class="section" id="accuracy-section">
+    <h2>Accuracy Comparison</h2>
+    <table id="accuracy-table">
+      <thead>
+        <tr>
+          <th>Scenario</th><th>Provider</th><th>Operation</th>
+          <th class="num">OK</th><th class="num">Entity F1</th>
+          <th class="num">Type Acc</th><th class="num">Rel F1</th>
+          <th class="num">Consistency</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- Section 2: Latency -->
+  <div class="section" id="latency-section">
+    <h2>Latency Waterfall</h2>
+    <div class="chart-wrap">
+      <canvas id="latencyChart" height="300"></canvas>
+    </div>
+  </div>
+
+  <!-- Section 3: Cost -->
+  <div class="section" id="cost-section">
+    <h2>Token Cost</h2>
+    <div class="chart-wrap">
+      <canvas id="costChart" height="250"></canvas>
+    </div>
+  </div>
+
+  <!-- Section 4: Temporal Reasoning Spotlight -->
+  <div class="section" id="temporal-section">
+    <h2>Temporal Reasoning Spotlight</h2>
+    <table id="temporal-table">
+      <thead>
+        <tr>
+          <th>Scenario</th><th>Provider</th><th>Reasoning Type</th>
+          <th class="num">Checks</th><th class="num">Passed</th>
+          <th class="num">Accuracy</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="chart-wrap" style="margin-top:1rem;">
+      <canvas id="temporalChart" height="250"></canvas>
+    </div>
+  </div>
+
+  <!-- Section 5: Trend -->
+  <div class="section" id="trend-section">
+    <h2>Trend Over Time</h2>
+    <div class="chart-wrap">
+      <canvas id="trendChart" height="250"></canvas>
+    </div>
+  </div>
+
+  <footer>
+    Context Keeper &mdash; Temporal Knowledge Graph Memory for AI Agents
+  </footer>
+</div>
+
+<script>
+const DATA = /*{{DATA}}*/[];
+const HISTORY = /*{{HISTORY}}*/[];
+
+const chartDefaults = {
+  color: '#8b8fa3',
+  borderColor: '#2a2d3a',
+  backgroundColor: 'transparent',
+};
+Chart.defaults.color = chartDefaults.color;
+Chart.defaults.borderColor = chartDefaults.borderColor;
+
+document.getElementById('genTime').textContent = new Date().toLocaleString();
+document.getElementById('scenarioCount').textContent = DATA.length;
+
+function durMs(d) {
+  if (!d) return 0;
+  return (d.secs || 0) * 1000 + (d.nanos || 0) / 1e6;
+}
+function fmtMs(ms) {
+  if (ms === 0) return '-';
+  return ms < 1000 ? ms.toFixed(0) + 'ms' : (ms / 1000).toFixed(2) + 's';
+}
+function fmtPct(v) { return v != null ? (v * 100).toFixed(0) + '%' : '-'; }
+function pctClass(v) {
+  if (v == null) return '';
+  if (v >= 0.8) return 'good';
+  if (v >= 0.5) return 'warn';
+  return 'bad';
+}
+
+// ── Accuracy Table ─────────────────────────────────────────────────
+(function renderAccuracy() {
+  const tbody = document.querySelector('#accuracy-table tbody');
+  const regular = DATA.filter(r => !r.behavioral);
+  if (regular.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">No regular benchmark results</td></tr>';
+    return;
+  }
+  for (const r of regular) {
+    const ok = (r.iterations || []).filter(i => !i.error);
+    const total = (r.iterations || []).length;
+    const quals = ok.filter(i => i.quality);
+    const avgF1 = quals.length ? quals.reduce((s,i) => s + i.quality.entity_f1, 0) / quals.length : null;
+    const avgTypeAcc = quals.length ? quals.reduce((s,i) => s + (i.quality.entity_type_accuracy || 0), 0) / quals.length : null;
+    const avgRelF1 = quals.length ? quals.reduce((s,i) => s + (i.quality.relation_f1 || 0), 0) / quals.length : null;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.scenario_name}</td>
+      <td>${r.provider_name}</td>
+      <td>${r.operation}</td>
+      <td class="num">${ok.length}/${total}</td>
+      <td class="num ${pctClass(avgF1)}">${fmtPct(avgF1)}</td>
+      <td class="num ${pctClass(avgTypeAcc)}">${fmtPct(avgTypeAcc)}</td>
+      <td class="num ${pctClass(avgRelF1)}">${fmtPct(avgRelF1)}</td>
+      <td class="num">-</td>`;
+    tbody.appendChild(tr);
+  }
+})();
+
+// ── Latency Chart ──────────────────────────────────────────────────
+(function renderLatency() {
+  const regular = DATA.filter(r => !r.behavioral);
+  if (regular.length === 0) return;
+  const labels = regular.map(r => `${r.scenario_name} (${r.provider_name})`);
+  const computePercentile = (iters, pct) => {
+    const ok = iters.filter(i => !i.error).map(i => durMs(i.latency)).sort((a,b) => a - b);
+    if (!ok.length) return 0;
+    const idx = Math.min(Math.ceil(ok.length * pct) - 1, ok.length - 1);
+    return ok[idx];
+  };
+  const p50 = regular.map(r => computePercentile(r.iterations || [], 0.5));
+  const p95 = regular.map(r => computePercentile(r.iterations || [], 0.95));
+  const p99 = regular.map(r => computePercentile(r.iterations || [], 0.99));
+
+  new Chart(document.getElementById('latencyChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'p50', data: p50, backgroundColor: '#3b82f6' },
+        { label: 'p95', data: p95, backgroundColor: '#f97316' },
+        { label: 'p99', data: p99, backgroundColor: '#ef4444' },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'top' } },
+      scales: {
+        y: { title: { display: true, text: 'Latency (ms)' }, beginAtZero: true }
+      }
+    }
+  });
+})();
+
+// ── Cost Chart ─────────────────────────────────────────────────────
+(function renderCost() {
+  const withTokens = DATA.filter(r => {
+    const iters = r.iterations || [];
+    return iters.some(i => i.tokens_consumed);
+  });
+  const canvas = document.getElementById('costChart');
+  if (withTokens.length === 0) {
+    canvas.parentElement.innerHTML = '<p class="empty">No token consumption data available</p>';
+    return;
+  }
+  const labels = withTokens.map(r => `${r.scenario_name} (${r.provider_name})`);
+  const tokens = withTokens.map(r =>
+    (r.iterations || []).reduce((s,i) => s + (i.tokens_consumed || 0), 0)
+  );
+  new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ label: 'Total Tokens', data: tokens, backgroundColor: '#a78bfa' }]
+    },
+    options: {
+      responsive: true,
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { title: { display: true, text: 'Tokens' }, beginAtZero: true }
+      }
+    }
+  });
+})();
+
+// ── Temporal Reasoning ─────────────────────────────────────────────
+(function renderTemporal() {
+  const behavioral = DATA.filter(r => r.behavioral);
+  const tbody = document.querySelector('#temporal-table tbody');
+  const canvas = document.getElementById('temporalChart');
+
+  if (behavioral.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No behavioral scenario results</td></tr>';
+    canvas.parentElement.innerHTML = '<p class="empty">No temporal reasoning data</p>';
+    return;
+  }
+
+  const chartLabels = [];
+  const chartData = [];
+  const chartColors = [];
+  const palette = ['#3b82f6','#22c55e','#eab308','#ef4444','#a78bfa','#f97316'];
+  let ci = 0;
+
+  for (const r of behavioral) {
+    const beh = r.behavioral;
+    const typeStats = {};
+    for (const checks of (beh.verifications || [])) {
+      for (const v of checks) {
+        const rt = v.reasoning_type || 'unknown';
+        if (!typeStats[rt]) typeStats[rt] = { total: 0, passed: 0 };
+        typeStats[rt].total++;
+        if (v.pass) typeStats[rt].passed++;
+      }
+    }
+    for (const [rt, stats] of Object.entries(typeStats)) {
+      const rate = stats.total > 0 ? stats.passed / stats.total : 0;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${r.scenario_name}</td>
+        <td>${r.provider_name}</td>
+        <td>${rt}</td>
+        <td class="num">${stats.total}</td>
+        <td class="num">${stats.passed}</td>
+        <td class="num ${pctClass(rate)}">${fmtPct(rate)}</td>`;
+      tbody.appendChild(tr);
+      chartLabels.push(`${rt} (${r.provider_name})`);
+      chartData.push(+(rate * 100).toFixed(1));
+      chartColors.push(palette[ci % palette.length]);
+      ci++;
+    }
+  }
+
+  new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: chartLabels,
+      datasets: [{ label: 'Accuracy %', data: chartData, backgroundColor: chartColors }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { title: { display: true, text: 'Accuracy (%)' }, beginAtZero: true, max: 100 }
+      }
+    }
+  });
+})();
+
+// ── Trend Chart ────────────────────────────────────────────────────
+(function renderTrend() {
+  const canvas = document.getElementById('trendChart');
+  if (HISTORY.length === 0) {
+    canvas.parentElement.innerHTML = '<p class="empty">No historical data available. Run benchmarks over time to see trends.</p>';
+    return;
+  }
+  const labels = HISTORY.map(h => h.date || h.label || 'run');
+  const datasets = [];
+  const scenarioNames = [...new Set(HISTORY.flatMap(h => (h.results || []).map(r => r.scenario_name)))];
+  const palette = ['#3b82f6','#22c55e','#eab308','#ef4444','#a78bfa','#f97316'];
+
+  for (let si = 0; si < scenarioNames.length; si++) {
+    const name = scenarioNames[si];
+    const data = HISTORY.map(h => {
+      const match = (h.results || []).find(r => r.scenario_name === name && !r.behavioral);
+      if (!match) return null;
+      const ok = (match.iterations || []).filter(i => !i.error);
+      if (!ok.length) return null;
+      const latencies = ok.map(i => durMs(i.latency));
+      return latencies.reduce((a,b) => a + b, 0) / latencies.length;
+    });
+    datasets.push({
+      label: name,
+      data,
+      borderColor: palette[si % palette.length],
+      tension: 0.3,
+      fill: false,
+    });
+  }
+
+  new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'top' } },
+      scales: {
+        y: { title: { display: true, text: 'Mean Latency (ms)' }, beginAtZero: true }
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

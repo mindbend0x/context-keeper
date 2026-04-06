@@ -350,6 +350,28 @@ fn search_result_to_item(r: &context_keeper_core::models::SearchResult) -> Optio
 
 // ── MCP Server ───────────────────────────────────────────────────────────
 
+fn search_result_to_item(r: &context_keeper_core::models::SearchResult) -> Option<SearchResultItem> {
+    if let Some(e) = r.entity.as_ref() {
+        Some(SearchResultItem {
+            name: e.name.clone(),
+            entity_type: e.entity_type.to_string(),
+            summary: e.summary.clone(),
+            memory_content: None,
+            score: r.score,
+        })
+    } else if let Some(m) = r.memory.as_ref() {
+        Some(SearchResultItem {
+            name: "[memory]".to_string(),
+            entity_type: "memory".to_string(),
+            summary: m.content.clone(),
+            memory_content: Some(m.content.clone()),
+            score: r.score,
+        })
+    } else {
+        None
+    }
+}
+
 #[derive(Clone)]
 pub struct ContextKeeperServer {
     tool_router: ToolRouter<Self>,

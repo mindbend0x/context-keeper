@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "context-keeper": {
+      "command": "context-keeper-mcp",
+      "args": ["--transport", "stdio"],
+      "env": {
+        "STORAGE_BACKEND": "memory",
+        "DB_FILE_PATH": "context.sql"
+      }
+    }
+  }
+}
