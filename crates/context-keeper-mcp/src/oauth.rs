@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+use crate::tenant::{TenantContext, resolve_tenant};
 
 const CONSENT_HTML: &str = include_str!("html/consent.html");
 
@@ -49,6 +50,7 @@ pub struct McpAccessToken {
     pub refresh_token: String,
     pub scope: Option<String>,
     pub client_id: String,
+    pub tenant_id: Option<String>,
 }
 
 impl OAuthStore {
@@ -114,6 +116,7 @@ pub struct OAuthConfig {
     pub oauth_store: Arc<OAuthStore>,
     pub static_tokens: Arc<Vec<String>>,
     pub registration_token: Option<String>,
+    pub tenant_map: Arc<HashMap<String, String>>,
 }
 
 #[derive(Serialize)]
@@ -610,6 +613,7 @@ pub async fn oauth_token(
         refresh_token: refresh_token.clone(),
         scope: session.scope.clone(),
         client_id: session.client_id.clone(),
+        tenant_id: None,
     };
 
     cfg.oauth_store
@@ -676,12 +680,20 @@ pub async fn unified_auth_middleware(
                     .iter()
                     .any(|t| t.as_bytes().ct_eq(token_bytes).into())
                 {
-                    tracing::debug!(path = %path, "Authenticated via static token");
+                    let tenant_ctx = resolve_tenant(token, &cfg.tenant_map);
+                    tracing::debug!(path = %path, tenant = %tenant_ctx.tenant_id, "Authenticated via static token");
+                    req.extensions_mut().insert(tenant_ctx);
                     return next.run(req).await;
                 }
 
-                if let Some(_mcp_token) = cfg.oauth_store.validate_token(token).await {
-                    tracing::debug!(path = %path, "Authenticated via OAuth token");
+                if let Some(mcp_token) = cfg.oauth_store.validate_token(token).await {
+                    let tenant_ctx = mcp_token
+                        .tenant_id
+                        .as_ref()
+                        .map(|tid| TenantContext { tenant_id: tid.clone() })
+                        .unwrap_or_else(|| resolve_tenant(token, &cfg.tenant_map));
+                    tracing::debug!(path = %path, tenant = %tenant_ctx.tenant_id, "Authenticated via OAuth token");
+                    req.extensions_mut().insert(tenant_ctx);
                     return next.run(req).await;
                 }
 
@@ -754,6 +766,7 @@ mod tests {
             refresh_token: "ck-refresh-abc".into(),
             scope: Some("mcp:tools".into()),
             client_id: "test".into(),
+            tenant_id: None,
         };
 
         store

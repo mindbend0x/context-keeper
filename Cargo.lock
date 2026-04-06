@@ -918,6 +918,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "context-keeper-core",
+ "dashmap",
  "dirs",
  "serde",
  "serde_json",

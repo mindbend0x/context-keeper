@@ -14,7 +14,7 @@ use context_keeper_core::{
     traits::{Embedder, EntityExtractor, EntityResolver, QueryRewriter, RelationExtractor},
     ContextKeeperError,
 };
-use context_keeper_surreal::Repository;
+use context_keeper_surreal::{Repository, TenantRouter, DEFAULT_TENANT_ID};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
@@ -25,6 +25,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::tenant::TenantContext;
 
 fn to_mcp(err: ContextKeeperError) -> McpError {
     match err {
@@ -220,7 +221,6 @@ pub struct QueryAgentRunsInput {
     pub namespace: Option<String>,
 }
 
-// ── Serializable response types ──────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
 struct AddMemoryResponse {
@@ -324,7 +324,7 @@ struct ScoredNoteItem {
     score: f64,
 }
 
-// ── MCP Server ───────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────
 
 fn search_result_to_item(r: &context_keeper_core::models::SearchResult) -> Option<SearchResultItem> {
     if let Some(e) = r.entity.as_ref() {
@@ -348,10 +348,12 @@ fn search_result_to_item(r: &context_keeper_core::models::SearchResult) -> Optio
     }
 }
 
+// ── MCP Server ───────────────────────────────────────────────────────────
+
 #[derive(Clone)]
 pub struct ContextKeeperServer {
     tool_router: ToolRouter<Self>,
-    repo: Repository,
+    tenant_router: Arc<TenantRouter>,
     embedder: Arc<dyn Embedder>,
     entity_extractor: Arc<dyn EntityExtractor>,
     relation_extractor: Arc<dyn RelationExtractor>,
@@ -360,7 +362,7 @@ pub struct ContextKeeperServer {
 
 impl ContextKeeperServer {
     pub fn new(
-        repo: Repository,
+        tenant_router: Arc<TenantRouter>,
         embedder: Arc<dyn Embedder>,
         entity_extractor: Arc<dyn EntityExtractor>,
         relation_extractor: Arc<dyn RelationExtractor>,
@@ -368,12 +370,30 @@ impl ContextKeeperServer {
     ) -> Self {
         Self {
             tool_router: Self::tool_router(),
-            repo,
+            tenant_router,
             embedder,
             entity_extractor,
             relation_extractor,
             query_rewriter,
         }
+    }
+
+    /// Extract the tenant-scoped [`Repository`] from rmcp request extensions.
+    ///
+    /// For HTTP: `TenantContext` was inserted into `http::request::Parts` by
+    /// auth middleware; rmcp stores Parts in `RequestContext.extensions`.
+    /// For stdio: falls back to the default tenant.
+    async fn repo_for(&self, ctx: &RequestContext<RoleServer>) -> Result<Repository, McpError> {
+        let tenant_id = ctx
+            .extensions
+            .get::<http::request::Parts>()
+            .and_then(|parts| parts.extensions.get::<TenantContext>())
+            .map(|tc| tc.tenant_id.as_str())
+            .unwrap_or(DEFAULT_TENANT_ID);
+        self.tenant_router
+            .get_or_create(tenant_id)
+            .await
+            .map_err(to_mcp)
     }
 }
 
@@ -390,7 +410,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<AddMemoryInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let source = input.source.unwrap_or_else(|| "mcp".to_string());
         let agent = input.agent_id.map(|id| AgentInfo {
             agent_id: id,
@@ -407,7 +427,7 @@ impl ContextKeeperServer {
             created_at: Utc::now(),
         };
 
-        let resolver: &dyn EntityResolver = repo;
+        let resolver: &dyn EntityResolver = &repo;
         let result = ingestion::ingest(
             &episode,
             self.embedder.as_ref(),
@@ -497,7 +517,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<SearchMemoryInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(5);
         let type_filter = input.entity_type.as_deref();
         let ns = input.namespace.as_deref();
@@ -553,7 +573,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<ExpandSearchInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(10);
         let type_filter = input.entity_type.as_deref();
         let ns = input.namespace.as_deref();
@@ -614,7 +634,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<GetEntityInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let entities = repo
             .find_entities_by_name(&input.name, None, input.namespace.as_deref())
             .await
@@ -680,7 +700,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<SnapshotInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let at: DateTime<Utc> = input
             .timestamp
             .parse()
@@ -717,7 +737,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<ListRecentInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(10);
 
         let memories = repo
@@ -742,7 +762,7 @@ impl ContextKeeperServer {
         description = "List all AI agents that have contributed to the knowledge graph, including their namespaces and episode counts. Useful for multi-agent setups to see who has been writing memories."
     )]
     async fn list_agents(&self, ctx: RequestContext<RoleServer>) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let agents = repo.list_agents().await.map_err(to_mcp)?;
 
         if agents.is_empty() {
@@ -758,7 +778,7 @@ impl ContextKeeperServer {
         description = "List all namespaces in the knowledge graph with entity counts. Namespaces partition the graph so different projects or teams can have isolated memory spaces."
     )]
     async fn list_namespaces(&self, ctx: RequestContext<RoleServer>) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let namespaces = repo.list_namespaces().await.map_err(to_mcp)?;
 
         if namespaces.is_empty() {
@@ -780,7 +800,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<AgentActivityInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(20);
         let episodes = repo
             .list_episodes_by_agent(&input.agent_id, limit)
@@ -809,14 +829,14 @@ impl ContextKeeperServer {
 
     /// Search across all namespaces regardless of the caller's default namespace.
     #[tool(
-        description = "Search across all application-level namespaces within the knowledge graph using hybrid vector + keyword search. Unlike search_memory, this always searches globally across namespaces, ignoring namespace scoping."
+        description = "Search across all application-level namespaces within the current tenant's knowledge graph using hybrid vector + keyword search. Unlike search_memory, this always searches globally across namespaces, ignoring namespace scoping. Scoped to the authenticated tenant's data boundary."
     )]
     async fn cross_namespace_search(
         &self,
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<CrossNamespaceSearchInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(10);
         let type_filter = input.entity_type.as_deref();
 
@@ -863,7 +883,6 @@ impl ContextKeeperServer {
 
     // ── Note Tools (Long-Term Memory) ─────────────────────────────────
 
-    /// Save a lightweight text note with a stable key for later retrieval.
     #[tool(
         description = "Save a text note with a unique key for later retrieval. Lightweight alternative to add_memory that skips entity/relation extraction. If a note with the same key exists in the same namespace, its content is updated."
     )]
@@ -872,7 +891,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<SaveNoteInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let embedding = self.embedder.embed(&input.content).await.map_err(to_mcp)?;
         let now = Utc::now();
 
@@ -910,7 +929,6 @@ impl ContextKeeperServer {
             .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
     }
 
-    /// Retrieve a saved note by its unique key.
     #[tool(
         description = "Retrieve a saved note by its unique key. Returns the note content, tags, and timestamps."
     )]
@@ -919,7 +937,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<GetNoteInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let note = repo
             .get_note_by_key(&input.key, input.namespace.as_deref())
             .await
@@ -943,7 +961,6 @@ impl ContextKeeperServer {
         }
     }
 
-    /// Search notes by content similarity using hybrid vector + keyword search.
     #[tool(
         description = "Search saved notes by content similarity using hybrid vector + keyword search. Optionally filter by tags."
     )]
@@ -952,7 +969,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<SearchNotesInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(10);
         let tags = input.tags.as_deref();
         let ns = input.namespace.as_deref();
@@ -983,6 +1000,7 @@ impl ContextKeeperServer {
                 });
             }
         }
+
         for note in &keyword_results {
             if seen.insert(note.key.clone()) {
                 items.push(ScoredNoteItem {
@@ -1001,16 +1019,15 @@ impl ContextKeeperServer {
             .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
     }
 
-    /// List saved notes, optionally filtered by tags.
     #[tool(
-        description = "List saved notes ordered by most recently updated. Optionally filter by tags."
+        description = "List all saved notes, optionally filtered by tags. Returns notes sorted by most recently updated."
     )]
     async fn list_notes(
         &self,
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<ListNotesInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(20);
         let tags = input.tags.as_deref();
         let ns = input.namespace.as_deref();
@@ -1018,12 +1035,12 @@ impl ContextKeeperServer {
         let notes = repo.list_notes(tags, limit, ns).await.map_err(to_mcp)?;
 
         let items: Vec<NoteItem> = notes
-            .iter()
+            .into_iter()
             .map(|n| NoteItem {
-                key: n.key.clone(),
-                content: n.content.clone(),
-                tags: n.tags.clone(),
-                namespace: n.namespace.clone(),
+                key: n.key,
+                content: n.content,
+                tags: n.tags,
+                namespace: n.namespace,
                 created_at: n.created_at.to_rfc3339(),
                 updated_at: n.updated_at.to_rfc3339(),
             })
@@ -1033,41 +1050,38 @@ impl ContextKeeperServer {
             .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
     }
 
-    /// Delete a saved note by its key.
     #[tool(
-        description = "Delete a saved note by its key. Returns whether the note existed and was deleted."
+        description = "Delete a saved note by its unique key."
     )]
     async fn delete_note(
         &self,
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<DeleteNoteInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let deleted = repo
             .delete_note(&input.key, input.namespace.as_deref())
             .await
             .map_err(to_mcp)?;
 
-        let response = serde_json::json!({
-            "key": input.key,
-            "deleted": deleted,
-        });
-
-        serde_json::to_string_pretty(&response)
-            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
+        if deleted {
+            Ok(format!("Note '{}' deleted.", input.key))
+        } else {
+            Ok(format!("No note found with key '{}'.", input.key))
+        }
     }
 
-    // ── Agent Status Tools ────────────────────────────────────────────
+    // ── Agent Status Tools ──────────────────────────────────────────────
 
     #[tool(
-        description = "Post a status update from an agent session. Tracks agent lifecycle events (started, in_progress, blocked, completed, failed) as episodes for observability and multi-agent coordination."
+        description = "Record an agent lifecycle status event (started, in_progress, blocked, completed, failed). Useful for multi-agent coordination and observability."
     )]
     async fn post_agent_status(
         &self,
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<PostAgentStatusInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
 
         const VALID_STATUSES: &[&str] =
             &["started", "in_progress", "blocked", "completed", "failed"];
@@ -1122,7 +1136,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<QueryAgentRunsInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(20);
 
         let episodes = repo
@@ -1293,7 +1307,7 @@ impl ServerHandler for ContextKeeperServer {
         request: ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&context).await?;
         let uri = &request.uri;
 
         if uri == "memory://recent" {
