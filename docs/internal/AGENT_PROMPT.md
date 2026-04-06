@@ -54,8 +54,8 @@ When orienting yourself, start here:
 | `crates/context-keeper-surreal/src/repository.rs` | All DB operations (~700 lines) |
 | `crates/context-keeper-mcp/src/tools.rs` | MCP tool implementations |
 | `test/tests/` | Integration test suites |
-| `docs/ADR-001-architecture-review.md` | Architecture review with risks and recommendations |
-| `docs/plans/OVERVIEW.md` | Current milestone plan with Linear issue links |
+| `docs/internal/ADR-001-architecture-review.md` | Architecture review with risks and recommendations |
+| `docs/internal/plans/OVERVIEW.md` | Current milestone plan with Linear issue links |
 
 ---
 
@@ -134,7 +134,7 @@ The current milestone is **Prototype Public Release** — getting Context Keeper
 - **Level 1 (Correctness):** Memory updates/negation detection, entity relationship quality, expanded entity types.
 - **Level 2 (Publishing):** Working examples, CI/CD, README, crates.io, Docker, licensing.
 
-See `docs/plans/OVERVIEW.md` for the full plan with Linear issue links. See `docs/ADR-001-architecture-review.md` for the architectural context behind these decisions.
+See `docs/internal/plans/OVERVIEW.md` for the full plan with Linear issue links. See `docs/internal/ADR-001-architecture-review.md` for the architectural context behind these decisions.
 
 ---
 

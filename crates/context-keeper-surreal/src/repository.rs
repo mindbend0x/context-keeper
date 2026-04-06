@@ -151,6 +151,37 @@ struct MemoryWithEdgesRow {
     entity_ids: Vec<surrealdb::types::RecordId>,
 }
 
+#[derive(Debug, Serialize, Deserialize, SurrealValue)]
+struct NoteRow {
+    id: surrealdb::types::RecordId,
+    key: String,
+    content: String,
+    #[serde(default)]
+    embedding: Vec<f64>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    namespace: Option<String>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, SurrealValue)]
+struct ScoredNoteRow {
+    id: surrealdb::types::RecordId,
+    key: String,
+    content: String,
+    #[serde(default)]
+    embedding: Vec<f64>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    namespace: Option<String>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    score: f64,
+}
+
 // ── RecordId <-> Uuid helpers ────────────────────────────────────────────
 
 fn record_id_to_uuid(rid: &surrealdb::types::RecordId) -> Option<Uuid> {
@@ -234,6 +265,19 @@ fn relation_from_edge_row(r: RelationEdgeRow) -> Option<Relation> {
         confidence: r.confidence,
         valid_from: r.valid_from,
         valid_until: r.valid_until,
+    })
+}
+
+fn note_from_row(r: NoteRow) -> Option<Note> {
+    Some(Note {
+        id: record_id_to_uuid(&r.id)?,
+        key: r.key,
+        content: r.content,
+        embedding: r.embedding,
+        tags: r.tags,
+        namespace: r.namespace,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
     })
 }
 
@@ -822,8 +866,8 @@ impl Repository {
         namespace: Option<&str>,
     ) -> Result<Vec<Memory>> {
         let q = match namespace {
-            Some(_) => "SELECT *, search::score(1) AS relevance FROM memory WHERE content @1@ $query AND namespace = $ns ORDER BY relevance DESC",
-            None => "SELECT *, search::score(1) AS relevance FROM memory WHERE content @1@ $query ORDER BY relevance DESC",
+            Some(_) => "SELECT *, search::score(1) AS score FROM memory WHERE content @1@ $query AND namespace = $ns ORDER BY score DESC",
+            None => "SELECT *, search::score(1) AS score FROM memory WHERE content @1@ $query ORDER BY score DESC",
         };
         let mut db_query = self.db.query(q).bind(("query", query.to_string()));
         if let Some(ns) = namespace {
@@ -995,6 +1039,295 @@ impl Repository {
         let rows: Vec<EpisodeRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(episode_from_row).collect())
     }
+
+    /// List episodes matching a specific source, with optional agent_id filter.
+    pub async fn list_episodes_by_source(
+        &self,
+        source: &str,
+        agent_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Episode>> {
+        let q = match agent_id {
+            Some(_) => "SELECT * FROM episode WHERE source = $source AND agent_id = $agent_id ORDER BY created_at DESC LIMIT $limit",
+            None => "SELECT * FROM episode WHERE source = $source ORDER BY created_at DESC LIMIT $limit",
+        };
+        let mut query = self
+            .db
+            .query(q)
+            .bind(("source", source.to_string()))
+            .bind(("limit", limit));
+        if let Some(id) = agent_id {
+            query = query.bind(("agent_id", id.to_string()));
+        }
+        let mut response = query.await.map_err(storage_err)?;
+        let rows: Vec<EpisodeRow> = response.take(0).map_err(storage_err)?;
+        Ok(rows.into_iter().filter_map(episode_from_row).collect())
+    }
+
+    pub async fn count_active_entities(&self) -> Result<usize> {
+        let mut response = self
+            .db
+            .query("SELECT count() AS count FROM entity WHERE valid_until IS NONE GROUP ALL")
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
+        Ok(rows
+            .first()
+            .and_then(|r| r.get("count"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize)
+    }
+
+    pub async fn count_memories(&self) -> Result<usize> {
+        let mut response = self
+            .db
+            .query("SELECT count() AS count FROM memory GROUP ALL")
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
+        Ok(rows
+            .first()
+            .and_then(|r| r.get("count"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize)
+    }
+
+    pub async fn count_episodes(&self) -> Result<usize> {
+        let mut response = self
+            .db
+            .query("SELECT count() AS count FROM episode GROUP ALL")
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
+        Ok(rows
+            .first()
+            .and_then(|r| r.get("count"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize)
+    }
+
+    pub async fn count_active_relations(&self) -> Result<usize> {
+        let mut response = self
+            .db
+            .query("SELECT count() AS count FROM relation WHERE valid_until IS NONE GROUP ALL")
+            .await
+            .map_err(storage_err)?;
+        let rows: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
+        Ok(rows
+            .first()
+            .and_then(|r| r.get("count"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize)
+    }
+
+    // ── Notes (Long-Term Memory) ──────────────────────────────────────
+
+    /// Upsert a note. If a note with the same (key, namespace) exists, it is
+    /// updated in place preserving the original created_at.
+    pub async fn upsert_note(&self, note: &Note) -> Result<()> {
+        let existing = self
+            .get_note_by_key(&note.key, note.namespace.as_deref())
+            .await?;
+        let id = existing.map(|n| n.id).unwrap_or(note.id);
+
+        let q = format!(
+            "UPSERT note:`{}` SET key = $key, content = $content, embedding = $embedding, tags = $tags, namespace = $namespace, created_at = <datetime>$created_at, updated_at = <datetime>$updated_at",
+            id
+        );
+        self.db
+            .query(&q)
+            .bind(("key", note.key.clone()))
+            .bind(("content", note.content.clone()))
+            .bind(("embedding", note.embedding.clone()))
+            .bind(("tags", note.tags.clone()))
+            .bind(("namespace", note.namespace.clone()))
+            .bind(("created_at", note.created_at.to_rfc3339()))
+            .bind(("updated_at", note.updated_at.to_rfc3339()))
+            .await
+            .map_err(storage_err)?;
+        Ok(())
+    }
+
+    /// Direct lookup of a note by its unique key within a namespace.
+    pub async fn get_note_by_key(
+        &self,
+        key: &str,
+        namespace: Option<&str>,
+    ) -> Result<Option<Note>> {
+        let q = match namespace {
+            Some(_) => {
+                "SELECT * FROM note WHERE key = $key AND namespace = $ns LIMIT 1"
+            }
+            None => "SELECT * FROM note WHERE key = $key AND namespace IS NONE LIMIT 1",
+        };
+        let mut query = self.db.query(q).bind(("key", key.to_string()));
+        if let Some(ns) = namespace {
+            query = query.bind(("ns", ns.to_string()));
+        }
+        let mut response = query.await.map_err(storage_err)?;
+        let rows: Vec<NoteRow> = response.take(0).map_err(storage_err)?;
+        Ok(rows.into_iter().next().and_then(note_from_row))
+    }
+
+    /// Vector similarity search over notes, optionally filtered by tags and namespace.
+    pub async fn search_notes_by_vector(
+        &self,
+        embedding: &[f64],
+        limit: usize,
+        tags: Option<&[String]>,
+        namespace: Option<&str>,
+    ) -> Result<Vec<(Note, f64)>> {
+        let mut conditions = Vec::new();
+        if tags.is_some() {
+            conditions.push("tags CONTAINSANY $tags");
+        }
+        if namespace.is_some() {
+            conditions.push("namespace = $ns");
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let q = format!(
+            "SELECT *, vector::similarity::cosine(embedding, $query_vec) AS score FROM note {} ORDER BY score DESC LIMIT $limit",
+            where_clause
+        );
+
+        let mut query = self
+            .db
+            .query(&q)
+            .bind(("query_vec", embedding.to_vec()))
+            .bind(("limit", limit));
+        if let Some(t) = tags {
+            query = query.bind(("tags", t.to_vec()));
+        }
+        if let Some(ns) = namespace {
+            query = query.bind(("ns", ns.to_string()));
+        }
+
+        let mut response = query.await.map_err(storage_err)?;
+        let rows: Vec<ScoredNoteRow> = response.take(0).map_err(storage_err)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| {
+                let score = r.score;
+                let note = note_from_row(NoteRow {
+                    id: r.id,
+                    key: r.key,
+                    content: r.content,
+                    embedding: r.embedding,
+                    tags: r.tags,
+                    namespace: r.namespace,
+                    created_at: r.created_at,
+                    updated_at: r.updated_at,
+                })?;
+                Some((note, score))
+            })
+            .collect())
+    }
+
+    /// BM25 full-text search over note content, optionally filtered by tags and namespace.
+    pub async fn search_notes_by_keyword(
+        &self,
+        query: &str,
+        tags: Option<&[String]>,
+        namespace: Option<&str>,
+    ) -> Result<Vec<Note>> {
+        let mut extra_filters = Vec::new();
+        if tags.is_some() {
+            extra_filters.push("AND tags CONTAINSANY $tags");
+        }
+        if namespace.is_some() {
+            extra_filters.push("AND namespace = $ns");
+        }
+        let suffix = extra_filters.join(" ");
+
+        let q = format!(
+            "SELECT *, search::score(1) AS score FROM note WHERE content @1@ $query {} ORDER BY score DESC",
+            suffix
+        );
+
+        let mut db_query = self.db.query(&q).bind(("query", query.to_string()));
+        if let Some(t) = tags {
+            db_query = db_query.bind(("tags", t.to_vec()));
+        }
+        if let Some(ns) = namespace {
+            db_query = db_query.bind(("ns", ns.to_string()));
+        }
+
+        let mut response = db_query.await.map_err(storage_err)?;
+        let rows: Vec<ScoredNoteRow> = response.take(0).map_err(storage_err)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| {
+                note_from_row(NoteRow {
+                    id: r.id,
+                    key: r.key,
+                    content: r.content,
+                    embedding: r.embedding,
+                    tags: r.tags,
+                    namespace: r.namespace,
+                    created_at: r.created_at,
+                    updated_at: r.updated_at,
+                })
+            })
+            .collect())
+    }
+
+    /// List notes ordered by most recently updated, optionally filtered by tags and namespace.
+    pub async fn list_notes(
+        &self,
+        tags: Option<&[String]>,
+        limit: usize,
+        namespace: Option<&str>,
+    ) -> Result<Vec<Note>> {
+        let mut conditions = Vec::new();
+        if tags.is_some() {
+            conditions.push("tags CONTAINSANY $tags");
+        }
+        if namespace.is_some() {
+            conditions.push("namespace = $ns");
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let q = format!(
+            "SELECT * FROM note {} ORDER BY updated_at DESC LIMIT $limit",
+            where_clause
+        );
+
+        let mut query = self.db.query(&q).bind(("limit", limit));
+        if let Some(t) = tags {
+            query = query.bind(("tags", t.to_vec()));
+        }
+        if let Some(ns) = namespace {
+            query = query.bind(("ns", ns.to_string()));
+        }
+
+        let mut response = query.await.map_err(storage_err)?;
+        let rows: Vec<NoteRow> = response.take(0).map_err(storage_err)?;
+        Ok(rows.into_iter().filter_map(note_from_row).collect())
+    }
+
+    /// Delete a note by key. Returns true if the note existed and was deleted.
+    pub async fn delete_note(&self, key: &str, namespace: Option<&str>) -> Result<bool> {
+        let existing = self.get_note_by_key(key, namespace).await?;
+        match existing {
+            Some(note) => {
+                let q = format!("DELETE note:`{}`", note.id);
+                self.db.query(&q).await.map_err(storage_err)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1010,5 +1343,140 @@ mod tests {
             key: RecordIdKey::String(uuid.to_string()),
         };
         assert_eq!(record_id_to_uuid(&rid), Some(uuid));
+    }
+
+    async fn test_repo() -> Repository {
+        let config = crate::SurrealConfig {
+            embedding_dimensions: 3,
+            ..crate::SurrealConfig::default()
+        };
+        let db = crate::connect_memory(&config).await.unwrap();
+        crate::apply_schema(&db, &config).await.unwrap();
+        Repository::new(db)
+    }
+
+    #[tokio::test]
+    async fn test_search_memories_by_keyword() {
+        let repo = test_repo().await;
+
+        let ep_id = Uuid::new_v4();
+        let episode = Episode {
+            id: ep_id,
+            content: "test episode".to_string(),
+            source: "test".to_string(),
+            session_id: None,
+            agent: None,
+            namespace: None,
+            created_at: Utc::now(),
+        };
+        repo.create_episode(&episode).await.unwrap();
+
+        let memory = Memory {
+            id: Uuid::new_v4(),
+            content: "Acme Corp is our biggest competitor in the widget market".to_string(),
+            embedding: vec![0.1, 0.2, 0.3],
+            source_episode_id: ep_id,
+            entity_ids: vec![],
+            created_at: Utc::now(),
+            namespace: None,
+            created_by_agent: None,
+        };
+        repo.create_memory(&memory).await.unwrap();
+
+        let results = repo
+            .search_memories_by_keyword("competitor", None)
+            .await
+            .unwrap();
+        assert!(
+            !results.is_empty(),
+            "Should find memory containing 'competitor'"
+        );
+        assert_eq!(results[0].content, memory.content);
+
+        let empty = repo
+            .search_memories_by_keyword("quantum physics", None)
+            .await
+            .unwrap();
+        assert!(empty.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_search_memories_by_keyword_with_namespace() {
+        let repo = test_repo().await;
+
+        let ep_id = Uuid::new_v4();
+        let episode = Episode {
+            id: ep_id,
+            content: "ns test episode".to_string(),
+            source: "test".to_string(),
+            session_id: None,
+            agent: None,
+            namespace: Some("project-a".to_string()),
+            created_at: Utc::now(),
+        };
+        repo.create_episode(&episode).await.unwrap();
+
+        let memory = Memory {
+            id: Uuid::new_v4(),
+            content: "The CEO announced layoffs at the all-hands meeting".to_string(),
+            embedding: vec![0.1, 0.2, 0.3],
+            source_episode_id: ep_id,
+            entity_ids: vec![],
+            created_at: Utc::now(),
+            namespace: Some("project-a".to_string()),
+            created_by_agent: None,
+        };
+        repo.create_memory(&memory).await.unwrap();
+
+        let in_ns = repo
+            .search_memories_by_keyword("layoffs", Some("project-a"))
+            .await
+            .unwrap();
+        assert!(!in_ns.is_empty());
+
+        let wrong_ns = repo
+            .search_memories_by_keyword("layoffs", Some("project-b"))
+            .await
+            .unwrap();
+        assert!(wrong_ns.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_search_memories_by_vector() {
+        let repo = test_repo().await;
+
+        let ep_id = Uuid::new_v4();
+        let episode = Episode {
+            id: ep_id,
+            content: "vector test episode".to_string(),
+            source: "test".to_string(),
+            session_id: None,
+            agent: None,
+            namespace: None,
+            created_at: Utc::now(),
+        };
+        repo.create_episode(&episode).await.unwrap();
+
+        let memory = Memory {
+            id: Uuid::new_v4(),
+            content: "Test memory for vector search".to_string(),
+            embedding: vec![1.0, 0.0, 0.0],
+            source_episode_id: ep_id,
+            entity_ids: vec![],
+            created_at: Utc::now(),
+            namespace: None,
+            created_by_agent: None,
+        };
+        repo.create_memory(&memory).await.unwrap();
+
+        let results = repo
+            .search_memories_by_vector(&[0.9, 0.1, 0.0], 5, None)
+            .await
+            .unwrap();
+        assert!(
+            !results.is_empty(),
+            "Should find memory by vector similarity"
+        );
+        assert_eq!(results[0].0.content, memory.content);
     }
 }

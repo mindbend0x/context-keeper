@@ -35,7 +35,7 @@ pub struct ContextKeeperBackend {
 
 /// Approximate token count from text length (chars / 4 is standard for English + OpenAI BPE).
 fn estimate_tokens(text: &str) -> u64 {
-    (text.len() as u64 + 3) / 4
+    (text.len() as u64).div_ceil(4)
 }
 
 impl ContextKeeperBackend {

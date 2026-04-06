@@ -47,13 +47,13 @@ launch_fz59() {
     info "FZ-59: Typed error hierarchy (ContextKeeperError enum)"
     cursor "$REPO_ROOT/crates/context-keeper-core/src/lib.rs" \
            "$REPO_ROOT/crates/context-keeper-mcp/src/tools.rs" \
-           "$REPO_ROOT/docs/plans/LEVEL-0-foundation.md" 2>/dev/null
+           "$REPO_ROOT/docs/internal/plans/LEVEL-0-foundation.md" 2>/dev/null
 
     echo ""
     echo "Cursor Agent prompt for FZ-59:"
     echo "---"
     cat <<'PROMPT'
-Read docs/plans/LEVEL-0-foundation.md task 0.1 and CLAUDE.md for project context.
+Read docs/internal/plans/LEVEL-0-foundation.md task 0.1 and CLAUDE.md for project context.
 
 Create a typed error hierarchy for Context Keeper:
 1. Create crates/context-keeper-core/src/error.rs with ContextKeeperError enum (variants: LlmUnavailable, ExtractionFailed, EntityNotFound, StorageError, ValidationError, BudgetExceeded)
@@ -73,13 +73,13 @@ launch_fz57() {
     info "FZ-57: LLM extraction retry + output validation"
     cursor "$REPO_ROOT/crates/context-keeper-rig/src/extraction.rs" \
            "$REPO_ROOT/crates/context-keeper-core/src/ingestion/pipeline.rs" \
-           "$REPO_ROOT/docs/plans/LEVEL-0-foundation.md" 2>/dev/null
+           "$REPO_ROOT/docs/internal/plans/LEVEL-0-foundation.md" 2>/dev/null
 
     echo ""
     echo "Cursor Agent prompt for FZ-57:"
     echo "---"
     cat <<'PROMPT'
-Read docs/plans/LEVEL-0-foundation.md task 0.2 and CLAUDE.md for project context.
+Read docs/internal/plans/LEVEL-0-foundation.md task 0.2 and CLAUDE.md for project context.
 
 Add retry and validation to LLM extraction in crates/context-keeper-rig/src/extraction.rs:
 1. Add retry-with-backoff (3 attempts, exponential: 100ms, 400ms, 1600ms) for RigEntityExtractor and RigRelationExtractor
@@ -99,13 +99,13 @@ launch_fz58() {
     cursor "$REPO_ROOT/crates/context-keeper-surreal/src/schema.rs" \
            "$REPO_ROOT/crates/context-keeper-surreal/src/repository.rs" \
            "$REPO_ROOT/crates/context-keeper-core/src/models.rs" \
-           "$REPO_ROOT/docs/plans/LEVEL-0-foundation.md" 2>/dev/null
+           "$REPO_ROOT/docs/internal/plans/LEVEL-0-foundation.md" 2>/dev/null
 
     echo ""
     echo "Cursor Agent prompt for FZ-58:"
     echo "---"
     cat <<'PROMPT'
-Read docs/plans/LEVEL-0-foundation.md task 0.3 and CLAUDE.md for project context.
+Read docs/internal/plans/LEVEL-0-foundation.md task 0.3 and CLAUDE.md for project context.
 
 Change entity identity from name-only to composite (name + entity_type):
 1. In crates/context-keeper-surreal/src/schema.rs: change unique index from name to (name, entity_type)
@@ -140,13 +140,13 @@ launch_fz12() {
     cursor "$REPO_ROOT/crates/context-keeper-core/src/ingestion/pipeline.rs" \
            "$REPO_ROOT/crates/context-keeper-rig/src/extraction.rs" \
            "$REPO_ROOT/crates/context-keeper-surreal/src/repository.rs" \
-           "$REPO_ROOT/docs/plans/LEVEL-1-correctness.md" 2>/dev/null
+           "$REPO_ROOT/docs/internal/plans/LEVEL-1-correctness.md" 2>/dev/null
 
     echo ""
     echo "Cursor Agent prompt for FZ-12:"
     echo "---"
     cat <<'PROMPT'
-Read docs/plans/LEVEL-1-correctness.md task 1.1 and CLAUDE.md for project context.
+Read docs/internal/plans/LEVEL-1-correctness.md task 1.1 and CLAUDE.md for project context.
 
 Implement robust memory updates and negation detection:
 1. Semantic contradiction detection: use LLM to compare new text against existing entity summaries. If contradicts, set old entity valid_until = now.
@@ -165,13 +165,13 @@ launch_fz13() {
     cursor "$REPO_ROOT/crates/context-keeper-core/src/models.rs" \
            "$REPO_ROOT/crates/context-keeper-rig/src/extraction.rs" \
            "$REPO_ROOT/crates/context-keeper-surreal/src/repository.rs" \
-           "$REPO_ROOT/docs/plans/LEVEL-1-correctness.md" 2>/dev/null
+           "$REPO_ROOT/docs/internal/plans/LEVEL-1-correctness.md" 2>/dev/null
 
     echo ""
     echo "Cursor Agent prompt for FZ-13:"
     echo "---"
     cat <<'PROMPT'
-Read docs/plans/LEVEL-1-correctness.md task 1.2 and CLAUDE.md for project context.
+Read docs/internal/plans/LEVEL-1-correctness.md task 1.2 and CLAUDE.md for project context.
 
 Improve entity relationship quality:
 1. Tighten extraction prompts to use canonical RelationType enum values. Reject/remap unknown predicates.
@@ -189,13 +189,13 @@ launch_fz14() {
     info "FZ-14: Expand entity types (light pass)"
     cursor "$REPO_ROOT/crates/context-keeper-core/src/models.rs" \
            "$REPO_ROOT/crates/context-keeper-rig/src/extraction.rs" \
-           "$REPO_ROOT/docs/plans/LEVEL-1-correctness.md" 2>/dev/null
+           "$REPO_ROOT/docs/internal/plans/LEVEL-1-correctness.md" 2>/dev/null
 
     echo ""
     echo "Cursor Agent prompt for FZ-14:"
     echo "---"
     cat <<'PROMPT'
-Read docs/plans/LEVEL-1-correctness.md task 1.3 and CLAUDE.md for project context.
+Read docs/internal/plans/LEVEL-1-correctness.md task 1.3 and CLAUDE.md for project context.
 
 Light pass on entity type expansion:
 1. Update extraction prompts to instruct LLM to classify entities using existing EntityType enum (Person, Organization, Location, Event, Product, Service, Concept, File, Other).
@@ -227,13 +227,13 @@ level1() {
 launch_fz60() {
     info "FZ-60: Create runnable examples"
     cursor "$REPO_ROOT/Cargo.toml" \
-           "$REPO_ROOT/docs/plans/LEVEL-2-publish.md" 2>/dev/null
+           "$REPO_ROOT/docs/internal/plans/LEVEL-2-publish.md" 2>/dev/null
 
     echo ""
     echo "Cursor Agent prompt for FZ-60:"
     echo "---"
     cat <<'PROMPT'
-Read docs/plans/LEVEL-2-publish.md task 2.1 and CLAUDE.md for project context.
+Read docs/internal/plans/LEVEL-2-publish.md task 2.1 and CLAUDE.md for project context.
 
 Create runnable examples in examples/ directory. All must work with mock extractors (no API key):
 1. examples/quickstart.rs — 3 episodes, basic search, entity lookup. Under 50 lines. README hero example.
@@ -250,13 +250,13 @@ PROMPT
 launch_fz61() {
     info "FZ-61: CI/CD pipeline"
     cursor "$REPO_ROOT/Dockerfile" \
-           "$REPO_ROOT/docs/plans/LEVEL-2-publish.md" 2>/dev/null
+           "$REPO_ROOT/docs/internal/plans/LEVEL-2-publish.md" 2>/dev/null
 
     echo ""
     echo "Cursor Agent prompt for FZ-61:"
     echo "---"
     cat <<'PROMPT'
-Read docs/plans/LEVEL-2-publish.md task 2.2 and CLAUDE.md for project context.
+Read docs/internal/plans/LEVEL-2-publish.md task 2.2 and CLAUDE.md for project context.
 
 Create GitHub Actions CI/CD pipeline in .github/workflows/ci.yml:
 1. Build matrix: cargo build on ubuntu-latest, macos-latest, windows-latest
@@ -275,13 +275,13 @@ PROMPT
 launch_fz62() {
     info "FZ-62: README polish"
     cursor "$REPO_ROOT/README.md" \
-           "$REPO_ROOT/docs/plans/LEVEL-2-publish.md" 2>/dev/null
+           "$REPO_ROOT/docs/internal/plans/LEVEL-2-publish.md" 2>/dev/null
 
     echo ""
     echo "Cursor Agent prompt for FZ-62:"
     echo "---"
     cat <<'PROMPT'
-Read docs/plans/LEVEL-2-publish.md task 2.3, docs/benchmark-and-demo-strategy.md, and CLAUDE.md.
+Read docs/internal/plans/LEVEL-2-publish.md task 2.3, docs/internal/benchmark-and-demo-strategy.md, and CLAUDE.md.
 
 Polish README.md for public launch. Target under 500 lines:
 1. Hero section: one-liner description + badges (crates.io, docs.rs, CI status, Docker pulls, MIT license)

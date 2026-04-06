@@ -41,6 +41,15 @@ DEFINE FIELD IF NOT EXISTS created_at ON memory TYPE datetime;
 DEFINE FIELD IF NOT EXISTS namespace ON memory TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS created_by_agent ON memory TYPE option<string>;
 
+DEFINE TABLE IF NOT EXISTS note SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS key ON note TYPE string;
+DEFINE FIELD IF NOT EXISTS content ON note TYPE string;
+DEFINE FIELD IF NOT EXISTS embedding ON note TYPE array<float>;
+DEFINE FIELD IF NOT EXISTS tags ON note TYPE array<string>;
+DEFINE FIELD IF NOT EXISTS namespace ON note TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_at ON note TYPE datetime;
+DEFINE FIELD IF NOT EXISTS updated_at ON note TYPE datetime;
+
 -- ── Graph edge tables (TYPE RELATION) ────────────────────────────────
 
 DEFINE TABLE IF NOT EXISTS relates_to TYPE RELATION SCHEMAFULL CHANGEFEED 30d;
@@ -59,6 +68,8 @@ DEFINE INDEX IF NOT EXISTS entity_embedding_idx ON entity FIELDS embedding
   HNSW DIMENSION {dim} DIST {dist};
 DEFINE INDEX IF NOT EXISTS memory_embedding_idx ON memory FIELDS embedding
   HNSW DIMENSION {dim} DIST {dist};
+DEFINE INDEX IF NOT EXISTS note_embedding_idx ON note FIELDS embedding
+  HNSW DIMENSION {dim} DIST {dist};
 
 -- ── BM25 Full-Text Search ────────────────────────────────────────────
 
@@ -69,6 +80,8 @@ DEFINE INDEX IF NOT EXISTS entity_name_ft ON entity FIELDS name
 DEFINE INDEX IF NOT EXISTS entity_summary_ft ON entity FIELDS summary
   FULLTEXT ANALYZER context_analyzer BM25;
 DEFINE INDEX IF NOT EXISTS memory_content_ft ON memory FIELDS content
+  FULLTEXT ANALYZER context_analyzer BM25;
+DEFINE INDEX IF NOT EXISTS note_content_ft ON note FIELDS content
   FULLTEXT ANALYZER context_analyzer BM25;
 DEFINE INDEX IF NOT EXISTS episode_content_ft ON episode FIELDS content
   FULLTEXT ANALYZER context_analyzer BM25;
@@ -94,6 +107,12 @@ DEFINE INDEX IF NOT EXISTS episode_namespace_idx ON episode FIELDS namespace;
 DEFINE INDEX IF NOT EXISTS entity_namespace_idx ON entity FIELDS namespace;
 DEFINE INDEX IF NOT EXISTS memory_namespace_idx ON memory FIELDS namespace;
 DEFINE INDEX IF NOT EXISTS episode_agent_idx ON episode FIELDS agent_id;
+
+-- ── Note indexes ────────────────────────────────────────────────────
+
+DEFINE INDEX IF NOT EXISTS note_key_ns_idx ON note FIELDS key, namespace;
+DEFINE INDEX IF NOT EXISTS note_namespace_idx ON note FIELDS namespace;
+DEFINE INDEX IF NOT EXISTS note_tags_idx ON note FIELDS tags;
 "#
     )
 }
