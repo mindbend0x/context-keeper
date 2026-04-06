@@ -371,11 +371,7 @@ impl BehavioralResult {
 
         for checks in &self.verifications {
             for v in checks {
-                let rt = v
-                    .reasoning_type
-                    .as_deref()
-                    .unwrap_or("unknown")
-                    .to_string();
+                let rt = v.reasoning_type.as_deref().unwrap_or("unknown").to_string();
                 let entry = type_stats.entry(rt).or_insert((0, 0));
                 entry.0 += 1;
                 if v.pass {

@@ -100,8 +100,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if let Some(html_path) = &cli.html {
-        let history_refs: Vec<&std::path::Path> =
-            cli.history.iter().map(|p| p.as_path()).collect();
+        let history_refs: Vec<&std::path::Path> = cli.history.iter().map(|p| p.as_path()).collect();
         let html = context_keeper_bench::report::to_html(&results, &history_refs)?;
         std::fs::write(html_path, &html)?;
         tracing::info!(path = %html_path.display(), "HTML dashboard written");

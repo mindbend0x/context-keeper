@@ -310,21 +310,14 @@ pub fn print_behavioral(results: &[&ScenarioResult]) {
             }
 
             let by_type = beh.by_reasoning_type();
-            let has_types = by_type.len() > 1
-                || by_type
-                    .first()
-                    .is_some_and(|(rt, _, _, _)| rt != "unknown");
+            let has_types =
+                by_type.len() > 1 || by_type.first().is_some_and(|(rt, _, _, _)| rt != "unknown");
             if has_types {
                 let mut type_table = Table::new();
                 type_table
                     .load_preset(UTF8_FULL)
                     .apply_modifier(UTF8_ROUND_CORNERS);
-                type_table.set_header(vec![
-                    "Reasoning Type",
-                    "Checks",
-                    "Passed",
-                    "Accuracy",
-                ]);
+                type_table.set_header(vec!["Reasoning Type", "Checks", "Passed", "Accuracy"]);
                 for (rt, total, passed, rate) in &by_type {
                     let rate_cell = if *rate >= 0.75 {
                         Cell::new(format!("{:.1}%", rate * 100.0)).fg(Color::Green)
@@ -416,10 +409,7 @@ const HTML_TEMPLATE: &str = include_str!("template.html");
 ///
 /// `history_dirs` is an optional list of paths to previous JSON result files.
 /// They populate the "Trend Over Time" chart.
-pub fn to_html(
-    results: &[ScenarioResult],
-    history_dirs: &[&Path],
-) -> serde_json::Result<String> {
+pub fn to_html(results: &[ScenarioResult], history_dirs: &[&Path]) -> serde_json::Result<String> {
     let data_json = serde_json::to_string(results)?;
 
     let history_json = if history_dirs.is_empty() {

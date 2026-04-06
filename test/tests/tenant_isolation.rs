@@ -56,7 +56,10 @@ async fn tenant_entity_isolation() -> Result<()> {
     let found_b = repo_b
         .find_entities_by_name("SecretProject", None, None)
         .await?;
-    assert!(found_b.is_empty(), "tenant_b must NOT see tenant_a's entity");
+    assert!(
+        found_b.is_empty(),
+        "tenant_b must NOT see tenant_a's entity"
+    );
 
     Ok(())
 }
@@ -107,7 +110,10 @@ async fn tenant_memory_isolation() -> Result<()> {
     assert_eq!(a_mems.len(), 1);
 
     let b_mems = repo_b.list_recent_memories(10).await?;
-    assert!(b_mems.is_empty(), "tenant_b must NOT see tenant_a's memories");
+    assert!(
+        b_mems.is_empty(),
+        "tenant_b must NOT see tenant_a's memories"
+    );
 
     Ok(())
 }
@@ -139,9 +145,7 @@ async fn default_tenant_idempotent_creation() -> Result<()> {
     let entity = make_entity("SharedEntity", None);
     r1.upsert_entity(&entity).await?;
 
-    let found = r2
-        .find_entities_by_name("SharedEntity", None, None)
-        .await?;
+    let found = r2.find_entities_by_name("SharedEntity", None, None).await?;
     assert_eq!(found.len(), 1, "same tenant repo should share state");
 
     assert_eq!(router.tenant_count(), 1, "only one tenant should exist");
