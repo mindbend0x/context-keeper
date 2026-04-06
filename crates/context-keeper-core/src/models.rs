@@ -238,6 +238,24 @@ pub struct Memory {
     pub created_by_agent: Option<String>,
 }
 
+/// A lightweight key-value note for simple long-term memory.
+///
+/// Unlike `Memory` (which is derived from entity extraction), a `Note` is stored
+/// directly by the user with a stable key for later retrieval. It carries an
+/// embedding for vector search but bypasses the ingestion pipeline entirely.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Note {
+    pub id: Uuid,
+    pub key: String,
+    pub content: String,
+    pub embedding: Vec<f64>,
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// Result returned from hybrid search operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
