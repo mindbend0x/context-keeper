@@ -1,10 +1,10 @@
-use std::{collections::HashMap, sync::{Arc, Mutex}, time::Instant};
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     Json,
     body::Body,
     extract::{Form, Query, State},
-    http::{HeaderMap, Request, StatusCode},
+    http::{Request, StatusCode},
     middleware::Next,
     response::{Html, IntoResponse, Redirect, Response},
 };
@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+use crate::tenant::{TenantContext, resolve_tenant};
 
 const CONSENT_HTML: &str = include_str!("html/consent.html");
 
@@ -27,7 +28,6 @@ pub struct OAuthStore {
     pub clients: Arc<RwLock<HashMap<String, OAuthClientConfig>>>,
     pub auth_sessions: Arc<RwLock<HashMap<String, AuthSession>>>,
     pub access_tokens: Arc<RwLock<HashMap<String, McpAccessToken>>>,
-    pub rate_limits: Arc<Mutex<HashMap<String, (u64, Instant)>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -49,6 +49,7 @@ pub struct McpAccessToken {
     pub refresh_token: String,
     pub scope: Option<String>,
     pub client_id: String,
+    pub tenant_id: Option<String>,
 }
 
 impl OAuthStore {
@@ -57,7 +58,6 @@ impl OAuthStore {
             clients: Arc::new(RwLock::new(HashMap::new())),
             auth_sessions: Arc::new(RwLock::new(HashMap::new())),
             access_tokens: Arc::new(RwLock::new(HashMap::new())),
-            rate_limits: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -78,22 +78,6 @@ impl OAuthStore {
     pub async fn validate_token(&self, token: &str) -> Option<McpAccessToken> {
         self.access_tokens.read().await.get(token).cloned()
     }
-
-    /// Returns `true` if the request is within the rate limit window.
-    /// Tracks per-key counts with a 60-second sliding window.
-    pub fn check_rate_limit(&self, key: &str, max_per_minute: u64) -> bool {
-        let mut limits = self.rate_limits.lock().unwrap_or_else(|e| e.into_inner());
-        let now = Instant::now();
-        let entry = limits.entry(key.to_string()).or_insert((0, now));
-
-        if now.duration_since(entry.1).as_secs() >= 60 {
-            *entry = (1, now);
-            return true;
-        }
-
-        entry.0 += 1;
-        entry.0 <= max_per_minute
-    }
 }
 
 fn random_string(len: usize) -> String {
@@ -113,7 +97,7 @@ pub struct OAuthConfig {
     pub issuer: String,
     pub oauth_store: Arc<OAuthStore>,
     pub static_tokens: Arc<Vec<String>>,
-    pub registration_token: Option<String>,
+    pub tenant_map: Arc<HashMap<String, String>>,
 }
 
 #[derive(Serialize)]
@@ -181,32 +165,8 @@ pub struct RegistrationRequest {
 
 pub async fn oauth_register(
     State(cfg): State<OAuthConfig>,
-    headers: HeaderMap,
     Json(req): Json<RegistrationRequest>,
 ) -> impl IntoResponse {
-    if let Some(ref required_token) = cfg.registration_token {
-        let authorized = headers
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.strip_prefix("Bearer "))
-            .map(|provided| {
-                use subtle::ConstantTimeEq;
-                bool::from(provided.as_bytes().ct_eq(required_token.as_bytes()))
-            })
-            .unwrap_or(false);
-
-        if !authorized {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({
-                    "error": "unauthorized",
-                    "error_description": "valid registration token required in Authorization header"
-                })),
-            )
-                .into_response();
-        }
-    }
-
     if req.redirect_uris.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -347,40 +307,8 @@ pub struct ApprovalForm {
 
 pub async fn oauth_approve(
     State(cfg): State<OAuthConfig>,
-    headers: HeaderMap,
     Form(form): Form<ApprovalForm>,
 ) -> impl IntoResponse {
-    let admin_token = headers
-        .get("x-admin-token")
-        .and_then(|v| v.to_str().ok());
-
-    if !cfg.static_tokens.is_empty() {
-        let authorized = admin_token
-            .map(|provided| {
-                use subtle::ConstantTimeEq;
-                cfg.static_tokens
-                    .iter()
-                    .any(|t| bool::from(t.as_bytes().ct_eq(provided.as_bytes())))
-            })
-            .unwrap_or(false);
-
-        if !authorized {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({
-                    "error": "unauthorized",
-                    "error_description": "valid X-Admin-Token header required to approve grants"
-                })),
-            )
-                .into_response();
-        }
-    } else if admin_token.is_none() {
-        tracing::warn!(
-            "OAuth approval without admin token verification — no MCP_AUTH_TOKENS configured. \
-             Set MCP_AUTH_TOKENS to secure the approval flow."
-        );
-    }
-
     let mut sessions = cfg.oauth_store.auth_sessions.write().await;
     let Some(session) = sessions.get_mut(&form.session_id) else {
         return (
@@ -525,23 +453,6 @@ pub async fn oauth_token(
         }
     }
 
-    let rate_key = if effective_client_id.is_empty() {
-        "__anonymous__".to_string()
-    } else {
-        effective_client_id.clone()
-    };
-    if !cfg.oauth_store.check_rate_limit(&rate_key, 10) {
-        tracing::warn!(client_id = %rate_key, "Token endpoint rate limit exceeded");
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            Json(serde_json::json!({
-                "error": "rate_limit_exceeded",
-                "error_description": "too many token requests; try again later"
-            })),
-        )
-            .into_response();
-    }
-
     let sessions = cfg.oauth_store.auth_sessions.read().await;
     let session = sessions.values().find(|s| {
         s.auth_code.as_deref() == Some(&token_req.code)
@@ -610,6 +521,7 @@ pub async fn oauth_token(
         refresh_token: refresh_token.clone(),
         scope: session.scope.clone(),
         client_id: session.client_id.clone(),
+        tenant_id: None,
     };
 
     cfg.oauth_store
@@ -676,12 +588,20 @@ pub async fn unified_auth_middleware(
                     .iter()
                     .any(|t| t.as_bytes().ct_eq(token_bytes).into())
                 {
-                    tracing::debug!(path = %path, "Authenticated via static token");
+                    let tenant_ctx = resolve_tenant(token, &cfg.tenant_map);
+                    tracing::debug!(path = %path, tenant = %tenant_ctx.tenant_id, "Authenticated via static token");
+                    req.extensions_mut().insert(tenant_ctx);
                     return next.run(req).await;
                 }
 
-                if let Some(_mcp_token) = cfg.oauth_store.validate_token(token).await {
-                    tracing::debug!(path = %path, "Authenticated via OAuth token");
+                if let Some(mcp_token) = cfg.oauth_store.validate_token(token).await {
+                    let tenant_ctx = mcp_token
+                        .tenant_id
+                        .as_ref()
+                        .map(|tid| TenantContext { tenant_id: tid.clone() })
+                        .unwrap_or_else(|| resolve_tenant(token, &cfg.tenant_map));
+                    tracing::debug!(path = %path, tenant = %tenant_ctx.tenant_id, "Authenticated via OAuth token");
+                    req.extensions_mut().insert(tenant_ctx);
                     return next.run(req).await;
                 }
 
@@ -754,6 +674,7 @@ mod tests {
             refresh_token: "ck-refresh-abc".into(),
             scope: Some("mcp:tools".into()),
             client_id: "test".into(),
+            tenant_id: None,
         };
 
         store
@@ -776,21 +697,5 @@ mod tests {
         assert!(!challenge.contains('='));
         assert!(!challenge.contains('+'));
         assert!(!challenge.contains('/'));
-    }
-
-    #[test]
-    fn test_rate_limiting() {
-        let store = OAuthStore::new();
-        let client = "test-client";
-
-        for _ in 0..10 {
-            assert!(store.check_rate_limit(client, 10));
-        }
-        assert!(!store.check_rate_limit(client, 10), "11th request should be rejected");
-
-        assert!(
-            store.check_rate_limit("other-client", 10),
-            "different client should have its own window"
-        );
     }
 }

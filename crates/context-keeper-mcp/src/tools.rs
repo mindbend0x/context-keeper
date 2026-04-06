@@ -10,11 +10,11 @@ use chrono::{DateTime, Utc};
 use context_keeper_core::{
     ingestion,
     models::{AgentInfo, Episode, Note},
-    search::{fuse_rrf_mixed, QueryExpander},
+    search::{fuse_rrf, fuse_rrf_mixed, QueryExpander},
     traits::{Embedder, EntityExtractor, EntityResolver, QueryRewriter, RelationExtractor},
     ContextKeeperError,
 };
-use context_keeper_surreal::Repository;
+use context_keeper_surreal::{Repository, TenantRouter, DEFAULT_TENANT_ID};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
@@ -25,6 +25,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::tenant::TenantContext;
 
 fn to_mcp(err: ContextKeeperError) -> McpError {
     match err {
@@ -186,40 +187,6 @@ pub struct DeleteNoteInput {
     pub namespace: Option<String>,
 }
 
-// ── Agent status inputs ─────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct PostAgentStatusInput {
-    #[schemars(description = "Unique identifier of the agent posting the status")]
-    pub agent_id: String,
-    #[schemars(description = "Optional session identifier to group related status updates")]
-    pub session_id: Option<String>,
-    #[schemars(
-        description = "Status of the agent run: 'started', 'in_progress', 'blocked', 'completed', or 'failed'"
-    )]
-    pub status: String,
-    #[schemars(description = "Optional human-readable summary of what the agent is doing or has done")]
-    pub summary: Option<String>,
-    #[schemars(
-        description = "Namespace to scope this status to. Omit for the default global namespace."
-    )]
-    pub namespace: Option<String>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct QueryAgentRunsInput {
-    #[schemars(
-        description = "Filter by status: 'started', 'in_progress', 'blocked', 'completed', or 'failed'"
-    )]
-    pub status: Option<String>,
-    #[schemars(description = "Filter by a specific agent's ID")]
-    pub agent_id: Option<String>,
-    #[schemars(description = "Maximum number of results to return (default: 20)")]
-    pub limit: Option<usize>,
-    #[schemars(description = "Namespace to filter by. Omit to search all namespaces.")]
-    pub namespace: Option<String>,
-}
-
 // ── Serializable response types ──────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -351,7 +318,7 @@ fn search_result_to_item(r: &context_keeper_core::models::SearchResult) -> Optio
 #[derive(Clone)]
 pub struct ContextKeeperServer {
     tool_router: ToolRouter<Self>,
-    repo: Repository,
+    tenant_router: Arc<TenantRouter>,
     embedder: Arc<dyn Embedder>,
     entity_extractor: Arc<dyn EntityExtractor>,
     relation_extractor: Arc<dyn RelationExtractor>,
@@ -360,7 +327,7 @@ pub struct ContextKeeperServer {
 
 impl ContextKeeperServer {
     pub fn new(
-        repo: Repository,
+        tenant_router: Arc<TenantRouter>,
         embedder: Arc<dyn Embedder>,
         entity_extractor: Arc<dyn EntityExtractor>,
         relation_extractor: Arc<dyn RelationExtractor>,
@@ -368,12 +335,30 @@ impl ContextKeeperServer {
     ) -> Self {
         Self {
             tool_router: Self::tool_router(),
-            repo,
+            tenant_router,
             embedder,
             entity_extractor,
             relation_extractor,
             query_rewriter,
         }
+    }
+
+    /// Extract the tenant-scoped [`Repository`] from rmcp request extensions.
+    ///
+    /// For HTTP: `TenantContext` was inserted into `http::request::Parts` by
+    /// auth middleware; rmcp stores Parts in `RequestContext.extensions`.
+    /// For stdio: falls back to the default tenant.
+    async fn repo_for(&self, ctx: &RequestContext<RoleServer>) -> Result<Repository, McpError> {
+        let tenant_id = ctx
+            .extensions
+            .get::<http::request::Parts>()
+            .and_then(|parts| parts.extensions.get::<TenantContext>())
+            .map(|tc| tc.tenant_id.as_str())
+            .unwrap_or(DEFAULT_TENANT_ID);
+        self.tenant_router
+            .get_or_create(tenant_id)
+            .await
+            .map_err(to_mcp)
     }
 }
 
@@ -390,7 +375,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<AddMemoryInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let source = input.source.unwrap_or_else(|| "mcp".to_string());
         let agent = input.agent_id.map(|id| AgentInfo {
             agent_id: id,
@@ -407,7 +392,7 @@ impl ContextKeeperServer {
             created_at: Utc::now(),
         };
 
-        let resolver: &dyn EntityResolver = repo;
+        let resolver: &dyn EntityResolver = &repo;
         let result = ingestion::ingest(
             &episode,
             self.embedder.as_ref(),
@@ -497,7 +482,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<SearchMemoryInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(5);
         let type_filter = input.entity_type.as_deref();
         let ns = input.namespace.as_deref();
@@ -553,7 +538,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<ExpandSearchInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(10);
         let type_filter = input.entity_type.as_deref();
         let ns = input.namespace.as_deref();
@@ -614,7 +599,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<GetEntityInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let entities = repo
             .find_entities_by_name(&input.name, None, input.namespace.as_deref())
             .await
@@ -680,7 +665,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<SnapshotInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let at: DateTime<Utc> = input
             .timestamp
             .parse()
@@ -717,7 +702,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<ListRecentInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(10);
 
         let memories = repo
@@ -742,7 +727,7 @@ impl ContextKeeperServer {
         description = "List all AI agents that have contributed to the knowledge graph, including their namespaces and episode counts. Useful for multi-agent setups to see who has been writing memories."
     )]
     async fn list_agents(&self, ctx: RequestContext<RoleServer>) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let agents = repo.list_agents().await.map_err(to_mcp)?;
 
         if agents.is_empty() {
@@ -758,7 +743,7 @@ impl ContextKeeperServer {
         description = "List all namespaces in the knowledge graph with entity counts. Namespaces partition the graph so different projects or teams can have isolated memory spaces."
     )]
     async fn list_namespaces(&self, ctx: RequestContext<RoleServer>) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let namespaces = repo.list_namespaces().await.map_err(to_mcp)?;
 
         if namespaces.is_empty() {
@@ -780,7 +765,7 @@ impl ContextKeeperServer {
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<AgentActivityInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(20);
         let episodes = repo
             .list_episodes_by_agent(&input.agent_id, limit)
@@ -809,14 +794,14 @@ impl ContextKeeperServer {
 
     /// Search across all namespaces regardless of the caller's default namespace.
     #[tool(
-        description = "Search across all application-level namespaces within the knowledge graph using hybrid vector + keyword search. Unlike search_memory, this always searches globally across namespaces, ignoring namespace scoping."
+        description = "Search across all application-level namespaces within the current tenant's knowledge graph using hybrid vector + keyword search. Unlike search_memory, this always searches globally across namespaces, ignoring namespace scoping. Scoped to the authenticated tenant's data boundary."
     )]
     async fn cross_namespace_search(
         &self,
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<CrossNamespaceSearchInput>,
     ) -> Result<String, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(10);
         let type_filter = input.entity_type.as_deref();
 
@@ -861,316 +846,6 @@ impl ContextKeeperServer {
             .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
     }
 
-    // ── Note Tools (Long-Term Memory) ─────────────────────────────────
-
-    /// Save a lightweight text note with a stable key for later retrieval.
-    #[tool(
-        description = "Save a text note with a unique key for later retrieval. Lightweight alternative to add_memory that skips entity/relation extraction. If a note with the same key exists in the same namespace, its content is updated."
-    )]
-    async fn save_note(
-        &self,
-        ctx: RequestContext<RoleServer>,
-        Parameters(input): Parameters<SaveNoteInput>,
-    ) -> Result<String, McpError> {
-        let repo = &self.repo;
-        let embedding = self.embedder.embed(&input.content).await.map_err(to_mcp)?;
-        let now = Utc::now();
-
-        let existing = repo
-            .get_note_by_key(&input.key, input.namespace.as_deref())
-            .await
-            .map_err(to_mcp)?;
-
-        let note = Note {
-            id: existing.as_ref().map(|n| n.id).unwrap_or_else(Uuid::new_v4),
-            key: input.key,
-            content: input.content,
-            embedding,
-            tags: input.tags.unwrap_or_default(),
-            namespace: input.namespace,
-            created_at: existing.as_ref().map(|n| n.created_at).unwrap_or(now),
-            updated_at: now,
-        };
-
-        repo.upsert_note(&note).await.map_err(to_mcp)?;
-
-        let action = if existing.is_some() {
-            "updated"
-        } else {
-            "created"
-        };
-        let response = serde_json::json!({
-            "status": action,
-            "key": note.key,
-            "tags": note.tags,
-            "namespace": note.namespace,
-        });
-
-        serde_json::to_string_pretty(&response)
-            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
-    }
-
-    /// Retrieve a saved note by its unique key.
-    #[tool(
-        description = "Retrieve a saved note by its unique key. Returns the note content, tags, and timestamps."
-    )]
-    async fn get_note(
-        &self,
-        ctx: RequestContext<RoleServer>,
-        Parameters(input): Parameters<GetNoteInput>,
-    ) -> Result<String, McpError> {
-        let repo = &self.repo;
-        let note = repo
-            .get_note_by_key(&input.key, input.namespace.as_deref())
-            .await
-            .map_err(to_mcp)?;
-
-        match note {
-            Some(n) => {
-                let item = NoteItem {
-                    key: n.key,
-                    content: n.content,
-                    tags: n.tags,
-                    namespace: n.namespace,
-                    created_at: n.created_at.to_rfc3339(),
-                    updated_at: n.updated_at.to_rfc3339(),
-                };
-                serde_json::to_string_pretty(&item).map_err(|e| {
-                    McpError::internal_error(format!("Serialization failed: {e}"), None)
-                })
-            }
-            None => Ok(format!("No note found with key '{}'", input.key)),
-        }
-    }
-
-    /// Search notes by content similarity using hybrid vector + keyword search.
-    #[tool(
-        description = "Search saved notes by content similarity using hybrid vector + keyword search. Optionally filter by tags."
-    )]
-    async fn search_notes(
-        &self,
-        ctx: RequestContext<RoleServer>,
-        Parameters(input): Parameters<SearchNotesInput>,
-    ) -> Result<String, McpError> {
-        let repo = &self.repo;
-        let limit = input.limit.unwrap_or(10);
-        let tags = input.tags.as_deref();
-        let ns = input.namespace.as_deref();
-
-        let query_embedding = self.embedder.embed(&input.query).await.map_err(to_mcp)?;
-
-        let vector_results = repo
-            .search_notes_by_vector(&query_embedding, limit, tags, ns)
-            .await
-            .map_err(to_mcp)?;
-
-        let keyword_results = repo
-            .search_notes_by_keyword(&input.query, tags, ns)
-            .await
-            .map_err(to_mcp)?;
-
-        let mut seen = HashSet::new();
-        let mut items: Vec<ScoredNoteItem> = Vec::new();
-
-        for (note, score) in &vector_results {
-            if seen.insert(note.key.clone()) {
-                items.push(ScoredNoteItem {
-                    key: note.key.clone(),
-                    content: note.content.clone(),
-                    tags: note.tags.clone(),
-                    namespace: note.namespace.clone(),
-                    score: *score,
-                });
-            }
-        }
-        for note in &keyword_results {
-            if seen.insert(note.key.clone()) {
-                items.push(ScoredNoteItem {
-                    key: note.key.clone(),
-                    content: note.content.clone(),
-                    tags: note.tags.clone(),
-                    namespace: note.namespace.clone(),
-                    score: 0.0,
-                });
-            }
-        }
-
-        items.truncate(limit);
-
-        serde_json::to_string_pretty(&items)
-            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
-    }
-
-    /// List saved notes, optionally filtered by tags.
-    #[tool(
-        description = "List saved notes ordered by most recently updated. Optionally filter by tags."
-    )]
-    async fn list_notes(
-        &self,
-        ctx: RequestContext<RoleServer>,
-        Parameters(input): Parameters<ListNotesInput>,
-    ) -> Result<String, McpError> {
-        let repo = &self.repo;
-        let limit = input.limit.unwrap_or(20);
-        let tags = input.tags.as_deref();
-        let ns = input.namespace.as_deref();
-
-        let notes = repo.list_notes(tags, limit, ns).await.map_err(to_mcp)?;
-
-        let items: Vec<NoteItem> = notes
-            .iter()
-            .map(|n| NoteItem {
-                key: n.key.clone(),
-                content: n.content.clone(),
-                tags: n.tags.clone(),
-                namespace: n.namespace.clone(),
-                created_at: n.created_at.to_rfc3339(),
-                updated_at: n.updated_at.to_rfc3339(),
-            })
-            .collect();
-
-        serde_json::to_string_pretty(&items)
-            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
-    }
-
-    /// Delete a saved note by its key.
-    #[tool(
-        description = "Delete a saved note by its key. Returns whether the note existed and was deleted."
-    )]
-    async fn delete_note(
-        &self,
-        ctx: RequestContext<RoleServer>,
-        Parameters(input): Parameters<DeleteNoteInput>,
-    ) -> Result<String, McpError> {
-        let repo = &self.repo;
-        let deleted = repo
-            .delete_note(&input.key, input.namespace.as_deref())
-            .await
-            .map_err(to_mcp)?;
-
-        let response = serde_json::json!({
-            "key": input.key,
-            "deleted": deleted,
-        });
-
-        serde_json::to_string_pretty(&response)
-            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
-    }
-
-    // ── Agent Status Tools ────────────────────────────────────────────
-
-    #[tool(
-        description = "Post a status update from an agent session. Tracks agent lifecycle events (started, in_progress, blocked, completed, failed) as episodes for observability and multi-agent coordination."
-    )]
-    async fn post_agent_status(
-        &self,
-        ctx: RequestContext<RoleServer>,
-        Parameters(input): Parameters<PostAgentStatusInput>,
-    ) -> Result<String, McpError> {
-        let repo = &self.repo;
-
-        const VALID_STATUSES: &[&str] =
-            &["started", "in_progress", "blocked", "completed", "failed"];
-        if !VALID_STATUSES.contains(&input.status.as_str()) {
-            return Err(McpError::invalid_params(
-                format!(
-                    "Invalid status '{}'. Must be one of: {}",
-                    input.status,
-                    VALID_STATUSES.join(", ")
-                ),
-                None,
-            ));
-        }
-
-        let content = serde_json::json!({
-            "status": input.status,
-            "summary": input.summary,
-        });
-
-        let episode = Episode {
-            id: Uuid::new_v4(),
-            content: content.to_string(),
-            source: "agent_status".to_string(),
-            session_id: input.session_id,
-            agent: Some(AgentInfo {
-                agent_id: input.agent_id.clone(),
-                agent_name: None,
-                machine_id: None,
-            }),
-            namespace: input.namespace,
-            created_at: Utc::now(),
-        };
-
-        repo.create_episode(&episode).await.map_err(to_mcp)?;
-
-        let response = serde_json::json!({
-            "recorded": true,
-            "agent_id": input.agent_id,
-            "status": input.status,
-            "episode_id": episode.id.to_string(),
-        });
-
-        serde_json::to_string_pretty(&response)
-            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
-    }
-
-    #[tool(
-        description = "Query recent agent run statuses. Returns lifecycle events posted by agents, optionally filtered by status or agent_id. Useful for monitoring agent health and coordinating multi-agent workflows."
-    )]
-    async fn query_agent_runs(
-        &self,
-        ctx: RequestContext<RoleServer>,
-        Parameters(input): Parameters<QueryAgentRunsInput>,
-    ) -> Result<String, McpError> {
-        let repo = &self.repo;
-        let limit = input.limit.unwrap_or(20);
-
-        let episodes = repo
-            .list_episodes_by_source("agent_status", input.agent_id.as_deref(), limit)
-            .await
-            .map_err(to_mcp)?;
-
-        let mut items: Vec<serde_json::Value> = Vec::new();
-        for episode in &episodes {
-            let parsed: serde_json::Value = serde_json::from_str(&episode.content)
-                .unwrap_or_else(|_| serde_json::json!({"raw": episode.content}));
-
-            let status = parsed
-                .get("status")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-
-            if let Some(ref filter_status) = input.status {
-                if status != filter_status.as_str() {
-                    continue;
-                }
-            }
-
-            if let Some(ref filter_ns) = input.namespace {
-                match &episode.namespace {
-                    Some(ns) if ns == filter_ns => {}
-                    _ => continue,
-                }
-            }
-
-            items.push(serde_json::json!({
-                "agent_id": episode.agent.as_ref().map(|a| &a.agent_id),
-                "session_id": episode.session_id,
-                "status": status,
-                "summary": parsed.get("summary").and_then(|v| v.as_str()),
-                "namespace": episode.namespace,
-                "created_at": episode.created_at.to_rfc3339(),
-            }));
-        }
-
-        if items.is_empty() {
-            return Ok("No agent status updates found matching the criteria.".to_string());
-        }
-
-        serde_json::to_string_pretty(&items)
-            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
-    }
-
 }
 
 #[tool_handler]
@@ -1192,20 +867,9 @@ impl ServerHandler for ContextKeeperServer {
              Use add_memory to store information (with optional namespace and agent_id for provenance), \
              search_memory or expand_search to retrieve it, get_entity for detailed entity lookups, \
              snapshot for point-in-time queries, and list_recent for recent memories. \
-             For lightweight long-term memory: save_note stores a text note with a unique key, \
-             get_note retrieves it by key, search_notes finds notes by content similarity, \
-             list_notes lists all notes (optionally filtered by tags), and delete_note removes a note. \
-             Notes are simpler than add_memory — they skip entity/relation extraction and are ideal \
-             for storing preferences, decisions, context, or any text you want to recall later. \
              For multi-agent workflows: list_agents shows contributing agents, list_namespaces \
              shows available scopes, agent_activity shows a specific agent's contributions, and \
-             cross_namespace_search searches globally across all namespaces. \
-             For agent run tracking: post_agent_status records lifecycle events (started, in_progress, \
-             blocked, completed, failed) from agent sessions, and query_agent_runs retrieves recent \
-             statuses filtered by agent or status for coordination and observability. \
-             Resources: memory://recent (recent memories), memory://entities/summary (compact entity \
-             list), memory://stats (graph-wide counts and namespaces). Use memory://entity/{name} \
-             via resource templates to fetch full entity details.",
+             cross_namespace_search searches globally across all namespaces within a tenant.",
         )
     }
 
@@ -1214,47 +878,38 @@ impl ServerHandler for ContextKeeperServer {
     async fn list_resources(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
-        let resources: Vec<Resource> = vec![
-            RawResource {
-                uri: "memory://recent".into(),
-                name: "recent-memories".into(),
-                title: None,
-                description: Some("The 20 most recently added memories".into()),
-                mime_type: Some("application/json".into()),
-                size: None,
-                icons: None,
-                meta: None,
-            }
-            .no_annotation(),
-            RawResource {
-                uri: "memory://entities/summary".into(),
-                name: "entities-summary".into(),
-                title: None,
-                description: Some(
-                    "Compact summary of all active entities (names and types)".into(),
-                ),
-                mime_type: Some("application/json".into()),
-                size: None,
-                icons: None,
-                meta: None,
-            }
-            .no_annotation(),
-            RawResource {
-                uri: "memory://stats".into(),
-                name: "graph-stats".into(),
-                title: None,
-                description: Some(
-                    "Knowledge graph statistics: entity, memory, episode, and relation counts with namespace list".into(),
-                ),
-                mime_type: Some("application/json".into()),
-                size: None,
-                icons: None,
-                meta: None,
-            }
-            .no_annotation(),
-        ];
+        let repo = self.repo_for(&context).await?;
+        let mut resources: Vec<Resource> = vec![RawResource {
+            uri: "memory://recent".into(),
+            name: "recent-memories".into(),
+            title: None,
+            description: Some("The 20 most recently added memories".into()),
+            mime_type: Some("application/json".into()),
+            size: None,
+            icons: None,
+            meta: None,
+        }
+        .no_annotation()];
+
+        let entities = repo.get_all_active_entities().await.map_err(to_mcp)?;
+
+        for entity in &entities {
+            resources.push(
+                RawResource {
+                    uri: format!("memory://entity/{}", entity.name),
+                    name: entity.name.clone(),
+                    title: None,
+                    description: Some(format!("{} ({})", entity.summary, entity.entity_type)),
+                    mime_type: Some("application/json".into()),
+                    size: None,
+                    icons: None,
+                    meta: None,
+                }
+                .no_annotation(),
+            );
+        }
 
         Ok(ListResourcesResult {
             resources,
@@ -1293,7 +948,7 @@ impl ServerHandler for ContextKeeperServer {
         request: ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, McpError> {
-        let repo = &self.repo;
+        let repo = self.repo_for(&context).await?;
         let uri = &request.uri;
 
         if uri == "memory://recent" {
@@ -1311,47 +966,6 @@ impl ServerHandler for ContextKeeperServer {
                 McpError::internal_error(format!("Serialization failed: {e}"), None)
             })?;
 
-            return Ok(ReadResourceResult::new(vec![ResourceContents::text(
-                text, uri,
-            )]));
-        }
-
-        if uri == "memory://entities/summary" {
-            let entities = repo.get_all_active_entities().await.map_err(to_mcp)?;
-            let summary: Vec<serde_json::Value> = entities
-                .iter()
-                .map(|e| {
-                    serde_json::json!({
-                        "name": e.name,
-                        "type": e.entity_type.to_string(),
-                    })
-                })
-                .collect();
-            let text = serde_json::to_string_pretty(&summary).map_err(|e| {
-                McpError::internal_error(format!("Serialization failed: {e}"), None)
-            })?;
-            return Ok(ReadResourceResult::new(vec![ResourceContents::text(
-                text, uri,
-            )]));
-        }
-
-        if uri == "memory://stats" {
-            let entity_count = repo.count_active_entities().await.map_err(to_mcp)?;
-            let memory_count = repo.count_memories().await.map_err(to_mcp)?;
-            let episode_count = repo.count_episodes().await.map_err(to_mcp)?;
-            let relation_count = repo.count_active_relations().await.map_err(to_mcp)?;
-            let namespaces = repo.list_namespaces().await.map_err(to_mcp)?;
-
-            let stats = serde_json::json!({
-                "entity_count": entity_count,
-                "memory_count": memory_count,
-                "episode_count": episode_count,
-                "relation_count": relation_count,
-                "namespaces": namespaces,
-            });
-            let text = serde_json::to_string_pretty(&stats).map_err(|e| {
-                McpError::internal_error(format!("Serialization failed: {e}"), None)
-            })?;
             return Ok(ReadResourceResult::new(vec![ResourceContents::text(
                 text, uri,
             )]));

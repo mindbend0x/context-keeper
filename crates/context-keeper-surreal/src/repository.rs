@@ -866,8 +866,8 @@ impl Repository {
         namespace: Option<&str>,
     ) -> Result<Vec<Memory>> {
         let q = match namespace {
-            Some(_) => "SELECT *, search::score(1) AS score FROM memory WHERE content @1@ $query AND namespace = $ns ORDER BY score DESC",
-            None => "SELECT *, search::score(1) AS score FROM memory WHERE content @1@ $query ORDER BY score DESC",
+            Some(_) => "SELECT *, search::score(1) AS relevance FROM memory WHERE content @1@ $query AND namespace = $ns ORDER BY relevance DESC",
+            None => "SELECT *, search::score(1) AS relevance FROM memory WHERE content @1@ $query ORDER BY relevance DESC",
         };
         let mut db_query = self.db.query(q).bind(("query", query.to_string()));
         if let Some(ns) = namespace {
@@ -1038,86 +1038,6 @@ impl Repository {
             .map_err(storage_err)?;
         let rows: Vec<EpisodeRow> = response.take(0).map_err(storage_err)?;
         Ok(rows.into_iter().filter_map(episode_from_row).collect())
-    }
-
-    /// List episodes matching a specific source, with optional agent_id filter.
-    pub async fn list_episodes_by_source(
-        &self,
-        source: &str,
-        agent_id: Option<&str>,
-        limit: usize,
-    ) -> Result<Vec<Episode>> {
-        let q = match agent_id {
-            Some(_) => "SELECT * FROM episode WHERE source = $source AND agent_id = $agent_id ORDER BY created_at DESC LIMIT $limit",
-            None => "SELECT * FROM episode WHERE source = $source ORDER BY created_at DESC LIMIT $limit",
-        };
-        let mut query = self
-            .db
-            .query(q)
-            .bind(("source", source.to_string()))
-            .bind(("limit", limit));
-        if let Some(id) = agent_id {
-            query = query.bind(("agent_id", id.to_string()));
-        }
-        let mut response = query.await.map_err(storage_err)?;
-        let rows: Vec<EpisodeRow> = response.take(0).map_err(storage_err)?;
-        Ok(rows.into_iter().filter_map(episode_from_row).collect())
-    }
-
-    pub async fn count_active_entities(&self) -> Result<usize> {
-        let mut response = self
-            .db
-            .query("SELECT count() AS count FROM entity WHERE valid_until IS NONE GROUP ALL")
-            .await
-            .map_err(storage_err)?;
-        let rows: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
-        Ok(rows
-            .first()
-            .and_then(|r| r.get("count"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as usize)
-    }
-
-    pub async fn count_memories(&self) -> Result<usize> {
-        let mut response = self
-            .db
-            .query("SELECT count() AS count FROM memory GROUP ALL")
-            .await
-            .map_err(storage_err)?;
-        let rows: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
-        Ok(rows
-            .first()
-            .and_then(|r| r.get("count"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as usize)
-    }
-
-    pub async fn count_episodes(&self) -> Result<usize> {
-        let mut response = self
-            .db
-            .query("SELECT count() AS count FROM episode GROUP ALL")
-            .await
-            .map_err(storage_err)?;
-        let rows: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
-        Ok(rows
-            .first()
-            .and_then(|r| r.get("count"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as usize)
-    }
-
-    pub async fn count_active_relations(&self) -> Result<usize> {
-        let mut response = self
-            .db
-            .query("SELECT count() AS count FROM relation WHERE valid_until IS NONE GROUP ALL")
-            .await
-            .map_err(storage_err)?;
-        let rows: Vec<serde_json::Value> = response.take(0).map_err(storage_err)?;
-        Ok(rows
-            .first()
-            .and_then(|r| r.get("count"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as usize)
     }
 
     // ── Notes (Long-Term Memory) ──────────────────────────────────────

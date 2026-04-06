@@ -11,8 +11,8 @@ use context_keeper_rig::{
     rewriting::RigQueryRewriter,
 };
 use context_keeper_surreal::{
-    apply_schema, connect, default_storage_string, parse_storage_backend, Repository,
-    StorageBackend, SurrealConfig,
+    default_storage_string, parse_storage_backend,
+    StorageBackend, SurrealConfig, TenantRouter, DEFAULT_TENANT_ID,
 };
 use dotenv::dotenv;
 use rmcp::transport::streamable_http_server::tower::StreamableHttpServerConfig;
@@ -25,9 +25,11 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::EnvFilter;
 
 mod oauth;
+mod tenant;
 mod tools;
 
 use oauth::{OAuthConfig, OAuthStore};
+use tenant::parse_tenant_map;
 use tools::ContextKeeperServer;
 
 type LlmServiceStack = (
@@ -96,21 +98,11 @@ struct Cli {
     #[arg(long, env = "MCP_ALLOW_INSECURE_HTTP")]
     allow_insecure_http: bool,
 
-    /// Require authentication when binding to non-loopback addresses.
-    /// When true (default), HTTP on 0.0.0.0 or external IPs needs MCP_AUTH_TOKENS or MCP_OAUTH_ISSUER.
-    #[arg(long, env = "MCP_REQUIRE_AUTH_FOR_WAN", default_value = "true")]
-    require_auth_for_wan: bool,
-
     /// Public base URL of this server (e.g., https://mcp.example.com).
     /// Enables OAuth 2.1 authorization flow. When set, the server serves
     /// discovery endpoints and accepts dynamically registered OAuth clients.
     #[arg(long, env = "MCP_OAUTH_ISSUER")]
     oauth_issuer: Option<String>,
-
-    /// Token required for OAuth dynamic client registration (/oauth/register).
-    /// When set, only clients presenting this token can register.
-    #[arg(long, env = "MCP_OAUTH_REGISTRATION_TOKEN")]
-    oauth_registration_token: Option<String>,
 
     /// SurrealDB root username (for remote connections)
     #[arg(long, env = "SURREAL_USER")]
@@ -119,11 +111,21 @@ struct Cli {
     /// SurrealDB root password (for remote connections)
     #[arg(long, env = "SURREAL_PASS")]
     surreal_pass: Option<String>,
+
+    /// Tenant mapping: "token1:tenant_a,token2:tenant_b".
+    /// Tokens without a tenant suffix map to the default tenant.
+    #[arg(long, env = "MCP_TENANT_MAP")]
+    tenant_map: Option<String>,
+
+    /// Maximum number of concurrent tenants (default: 64).
+    #[arg(long, env = "MCP_MAX_TENANTS", default_value = "64")]
+    max_tenants: usize,
 }
 
 async fn bearer_auth(
     valid_tokens: Arc<Vec<String>>,
-    req: Request,
+    tenant_map: Arc<std::collections::HashMap<String, String>>,
+    mut req: Request,
     next: middleware::Next,
 ) -> Response {
     use subtle::ConstantTimeEq;
@@ -136,6 +138,8 @@ async fn bearer_auth(
                     .iter()
                     .any(|t| t.as_bytes().ct_eq(token_bytes).into())
                 {
+                    let tenant_ctx = tenant::resolve_tenant(token, &tenant_map);
+                    req.extensions_mut().insert(tenant_ctx);
                     return next.run(req).await;
                 }
             }
@@ -163,7 +167,7 @@ async fn main() -> Result<()> {
 
     tracing::info!("Starting Context Keeper MCP server");
 
-    // Initialize SurrealDB
+    // Initialize SurrealDB via TenantRouter
     let embedding_dims = cli.embedding_dims.unwrap_or(1536);
     let config = SurrealConfig {
         embedding_dimensions: embedding_dims,
@@ -180,17 +184,21 @@ async fn main() -> Result<()> {
         std::fs::create_dir_all(path).ok();
     }
 
-    let db = connect(&config).await?;
-    apply_schema(&db, &config).await?;
-    let repo = Repository::new(db);
+    let tenant_router = Arc::new(TenantRouter::new(config.clone(), cli.max_tenants));
+
+    // Eagerly provision the default tenant so startup validation
+    // (schema apply, optional import) happens before accepting requests.
+    let default_repo = tenant_router
+        .get_or_create(DEFAULT_TENANT_ID)
+        .await?;
 
     if matches!(config.storage, StorageBackend::Memory)
         && std::path::Path::new(&cli.db_file_path).exists()
     {
-        repo.import_from_file(&cli.db_file_path).await?;
+        default_repo.import_from_file(&cli.db_file_path).await?;
     }
 
-    tracing::info!("SurrealDB initialized, repository ready");
+    tracing::info!("SurrealDB initialized, tenant router ready");
 
     // Build LLM services
     let emb_api_url = cli.embedding_api_url.as_deref().or(cli.api_url.as_deref());
@@ -234,11 +242,18 @@ async fn main() -> Result<()> {
     };
 
     let server = ContextKeeperServer::new(
-        repo,
+        tenant_router.clone(),
         embedder,
         entity_extractor,
         relation_extractor,
         query_rewriter,
+    );
+
+    let tenant_map: Arc<std::collections::HashMap<String, String>> = Arc::new(
+        cli.tenant_map
+            .as_deref()
+            .map(parse_tenant_map)
+            .unwrap_or_default(),
     );
 
     let valid_tokens: Arc<Vec<String>> = Arc::new(
@@ -260,30 +275,6 @@ async fn main() -> Result<()> {
             service.waiting().await?;
         }
         "http" => {
-            let is_loopback = cli.http_host == "127.0.0.1" || cli.http_host == "::1";
-
-            if cli.allow_insecure_http && !is_loopback {
-                anyhow::bail!(
-                    "MCP_ALLOW_INSECURE_HTTP can only be used with loopback addresses \
-                     (127.0.0.1 / ::1). Binding to {} without authentication exposes \
-                     the endpoint to the network. Use MCP_AUTH_TOKENS or MCP_OAUTH_ISSUER instead.",
-                    cli.http_host
-                );
-            }
-
-            if cli.require_auth_for_wan
-                && !is_loopback
-                && valid_tokens.is_empty()
-                && !oauth_enabled
-            {
-                anyhow::bail!(
-                    "Binding to non-loopback address {} requires authentication \
-                     (MCP_REQUIRE_AUTH_FOR_WAN is enabled). Set MCP_AUTH_TOKENS or \
-                     MCP_OAUTH_ISSUER, or set MCP_REQUIRE_AUTH_FOR_WAN=false to override.",
-                    cli.http_host
-                );
-            }
-
             let has_auth =
                 !valid_tokens.is_empty() || oauth_enabled || cli.allow_insecure_http;
             if !has_auth {
@@ -291,13 +282,6 @@ async fn main() -> Result<()> {
                     "HTTP transport requires auth tokens (MCP_AUTH_TOKENS), \
                      OAuth (MCP_OAUTH_ISSUER), or explicit opt-in to insecure mode \
                      (MCP_ALLOW_INSECURE_HTTP=1). Refusing to start an unauthenticated HTTP endpoint."
-                );
-            }
-
-            if !valid_tokens.is_empty() && !oauth_enabled {
-                tracing::warn!(
-                    "Static bearer tokens are used for HTTP authentication. \
-                     Consider enabling OAuth (MCP_OAUTH_ISSUER) for production deployments."
                 );
             }
 
@@ -326,7 +310,7 @@ async fn main() -> Result<()> {
                     issuer: issuer.clone(),
                     oauth_store: oauth_store.clone(),
                     static_tokens: valid_tokens.clone(),
-                    registration_token: cli.oauth_registration_token.clone(),
+                    tenant_map: tenant_map.clone(),
                 };
 
                 let cors = CorsLayer::new()
@@ -383,10 +367,11 @@ async fn main() -> Result<()> {
             } else {
                 tracing::info!(count = valid_tokens.len(), "Bearer token auth enabled");
                 let tokens = valid_tokens.clone();
+                let tmap = tenant_map.clone();
                 axum::Router::new()
                     .nest_service("/mcp", http_service)
                     .layer(middleware::from_fn(move |req, next| {
-                        bearer_auth(tokens.clone(), req, next)
+                        bearer_auth(tokens.clone(), tmap.clone(), req, next)
                     }))
             };
 
