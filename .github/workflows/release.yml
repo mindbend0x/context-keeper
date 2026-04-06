@@ -19,10 +19,10 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: [self-hosted, fzc]
             suffix: linux-x64
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: [self-hosted, fzc]
             suffix: linux-arm64
           - target: x86_64-apple-darwin
             os: macos-latest
@@ -69,7 +69,7 @@ jobs:
   release:
     name: Create Release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, fzc]
     steps:
       - uses: actions/checkout@v4
 

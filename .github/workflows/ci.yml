@@ -15,28 +15,27 @@ env:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - target: linux
+            runner: [self-hosted, fzc]
+          - target: macos
+            runner: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install mold linker
-        if: runner.os == 'Linux'
-        run: sudo apt-get install -y mold
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace
 
   fmt:
     name: Format
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, fzc]
     steps:
       - uses: actions/checkout@v4
-      - name: Install mold linker
-        run: sudo apt-get install -y mold
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -45,17 +44,9 @@ jobs:
   check:
     name: Clippy
     needs: fmt
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, fzc]
     steps:
       - uses: actions/checkout@v4
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
-          sudo apt-get clean
-
-      - name: Install mold linker
-        run: sudo apt-get install -y mold
-      
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -65,17 +56,9 @@ jobs:
   test:
     name: Test
     needs: fmt
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, fzc]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
-          sudo apt-get clean
-
-      - name: Install mold linker
-        run: sudo apt-get install -y mold
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
