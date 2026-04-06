@@ -25,9 +25,9 @@ linear: get_issue(issueId: "FZ-XX")
 ```
 
 Read the issue description, acceptance criteria, and linked issues. Cross-reference with:
-- `docs/ROADMAP.md` for sequencing context
-- `docs/plans/` for detailed level plans
-- `docs/ADR-001-architecture-review.md` for architectural guidance
+- `docs/internal/ROADMAP.md` for sequencing context
+- `docs/internal/plans/` for detailed level plans
+- `docs/internal/ADR-001-architecture-review.md` for architectural guidance
 
 ### 2. Create a Feature Branch
 

@@ -199,7 +199,7 @@ It ingests text episodes, extracts entities and relationships (via LLM or mock h
 
 ## Architecture
 
-See [`docs/architecture.md`](docs/architecture.md) for the full crate dependency graph and MCP server internals.
+See [`docs/internal/architecture.md`](docs/internal/architecture.md) for the full crate dependency graph and MCP server internals.
 
 ```mermaid
 graph TD
@@ -302,7 +302,7 @@ cargo test --workspace
 
 ## MCP Reference
 
-For the full MCP tool/resource/prompt reference with parameters and examples, see [`docs/mcp.md`](docs/mcp.md).
+For the full MCP tool/resource/prompt reference with parameters and examples, see [`docs/internal/mcp.md`](docs/internal/mcp.md).
 
 ## Key Dependencies
 

@@ -255,12 +255,88 @@ impl Default for RetryConfig {
     }
 }
 
+/// Check whether a Rig error is likely a deserialization/JSON parsing failure
+/// (as opposed to a network or auth error), indicating the HTTP response was
+/// received but Rig couldn't parse it into its typed response structs.
+fn is_deserialization_error(err: &str) -> bool {
+    let lower = err.to_lowercase();
+    lower.contains("deserialize")
+        || lower.contains("expected value")
+        || lower.contains("invalid type")
+        || lower.contains("missing field")
+        || (lower.contains("json") && lower.contains("error"))
+}
+
+/// Extract assistant message content from an OpenAI-compatible chat completion
+/// response, tolerating nulls and unexpected shapes at every level.
+fn parse_chat_completion_content(json: &serde_json::Value) -> std::result::Result<String, String> {
+    json.get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|choice| choice.get("message"))
+        .and_then(|msg| msg.get("content"))
+        .and_then(|c| c.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            let preview = json.to_string();
+            format!(
+                "Could not extract choices[0].message.content from response: {}",
+                &preview[..preview.len().min(500)]
+            )
+        })
+}
+
+/// Direct HTTP chat completion that bypasses Rig's typed response deserialization.
+/// Used as a fallback when HuggingFace (or other OSS) providers return null fields
+/// that break Rig's non-optional `Choice` fields.
+async fn tolerant_chat_completion(
+    api_url: &str,
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+    user_message: &str,
+) -> std::result::Result<String, String> {
+    let url = format!("{}/chat/completions", api_url.trim_end_matches('/'));
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ]
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        return Err(format!("HTTP {status}: {body_text}"));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response JSON: {e}"))?;
+
+    parse_chat_completion_content(&json)
+}
+
 /// Rig-backed entity extractor using raw prompt + manual JSON parsing.
 pub struct RigEntityExtractor {
     pub system_prompt: String,
     pub model: String,
     pub retry_config: RetryConfig,
     client: openai::Client,
+    api_url: String,
+    api_key: String,
 }
 
 impl RigEntityExtractor {
@@ -278,6 +354,8 @@ impl RigEntityExtractor {
             model: model_name.to_string(),
             retry_config: RetryConfig::default(),
             client: openai_client,
+            api_url: api_url.to_string(),
+            api_key: api_key.to_string(),
         }
     }
 
@@ -316,18 +394,49 @@ impl EntityExtractor for RigEntityExtractor {
                 tokio::time::sleep(backoff).await;
             }
 
-            // Get raw text from LLM
+            // Get raw text from LLM, falling back to direct HTTP if Rig deserialization fails
             let raw_response: String = match agent.prompt(text).await {
                 Ok(r) => r,
                 Err(e) => {
-                    tracing::warn!(
-                        attempt,
-                        model = %self.model,
-                        error = %e,
-                        "Entity extraction LLM call failed"
-                    );
-                    last_err = Some(format!("LLM call failed: {e}"));
-                    continue;
+                    let err_str = e.to_string();
+                    if is_deserialization_error(&err_str) {
+                        tracing::info!(
+                            attempt,
+                            model = %self.model,
+                            "Rig deserialization failed, falling back to direct HTTP"
+                        );
+                        match tolerant_chat_completion(
+                            &self.api_url,
+                            &self.api_key,
+                            &self.model,
+                            &self.system_prompt,
+                            text,
+                        )
+                        .await
+                        {
+                            Ok(r) => r,
+                            Err(fallback_err) => {
+                                tracing::warn!(
+                                    attempt,
+                                    error = %fallback_err,
+                                    "Tolerant HTTP fallback also failed"
+                                );
+                                last_err = Some(format!(
+                                    "LLM call failed: {err_str}; fallback: {fallback_err}"
+                                ));
+                                continue;
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            attempt,
+                            model = %self.model,
+                            error = %e,
+                            "Entity extraction LLM call failed"
+                        );
+                        last_err = Some(format!("LLM call failed: {e}"));
+                        continue;
+                    }
                 }
             };
 
@@ -383,6 +492,8 @@ pub struct RigRelationExtractor {
     pub model: String,
     pub retry_config: RetryConfig,
     client: openai::Client,
+    api_url: String,
+    api_key: String,
 }
 
 impl RigRelationExtractor {
@@ -400,6 +511,8 @@ impl RigRelationExtractor {
             model: model_name.to_string(),
             retry_config: RetryConfig::default(),
             client: openai_client,
+            api_url: api_url.to_string(),
+            api_key: api_key.to_string(),
         }
     }
 
@@ -448,14 +561,45 @@ impl RelationExtractor for RigRelationExtractor {
             let raw_response: String = match agent.prompt(text).await {
                 Ok(r) => r,
                 Err(e) => {
-                    tracing::warn!(
-                        attempt,
-                        model = %self.model,
-                        error = %e,
-                        "Relation extraction LLM call failed"
-                    );
-                    last_err = Some(format!("LLM call failed: {e}"));
-                    continue;
+                    let err_str = e.to_string();
+                    if is_deserialization_error(&err_str) {
+                        tracing::info!(
+                            attempt,
+                            model = %self.model,
+                            "Rig deserialization failed, falling back to direct HTTP"
+                        );
+                        match tolerant_chat_completion(
+                            &self.api_url,
+                            &self.api_key,
+                            &self.model,
+                            &preamble,
+                            text,
+                        )
+                        .await
+                        {
+                            Ok(r) => r,
+                            Err(fallback_err) => {
+                                tracing::warn!(
+                                    attempt,
+                                    error = %fallback_err,
+                                    "Tolerant HTTP fallback also failed"
+                                );
+                                last_err = Some(format!(
+                                    "LLM call failed: {err_str}; fallback: {fallback_err}"
+                                ));
+                                continue;
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            attempt,
+                            model = %self.model,
+                            error = %e,
+                            "Relation extraction LLM call failed"
+                        );
+                        last_err = Some(format!("LLM call failed: {e}"));
+                        continue;
+                    }
                 }
             };
 
@@ -727,5 +871,122 @@ mod tests {
         let json = r#"{"relations": [null, {"subject": "Alice", "predicate": "works_at", "object": "Acme", "confidence": 90}]}"#;
         let parsed = parse_relations(json).unwrap();
         assert_eq!(parsed.len(), 1);
+    }
+
+    // ── Tolerant HTTP fallback tests ────────────────────────────────────
+
+    #[test]
+    fn test_is_deserialization_error_detects_json_issues() {
+        assert!(is_deserialization_error(
+            "JSON deserialization error: missing field `finish_reason`"
+        ));
+        assert!(is_deserialization_error(
+            "expected value at line 1 column 42"
+        ));
+        assert!(is_deserialization_error(
+            "invalid type: null, expected a string"
+        ));
+        assert!(is_deserialization_error("missing field `message`"));
+    }
+
+    #[test]
+    fn test_is_deserialization_error_ignores_network_errors() {
+        assert!(!is_deserialization_error("connection refused"));
+        assert!(!is_deserialization_error("timeout"));
+        assert!(!is_deserialization_error("401 Unauthorized"));
+        assert!(!is_deserialization_error("rate limit exceeded"));
+    }
+
+    #[test]
+    fn test_parse_chat_completion_content_standard_response() {
+        let json = serde_json::json!({
+            "id": "chatcmpl-123",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"entities\": []}"
+                },
+                "finish_reason": "stop"
+            }]
+        });
+        let content = parse_chat_completion_content(&json).unwrap();
+        assert_eq!(content, "{\"entities\": []}");
+    }
+
+    #[test]
+    fn test_parse_chat_completion_content_null_finish_reason() {
+        let json = serde_json::json!({
+            "id": "chatcmpl-123",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"entities\": [{\"name\": \"Rust\"}]}"
+                },
+                "finish_reason": null
+            }]
+        });
+        let content = parse_chat_completion_content(&json).unwrap();
+        assert!(content.contains("Rust"));
+    }
+
+    #[test]
+    fn test_parse_chat_completion_content_minimal_response() {
+        let json = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "content": "hello"
+                }
+            }]
+        });
+        let content = parse_chat_completion_content(&json).unwrap();
+        assert_eq!(content, "hello");
+    }
+
+    #[test]
+    fn test_parse_chat_completion_content_empty_choices() {
+        let json = serde_json::json!({"choices": []});
+        assert!(parse_chat_completion_content(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_chat_completion_content_null_content() {
+        let json = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "content": null
+                }
+            }]
+        });
+        assert!(parse_chat_completion_content(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_chat_completion_content_no_choices_key() {
+        let json = serde_json::json!({"error": "something went wrong"});
+        assert!(parse_chat_completion_content(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_chat_completion_content_hf_style_response() {
+        let json = serde_json::json!({
+            "id": "",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "meta-llama/Llama-3-8B-Instruct",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"entities\": [{\"name\": \"SurrealDB\", \"entity_type\": \"product\", \"summary\": \"A database\"}]}"
+                },
+                "finish_reason": null,
+                "logprobs": null
+            }],
+            "usage": null
+        });
+        let content = parse_chat_completion_content(&json).unwrap();
+        assert!(content.contains("SurrealDB"));
     }
 }

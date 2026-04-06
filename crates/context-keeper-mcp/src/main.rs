@@ -98,11 +98,21 @@ struct Cli {
     #[arg(long, env = "MCP_ALLOW_INSECURE_HTTP")]
     allow_insecure_http: bool,
 
+    /// Require authentication when binding to non-loopback addresses.
+    /// When true (default), HTTP on 0.0.0.0 or external IPs needs MCP_AUTH_TOKENS or MCP_OAUTH_ISSUER.
+    #[arg(long, env = "MCP_REQUIRE_AUTH_FOR_WAN", default_value = "true")]
+    require_auth_for_wan: bool,
+
     /// Public base URL of this server (e.g., https://mcp.example.com).
     /// Enables OAuth 2.1 authorization flow. When set, the server serves
     /// discovery endpoints and accepts dynamically registered OAuth clients.
     #[arg(long, env = "MCP_OAUTH_ISSUER")]
     oauth_issuer: Option<String>,
+
+    /// Token required for OAuth dynamic client registration (/oauth/register).
+    /// When set, only clients presenting this token can register.
+    #[arg(long, env = "MCP_OAUTH_REGISTRATION_TOKEN")]
+    oauth_registration_token: Option<String>,
 
     /// SurrealDB root username (for remote connections)
     #[arg(long, env = "SURREAL_USER")]
@@ -275,6 +285,30 @@ async fn main() -> Result<()> {
             service.waiting().await?;
         }
         "http" => {
+            let is_loopback = cli.http_host == "127.0.0.1" || cli.http_host == "::1";
+
+            if cli.allow_insecure_http && !is_loopback {
+                anyhow::bail!(
+                    "MCP_ALLOW_INSECURE_HTTP can only be used with loopback addresses \
+                     (127.0.0.1 / ::1). Binding to {} without authentication exposes \
+                     the endpoint to the network. Use MCP_AUTH_TOKENS or MCP_OAUTH_ISSUER instead.",
+                    cli.http_host
+                );
+            }
+
+            if cli.require_auth_for_wan
+                && !is_loopback
+                && valid_tokens.is_empty()
+                && !oauth_enabled
+            {
+                anyhow::bail!(
+                    "Binding to non-loopback address {} requires authentication \
+                     (MCP_REQUIRE_AUTH_FOR_WAN is enabled). Set MCP_AUTH_TOKENS or \
+                     MCP_OAUTH_ISSUER, or set MCP_REQUIRE_AUTH_FOR_WAN=false to override.",
+                    cli.http_host
+                );
+            }
+
             let has_auth =
                 !valid_tokens.is_empty() || oauth_enabled || cli.allow_insecure_http;
             if !has_auth {
@@ -282,6 +316,13 @@ async fn main() -> Result<()> {
                     "HTTP transport requires auth tokens (MCP_AUTH_TOKENS), \
                      OAuth (MCP_OAUTH_ISSUER), or explicit opt-in to insecure mode \
                      (MCP_ALLOW_INSECURE_HTTP=1). Refusing to start an unauthenticated HTTP endpoint."
+                );
+            }
+
+            if !valid_tokens.is_empty() && !oauth_enabled {
+                tracing::warn!(
+                    "Static bearer tokens are used for HTTP authentication. \
+                     Consider enabling OAuth (MCP_OAUTH_ISSUER) for production deployments."
                 );
             }
 
@@ -310,6 +351,7 @@ async fn main() -> Result<()> {
                     issuer: issuer.clone(),
                     oauth_store: oauth_store.clone(),
                     static_tokens: valid_tokens.clone(),
+                    registration_token: cli.oauth_registration_token.clone(),
                     tenant_map: tenant_map.clone(),
                 };
 
