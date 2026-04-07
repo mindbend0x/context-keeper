@@ -4,6 +4,7 @@ use std::time::Duration;
 use anyhow::Result;
 use axum::{
     extract::Request,
+    http::StatusCode,
     middleware,
     response::Response,
     routing::{get, post},
@@ -289,18 +290,18 @@ async fn main() -> Result<()> {
         }
         "http" => {
             let is_loopback = cli.http_host == "127.0.0.1" || cli.http_host == "::1";
+            let has_real_auth = !valid_tokens.is_empty() || oauth_enabled;
 
-            if cli.allow_insecure_http && !is_loopback {
+            if cli.allow_insecure_http && !is_loopback && !has_real_auth {
                 anyhow::bail!(
                     "MCP_ALLOW_INSECURE_HTTP can only be used with loopback addresses \
-                     (127.0.0.1 / ::1). Binding to {} without authentication exposes \
-                     the endpoint to the network. Use MCP_AUTH_TOKENS or MCP_OAUTH_ISSUER instead.",
+                     (127.0.0.1 / ::1) unless MCP_AUTH_TOKENS or MCP_OAUTH_ISSUER is also set. \
+                     Binding to {} without authentication exposes the endpoint to the network.",
                     cli.http_host
                 );
             }
 
-            if cli.require_auth_for_wan && !is_loopback && valid_tokens.is_empty() && !oauth_enabled
-            {
+            if cli.require_auth_for_wan && !is_loopback && !has_real_auth {
                 anyhow::bail!(
                     "Binding to non-loopback address {} requires authentication \
                      (MCP_REQUIRE_AUTH_FOR_WAN is enabled). Set MCP_AUTH_TOKENS or \
@@ -309,7 +310,7 @@ async fn main() -> Result<()> {
                 );
             }
 
-            let has_auth = !valid_tokens.is_empty() || oauth_enabled || cli.allow_insecure_http;
+            let has_auth = has_real_auth || cli.allow_insecure_http;
             if !has_auth {
                 anyhow::bail!(
                     "HTTP transport requires auth tokens (MCP_AUTH_TOKENS), \
@@ -397,6 +398,18 @@ async fn main() -> Result<()> {
                     .merge(oauth_routes)
                     .merge(authorize_routes)
                     .merge(mcp_routes)
+                    // #region agent log
+                    .fallback(|req: Request| async move {
+                        tracing::warn!(
+                            method = %req.method(),
+                            path = %req.uri().path(),
+                            query = req.uri().query().unwrap_or(""),
+                            host = req.headers().get("host").and_then(|h| h.to_str().ok()).unwrap_or("unknown"),
+                            "[DEBUG-4e8566] 404 fallback hit"
+                        );
+                        (StatusCode::NOT_FOUND, "Not Found")
+                    })
+                    // #endregion
             } else if valid_tokens.is_empty() {
                 tracing::warn!(
                     "MCP_ALLOW_INSECURE_HTTP is set — HTTP endpoint has NO authentication. \
@@ -415,6 +428,18 @@ async fn main() -> Result<()> {
             };
 
             let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
+
+            // #region agent log
+            tracing::info!(
+                bind_addr = %bind_addr,
+                is_loopback = is_loopback,
+                has_real_auth = has_real_auth,
+                oauth_enabled = oauth_enabled,
+                token_count = valid_tokens.len(),
+                allow_insecure = cli.allow_insecure_http,
+                "[DEBUG-4e8566] Server bound successfully"
+            );
+            // #endregion
 
             tracing::info!("MCP HTTP server ready at http://{}/mcp", bind_addr);
 
