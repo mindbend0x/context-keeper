@@ -12,6 +12,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CC: clang
+  CXX: clang++
 
 jobs:
   build:
