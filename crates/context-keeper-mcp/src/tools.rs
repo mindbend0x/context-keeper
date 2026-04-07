@@ -145,9 +145,7 @@ pub struct SaveNoteInput {
 pub struct GetNoteInput {
     #[schemars(description = "The key of the note to retrieve")]
     pub key: String,
-    #[schemars(
-        description = "Namespace to look up in. Omit for the default global namespace."
-    )]
+    #[schemars(description = "Namespace to look up in. Omit for the default global namespace.")]
     pub namespace: Option<String>,
 }
 
@@ -159,9 +157,7 @@ pub struct SearchNotesInput {
     pub tags: Option<Vec<String>>,
     #[schemars(description = "Maximum number of results to return (default: 10)")]
     pub limit: Option<usize>,
-    #[schemars(
-        description = "Namespace to search within. Omit for the default global namespace."
-    )]
+    #[schemars(description = "Namespace to search within. Omit for the default global namespace.")]
     pub namespace: Option<String>,
 }
 
@@ -181,9 +177,7 @@ pub struct ListNotesInput {
 pub struct DeleteNoteInput {
     #[schemars(description = "The key of the note to delete")]
     pub key: String,
-    #[schemars(
-        description = "Namespace of the note. Omit for the default global namespace."
-    )]
+    #[schemars(description = "Namespace of the note. Omit for the default global namespace.")]
     pub namespace: Option<String>,
 }
 
@@ -199,7 +193,9 @@ pub struct PostAgentStatusInput {
         description = "Status of the agent run: 'started', 'in_progress', 'blocked', 'completed', or 'failed'"
     )]
     pub status: String,
-    #[schemars(description = "Optional human-readable summary of what the agent is doing or has done")]
+    #[schemars(
+        description = "Optional human-readable summary of what the agent is doing or has done"
+    )]
     pub summary: Option<String>,
     #[schemars(
         description = "Namespace to scope this status to. Omit for the default global namespace."
@@ -220,7 +216,6 @@ pub struct QueryAgentRunsInput {
     #[schemars(description = "Namespace to filter by. Omit to search all namespaces.")]
     pub namespace: Option<String>,
 }
-
 
 #[derive(Debug, Serialize)]
 struct AddMemoryResponse {
@@ -326,7 +321,9 @@ struct ScoredNoteItem {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-fn search_result_to_item(r: &context_keeper_core::models::SearchResult) -> Option<SearchResultItem> {
+fn search_result_to_item(
+    r: &context_keeper_core::models::SearchResult,
+) -> Option<SearchResultItem> {
     if let Some(e) = r.entity.as_ref() {
         Some(SearchResultItem {
             name: e.name.clone(),
@@ -441,8 +438,7 @@ impl ContextKeeperServer {
         .map_err(to_mcp)?;
 
         for inv in &result.diff.entities_invalidated {
-            repo
-                .invalidate_entity(inv.invalidated_id)
+            repo.invalidate_entity(inv.invalidated_id)
                 .await
                 .map_err(to_mcp)?;
         }
@@ -740,10 +736,7 @@ impl ContextKeeperServer {
         let repo = self.repo_for(&ctx).await?;
         let limit = input.limit.unwrap_or(10);
 
-        let memories = repo
-            .list_recent_memories(limit)
-            .await
-            .map_err(to_mcp)?;
+        let memories = repo.list_recent_memories(limit).await.map_err(to_mcp)?;
 
         let items: Vec<MemoryItem> = memories
             .iter()
@@ -1050,9 +1043,7 @@ impl ContextKeeperServer {
             .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
     }
 
-    #[tool(
-        description = "Delete a saved note by its unique key."
-    )]
+    #[tool(description = "Delete a saved note by its unique key.")]
     async fn delete_note(
         &self,
         ctx: RequestContext<RoleServer>,
@@ -1184,7 +1175,6 @@ impl ContextKeeperServer {
         serde_json::to_string_pretty(&items)
             .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
     }
-
 }
 
 #[tool_handler]

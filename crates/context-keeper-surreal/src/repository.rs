@@ -1155,9 +1155,7 @@ impl Repository {
         namespace: Option<&str>,
     ) -> Result<Option<Note>> {
         let q = match namespace {
-            Some(_) => {
-                "SELECT * FROM note WHERE key = $key AND namespace = $ns LIMIT 1"
-            }
+            Some(_) => "SELECT * FROM note WHERE key = $key AND namespace = $ns LIMIT 1",
             None => "SELECT * FROM note WHERE key = $key AND namespace IS NONE LIMIT 1",
         };
         let mut query = self.db.query(q).bind(("key", key.to_string()));

@@ -157,8 +157,7 @@ async fn run_behavioral(
 
                         let answer_score = match (answer_score, gold_answer.as_ref(), judge) {
                             (Some(mut score), Some(gold), Some(j)) => {
-                                score.llm_judge =
-                                    j.score(query, gold, &result_text).await;
+                                score.llm_judge = j.score(query, gold, &result_text).await;
                                 Some(score)
                             }
                             (score, _, _) => score,

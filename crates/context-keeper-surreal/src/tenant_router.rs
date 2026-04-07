@@ -5,7 +5,7 @@ use context_keeper_core::ContextKeeperError;
 use dashmap::DashMap;
 use tokio::sync::Mutex;
 
-use crate::client::{SurrealConfig, connect};
+use crate::client::{connect, SurrealConfig};
 use crate::repository::Repository;
 use crate::schema::apply_schema;
 

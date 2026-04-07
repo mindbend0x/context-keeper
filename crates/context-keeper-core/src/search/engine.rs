@@ -210,10 +210,7 @@ mod tests {
     fn test_fuse_rrf_mixed_memory_boosted_by_multiple_lists() {
         let m1 = make_memory("Important fact");
         let m2 = make_memory("Other fact");
-        let results = fuse_rrf_mixed(
-            vec![],
-            vec![vec![m1.clone(), m2.clone()], vec![m1.clone()]],
-        );
+        let results = fuse_rrf_mixed(vec![], vec![vec![m1.clone(), m2.clone()], vec![m1.clone()]]);
         let important = results
             .iter()
             .find(|r| r.memory.as_ref().map(|m| m.content.as_str()) == Some("Important fact"))
@@ -265,8 +262,7 @@ mod tests {
     fn test_fuse_rrf_mixed_preserves_entity_search_behavior() {
         let e1 = make_entity("Alice");
         let e2 = make_entity("Bob");
-        let mixed =
-            fuse_rrf_mixed(vec![vec![e1.clone(), e2.clone()], vec![e1.clone()]], vec![]);
+        let mixed = fuse_rrf_mixed(vec![vec![e1.clone(), e2.clone()], vec![e1.clone()]], vec![]);
         let original = fuse_rrf(vec![vec![e1.clone(), e2.clone()], vec![e1.clone()]]);
         assert_eq!(mixed.len(), original.len());
         for (m, o) in mixed.iter().zip(original.iter()) {

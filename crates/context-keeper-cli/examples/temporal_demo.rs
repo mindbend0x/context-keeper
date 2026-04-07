@@ -57,7 +57,10 @@ async fn main() -> Result<()> {
     let repo = Repository::new(db);
     let embedder = MockEmbedder::new(64);
     let init_ms = t.elapsed().as_secs_f64() * 1000.0;
-    println!("  Database ready (in-memory, no Docker needed)  [{:.0}ms]\n", init_ms);
+    println!(
+        "  Database ready (in-memory, no Docker needed)  [{:.0}ms]\n",
+        init_ms
+    );
     steps.push(DemoStep {
         step: "init",
         latency_ms: init_ms,
@@ -154,7 +157,10 @@ async fn main() -> Result<()> {
     for e in &results {
         println!("  → {} ({}): {}", e.name, e.entity_type, e.summary);
     }
-    println!("\n  \x1b[32m✓ Both Alice and Bob found\x1b[0m  [{:.0}ms]", search1_ms);
+    println!(
+        "\n  \x1b[32m✓ Both Alice and Bob found\x1b[0m  [{:.0}ms]",
+        search1_ms
+    );
     steps.push(DemoStep {
         step: "search_before_update",
         latency_ms: search1_ms,
@@ -233,7 +239,10 @@ async fn main() -> Result<()> {
     let alice_gone = !person_names.contains(&"Alice");
     let bob_present = person_names.contains(&"Bob");
     if alice_gone && bob_present {
-        println!("\n  \x1b[32m✓ Only Bob remains — temporal reasoning correct!\x1b[0m  [{:.0}ms]", search2_ms);
+        println!(
+            "\n  \x1b[32m✓ Only Bob remains — temporal reasoning correct!\x1b[0m  [{:.0}ms]",
+            search2_ms
+        );
     } else {
         println!(
             "\n  People found: {}  [{:.0}ms]",
@@ -268,7 +277,11 @@ async fn main() -> Result<()> {
     steps.push(DemoStep {
         step: "snapshot_past",
         latency_ms: snapshot_ms,
-        detail: format!("Entities at {}: {}", past.format("%Y-%m-%d"), snapshot_names.join(", ")),
+        detail: format!(
+            "Entities at {}: {}",
+            past.format("%Y-%m-%d"),
+            snapshot_names.join(", ")
+        ),
     });
 
     // ── Summary ─────────────────────────────────────────────────────────

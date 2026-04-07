@@ -118,7 +118,12 @@ async fn main() -> Result<()> {
             updated_at: now,
         };
         repo.upsert_note(&note).await?;
-        item(&format!("[{}] saved ({} tags: {:?})", key, tags.len(), tags));
+        item(&format!(
+            "[{}] saved ({} tags: {:?})",
+            key,
+            tags.len(),
+            tags
+        ));
     }
 
     end_section();

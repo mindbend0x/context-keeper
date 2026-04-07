@@ -1,21 +1,25 @@
-use std::{collections::HashMap, sync::{Arc, Mutex}, time::Instant};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use axum::{
-    Json,
     body::Body,
     extract::{Form, Query, State},
     http::{HeaderMap, Request, StatusCode},
     middleware::Next,
     response::{Html, IntoResponse, Redirect, Response},
+    Json,
 };
-use rand::Rng;
 use rand::distr::Alphanumeric;
+use rand::Rng;
 use rmcp::transport::auth::{AuthorizationMetadata, ClientRegistrationResponse, OAuthClientConfig};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::tenant::{TenantContext, resolve_tenant};
+use crate::tenant::{resolve_tenant, TenantContext};
 
 const CONSENT_HTML: &str = include_str!("html/consent.html");
 
@@ -127,9 +131,7 @@ struct ProtectedResourceMetadata {
     bearer_methods_supported: Vec<String>,
 }
 
-pub async fn protected_resource_metadata(
-    State(cfg): State<OAuthConfig>,
-) -> impl IntoResponse {
+pub async fn protected_resource_metadata(State(cfg): State<OAuthConfig>) -> impl IntoResponse {
     let meta = ProtectedResourceMetadata {
         resource: cfg.issuer.clone(),
         authorization_servers: vec![cfg.issuer.clone()],
@@ -139,9 +141,7 @@ pub async fn protected_resource_metadata(
     (StatusCode::OK, Json(meta))
 }
 
-pub async fn authorization_server_metadata(
-    State(cfg): State<OAuthConfig>,
-) -> impl IntoResponse {
+pub async fn authorization_server_metadata(State(cfg): State<OAuthConfig>) -> impl IntoResponse {
     let mut metadata = AuthorizationMetadata::default();
     metadata.issuer = Some(cfg.issuer.clone());
     metadata.authorization_endpoint = format!("{}/oauth/authorize", cfg.issuer);
@@ -252,7 +252,11 @@ pub async fn oauth_register(
     response.client_name = req.client_name;
     response.additional_fields.insert(
         "token_endpoint_auth_method".into(),
-        serde_json::json!(if is_public { "none" } else { "client_secret_post" }),
+        serde_json::json!(if is_public {
+            "none"
+        } else {
+            "client_secret_post"
+        }),
     );
 
     (StatusCode::CREATED, Json(response)).into_response()
@@ -353,9 +357,7 @@ pub async fn oauth_approve(
     headers: HeaderMap,
     Form(form): Form<ApprovalForm>,
 ) -> impl IntoResponse {
-    let admin_token = headers
-        .get("x-admin-token")
-        .and_then(|v| v.to_str().ok());
+    let admin_token = headers.get("x-admin-token").and_then(|v| v.to_str().ok());
 
     if !cfg.static_tokens.is_empty() {
         let authorized = admin_token
@@ -473,7 +475,7 @@ pub async fn oauth_token(
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({"error": "invalid_request"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -499,7 +501,7 @@ pub async fn oauth_token(
                     "error_description": format!("bad form data: {e}")
                 })),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -569,10 +571,7 @@ pub async fn oauth_token(
     };
 
     if let Some(challenge) = &session.code_challenge {
-        let method = session
-            .code_challenge_method
-            .as_deref()
-            .unwrap_or("plain");
+        let method = session.code_challenge_method.as_deref().unwrap_or("plain");
         let verifier = token_req.code_verifier.as_deref().unwrap_or("");
 
         let valid = match method {
@@ -636,10 +635,7 @@ pub async fn oauth_token(
 
     (
         StatusCode::OK,
-        [
-            ("cache-control", "no-store"),
-            ("pragma", "no-cache"),
-        ],
+        [("cache-control", "no-store"), ("pragma", "no-cache")],
         Json(body),
     )
         .into_response()
@@ -690,7 +686,9 @@ pub async fn unified_auth_middleware(
                     let tenant_ctx = mcp_token
                         .tenant_id
                         .as_ref()
-                        .map(|tid| TenantContext { tenant_id: tid.clone() })
+                        .map(|tid| TenantContext {
+                            tenant_id: tid.clone(),
+                        })
                         .unwrap_or_else(|| resolve_tenant(token, &cfg.tenant_map));
                     tracing::debug!(path = %path, tenant = %tenant_ctx.tenant_id, "Authenticated via OAuth token");
                     req.extensions_mut().insert(tenant_ctx);
@@ -708,10 +706,7 @@ pub async fn unified_auth_middleware(
         tracing::debug!(path = %path, "No Authorization header, returning 401 with OAuth discovery");
     }
 
-    let resource_metadata_url = format!(
-        "{}/.well-known/oauth-protected-resource",
-        cfg.issuer
-    );
+    let resource_metadata_url = format!("{}/.well-known/oauth-protected-resource", cfg.issuer);
 
     Response::builder()
         .status(401)
@@ -799,7 +794,10 @@ mod tests {
         for _ in 0..10 {
             assert!(store.check_rate_limit(client, 10));
         }
-        assert!(!store.check_rate_limit(client, 10), "11th request should be rejected");
+        assert!(
+            !store.check_rate_limit(client, 10),
+            "11th request should be rejected"
+        );
 
         assert!(
             store.check_rate_limit("other-client", 10),

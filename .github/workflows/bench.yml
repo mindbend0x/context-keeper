@@ -18,7 +18,7 @@ env:
 jobs:
   bench-llm:
     name: LLM Benchmark
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, fzc]
     environment: benchmark
     if: >-
       github.event_name == 'schedule' ||
@@ -92,7 +92,7 @@ jobs:
   bench-pr-comment:
     name: PR Benchmark Comment
     needs: bench-llm
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, fzc]
     if: >-
       always() &&
       github.event_name == 'pull_request' &&

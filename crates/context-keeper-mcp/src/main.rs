@@ -2,7 +2,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use axum::{extract::Request, middleware, response::Response, routing::{get, post}};
+use axum::{
+    extract::Request,
+    middleware,
+    response::Response,
+    routing::{get, post},
+};
 use clap::Parser;
 use context_keeper_core::traits::*;
 use context_keeper_rig::{
@@ -11,8 +16,8 @@ use context_keeper_rig::{
     rewriting::RigQueryRewriter,
 };
 use context_keeper_surreal::{
-    default_storage_string, parse_storage_backend,
-    StorageBackend, SurrealConfig, TenantRouter, DEFAULT_TENANT_ID,
+    default_storage_string, parse_storage_backend, StorageBackend, SurrealConfig, TenantRouter,
+    DEFAULT_TENANT_ID,
 };
 use dotenv::dotenv;
 use rmcp::transport::streamable_http_server::tower::StreamableHttpServerConfig;
@@ -198,9 +203,7 @@ async fn main() -> Result<()> {
 
     // Eagerly provision the default tenant so startup validation
     // (schema apply, optional import) happens before accepting requests.
-    let default_repo = tenant_router
-        .get_or_create(DEFAULT_TENANT_ID)
-        .await?;
+    let default_repo = tenant_router.get_or_create(DEFAULT_TENANT_ID).await?;
 
     if matches!(config.storage, StorageBackend::Memory)
         && std::path::Path::new(&cli.db_file_path).exists()
@@ -296,10 +299,7 @@ async fn main() -> Result<()> {
                 );
             }
 
-            if cli.require_auth_for_wan
-                && !is_loopback
-                && valid_tokens.is_empty()
-                && !oauth_enabled
+            if cli.require_auth_for_wan && !is_loopback && valid_tokens.is_empty() && !oauth_enabled
             {
                 anyhow::bail!(
                     "Binding to non-loopback address {} requires authentication \
@@ -309,8 +309,7 @@ async fn main() -> Result<()> {
                 );
             }
 
-            let has_auth =
-                !valid_tokens.is_empty() || oauth_enabled || cli.allow_insecure_http;
+            let has_auth = !valid_tokens.is_empty() || oauth_enabled || cli.allow_insecure_http;
             if !has_auth {
                 anyhow::bail!(
                     "HTTP transport requires auth tokens (MCP_AUTH_TOKENS), \
@@ -359,9 +358,7 @@ async fn main() -> Result<()> {
                     .allow_origin(Any)
                     .allow_methods(Any)
                     .allow_headers(Any)
-                    .expose_headers([
-                        "www-authenticate".parse().unwrap(),
-                    ]);
+                    .expose_headers(["www-authenticate".parse().unwrap()]);
 
                 let oauth_routes = axum::Router::new()
                     .route(
