@@ -4,7 +4,6 @@ use std::time::Duration;
 use anyhow::Result;
 use axum::{
     extract::Request,
-    http::StatusCode,
     middleware,
     response::Response,
     routing::{get, post},
@@ -398,18 +397,6 @@ async fn main() -> Result<()> {
                     .merge(oauth_routes)
                     .merge(authorize_routes)
                     .merge(mcp_routes)
-                    // #region agent log
-                    .fallback(|req: Request| async move {
-                        tracing::warn!(
-                            method = %req.method(),
-                            path = %req.uri().path(),
-                            query = req.uri().query().unwrap_or(""),
-                            host = req.headers().get("host").and_then(|h| h.to_str().ok()).unwrap_or("unknown"),
-                            "[DEBUG-4e8566] 404 fallback hit"
-                        );
-                        (StatusCode::NOT_FOUND, "Not Found")
-                    })
-                    // #endregion
             } else if valid_tokens.is_empty() {
                 tracing::warn!(
                     "MCP_ALLOW_INSECURE_HTTP is set — HTTP endpoint has NO authentication. \
@@ -428,18 +415,6 @@ async fn main() -> Result<()> {
             };
 
             let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-
-            // #region agent log
-            tracing::info!(
-                bind_addr = %bind_addr,
-                is_loopback = is_loopback,
-                has_real_auth = has_real_auth,
-                oauth_enabled = oauth_enabled,
-                token_count = valid_tokens.len(),
-                allow_insecure = cli.allow_insecure_http,
-                "[DEBUG-4e8566] Server bound successfully"
-            );
-            // #endregion
 
             tracing::info!("MCP HTTP server ready at http://{}/mcp", bind_addr);
 
