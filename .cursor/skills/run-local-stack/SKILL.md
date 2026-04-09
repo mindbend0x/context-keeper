@@ -49,6 +49,7 @@ Send an MCP `initialize` request:
 ```bash
 curl -s http://localhost:3000/mcp \
   -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}'
 ```
 
@@ -61,6 +62,7 @@ Call any tool through the MCP JSON-RPC interface. Example — list tools:
 ```bash
 curl -s http://localhost:3000/mcp \
   -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
