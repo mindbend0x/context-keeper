@@ -14,7 +14,7 @@ use axum::{
 };
 use rand::distr::Alphanumeric;
 use rand::Rng;
-use rmcp::transport::auth::{AuthorizationMetadata, ClientRegistrationResponse, OAuthClientConfig};
+use rmcp::transport::auth::{AuthorizationMetadata, OAuthClientConfig};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -247,19 +247,17 @@ pub async fn oauth_register(
 
     tracing::info!(client_id = %client_id, name = %display_name, public = %is_public, "OAuth client registered");
 
-    let mut response = ClientRegistrationResponse::new(client_id, req.redirect_uris);
-    response.client_secret = client_secret;
-    response.client_name = req.client_name;
-    response.additional_fields.insert(
-        "token_endpoint_auth_method".into(),
-        serde_json::json!(if is_public {
-            "none"
-        } else {
-            "client_secret_post"
-        }),
-    );
+    let mut body = serde_json::json!({
+        "client_id": client_id,
+        "redirect_uris": req.redirect_uris,
+        "token_endpoint_auth_method": if is_public { "none" } else { "client_secret_post" },
+    });
+    body["client_secret"] = serde_json::Value::String(client_secret.unwrap_or_default());
+    if let Some(name) = req.client_name {
+        body["client_name"] = serde_json::Value::String(name);
+    }
 
-    (StatusCode::CREATED, Json(response)).into_response()
+    (StatusCode::CREATED, Json(body)).into_response()
 }
 
 // ---------------------------------------------------------------------------
