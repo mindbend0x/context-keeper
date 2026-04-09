@@ -352,37 +352,8 @@ pub struct ApprovalForm {
 
 pub async fn oauth_approve(
     State(cfg): State<OAuthConfig>,
-    headers: HeaderMap,
     Form(form): Form<ApprovalForm>,
 ) -> impl IntoResponse {
-    let admin_token = headers.get("x-admin-token").and_then(|v| v.to_str().ok());
-
-    if !cfg.static_tokens.is_empty() {
-        let authorized = admin_token
-            .map(|provided| {
-                use subtle::ConstantTimeEq;
-                cfg.static_tokens
-                    .iter()
-                    .any(|t| bool::from(t.as_bytes().ct_eq(provided.as_bytes())))
-            })
-            .unwrap_or(false);
-
-        if !authorized {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({
-                    "error": "unauthorized",
-                    "error_description": "valid X-Admin-Token header required to approve grants"
-                })),
-            )
-                .into_response();
-        }
-    } else if admin_token.is_none() {
-        tracing::warn!(
-            "OAuth approval without admin token verification — no MCP_AUTH_TOKENS configured. \
-             Set MCP_AUTH_TOKENS to secure the approval flow."
-        );
-    }
 
     let mut sessions = cfg.oauth_store.auth_sessions.write().await;
     let Some(session) = sessions.get_mut(&form.session_id) else {
