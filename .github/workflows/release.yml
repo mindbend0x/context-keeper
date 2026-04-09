@@ -30,6 +30,8 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             suffix: macos-arm64
+    env:
+      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@v4
 
@@ -37,6 +39,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}

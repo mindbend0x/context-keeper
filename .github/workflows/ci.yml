@@ -14,8 +14,8 @@ env:
   CARGO_TERM_COLOR: always
   CC: clang-18
   CXX: clang++-18
-  CARGO_BUILD_JOBS: "1"
-  NUM_JOBS: "2"
+  CARGO_BUILD_JOBS: "4"
+  NUM_JOBS: "4"
 
 jobs:
   setup:
@@ -55,34 +55,33 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
 
-  build:
-    name: Build
-    needs: setup
+  ci:
+    name: CI
+    needs: [setup, fmt]
     runs-on: [self-hosted, linux, fzc]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --workspace
-
-  check:
-    name: Clippy
-    needs: [fmt, build]
-    runs-on: [self-hosted, linux, fzc]
+    env:
+      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets
-
-  test:
-    name: Test
-    needs: [fmt, build]
-    runs-on: [self-hosted, linux, fzc]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
+      - name: Clippy
+        run: >-
+          cargo clippy
+          -p context-keeper-core
+          -p context-keeper-rig
+          -p context-keeper-surreal
+          -p context-keeper-mcp
+          -p context-keeper-cli
+          --all-targets -- -D warnings
+      - name: Test
+        run: >-
+          cargo test
+          -p context-keeper-core
+          -p context-keeper-rig
+          -p context-keeper-surreal
+          -p context-keeper-mcp
+          -p context-keeper-cli
