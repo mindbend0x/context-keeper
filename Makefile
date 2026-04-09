@@ -8,7 +8,7 @@ RUST_LOG       ?= context_keeper=info,warn
 
 # ── Development ──────────────────────────────────────────────────────────────
 
-.PHONY: build test lint clippy fmt check run run-http clean
+.PHONY: build test lint clippy fmt check run run-http dev dev-seed clean
 
 build: ## Build the full workspace
 	cargo build
@@ -43,6 +43,12 @@ run-debug: ## Run MCP server with debug logging
 
 run-http-debug: ## Run MCP server HTTP with debug logging
 	RUST_LOG=context_keeper=debug MCP_TRANSPORT=http MCP_HTTP_PORT=3000 cargo run -p context-keeper-mcp
+
+dev: ## Run MCP server in local dev/test mode (HTTP, memory, no auth)
+	./scripts/dev-server.sh
+
+dev-seed: ## Same as dev, but pre-load context.sql
+	./scripts/dev-server.sh --seed
 
 cli: ## Run CLI (pass ARGS, e.g. make cli ARGS="search --query 'test'")
 	RUST_LOG=$(RUST_LOG) cargo run -p context-keeper-cli -- $(ARGS)
