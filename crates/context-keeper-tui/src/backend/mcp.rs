@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use rmcp::model::{CallToolRequestParam, JsonObject};
+use rmcp::model::{CallToolRequestParam, JsonObject, ReadResourceRequestParam, ResourceContents};
 use rmcp::service::ServiceError;
 use rmcp::service::{Peer, RoleClient, RunningService, ServiceExt};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
@@ -14,8 +14,8 @@ use serde_json::json;
 use super::TuiBackend;
 use crate::error::TuiError;
 use crate::types::{
-    AddMemoryResult, AgentInfoRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats,
-    MemoryItemJson, MemoryRow, NamespaceInfo, RelationDirection, RelationRow, SearchHit,
+    AddMemoryResult, AgentInfoRow, AgentRunRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats,
+    MemoryItemJson, MemoryRow, NamespaceInfo, NoteRow, RelationDirection, RelationRow, SearchHit,
     SearchHitJson, SnapshotResult,
 };
 
@@ -81,6 +81,24 @@ async fn call_tool_no_args(
     tool_text(res)
 }
 
+async fn read_resource_text(peer: &Peer<RoleClient>, uri: &str) -> Result<String, TuiError> {
+    let result = peer
+        .read_resource(ReadResourceRequestParam {
+            uri: uri.to_string(),
+        })
+        .await
+        .map_err(map_service_err)?;
+
+    for content in &result.contents {
+        if let ResourceContents::TextResourceContents { text, .. } = content {
+            return Ok(text.clone());
+        }
+    }
+    Err(TuiError::Mcp(
+        "No text content in resource response".into(),
+    ))
+}
+
 struct Inner {
     #[allow(dead_code)]
     running: RunningService<RoleClient, ()>,
@@ -126,6 +144,7 @@ impl McpHttpBackend {
 #[serde(default)]
 struct AddMemoryMcp {
     memories_created: usize,
+    relations_created: usize,
     entity_names: Vec<String>,
 }
 
@@ -133,9 +152,25 @@ impl Default for AddMemoryMcp {
     fn default() -> Self {
         Self {
             memories_created: 0,
+            relations_created: 0,
             entity_names: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct StatsResource {
+    #[serde(default)]
+    entity_count: usize,
+    #[serde(default)]
+    memory_count: usize,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct EntitySummaryJson {
+    name: String,
+    #[serde(alias = "type", default)]
+    entity_type: String,
 }
 
 #[async_trait]
@@ -156,7 +191,7 @@ impl TuiBackend for McpHttpBackend {
         let parsed: AddMemoryMcp = serde_json::from_str(&raw).unwrap_or_default();
         Ok(AddMemoryResult {
             entity_count: parsed.entity_names.len(),
-            relation_count: 0,
+            relation_count: parsed.relations_created,
             memory_count: parsed.memories_created,
             entity_names: parsed.entity_names,
         })
@@ -196,19 +231,18 @@ impl TuiBackend for McpHttpBackend {
         }
         let raw = call_tool_json_args(&self.inner.peer, "get_entity", args).await?;
 
-        if raw.contains("not found") || raw.contains("No entity") {
-            return Ok(None);
-        }
-
-        let details: Vec<crate::types::EntityDetailJson> =
-            serde_json::from_str(&raw).map_err(TuiError::from)?;
+        let details: Vec<crate::types::EntityDetailJson> = match serde_json::from_str(&raw) {
+            Ok(d) => d,
+            Err(_) => return Ok(None),
+        };
         let detail = match details.into_iter().next() {
             Some(d) => d,
             None => return Ok(None),
         };
 
+        let queried = name.to_lowercase();
         Ok(Some(EntityDetail {
-            name: detail.name,
+            name: detail.name.clone(),
             entity_type: detail.entity_type,
             summary: detail.summary,
             valid_from: detail.valid_from,
@@ -216,18 +250,41 @@ impl TuiBackend for McpHttpBackend {
             relations: detail
                 .relations
                 .into_iter()
-                .map(|r| RelationRow {
-                    relation_type: r.relation_type,
-                    target_name: r.to_entity_id.clone(),
-                    direction: RelationDirection::Outgoing,
-                    confidence: r.confidence as u8,
+                .map(|r| {
+                    let from_lower = r.from_entity_name.to_lowercase();
+                    let (direction, target_name) = if from_lower == queried {
+                        (RelationDirection::Outgoing, r.to_entity_name)
+                    } else if !r.to_entity_name.is_empty() {
+                        (RelationDirection::Incoming, r.from_entity_name)
+                    } else {
+                        (RelationDirection::Outgoing, r.to_entity_id)
+                    };
+                    RelationRow {
+                        relation_type: r.relation_type,
+                        target_name,
+                        direction,
+                        confidence: r.confidence as u8,
+                    }
                 })
                 .collect(),
         }))
     }
 
     async fn list_entities(&self, limit: usize) -> Result<Vec<EntitySummary>, TuiError> {
-        // MCP doesn't have a dedicated list_entities tool; use search with wildcard
+        if let Ok(raw) = read_resource_text(&self.inner.peer, "memory://entities/summary").await {
+            if let Ok(items) = serde_json::from_str::<Vec<EntitySummaryJson>>(&raw) {
+                return Ok(items
+                    .into_iter()
+                    .take(limit)
+                    .map(|j| EntitySummary {
+                        name: j.name,
+                        entity_type: j.entity_type,
+                        summary: String::new(),
+                    })
+                    .collect());
+            }
+        }
+
         let mut args = json!({ "query": "*", "limit": limit });
         if let Some(ns) = &self.inner.namespace {
             args["namespace"] = json!(ns);
@@ -245,7 +302,19 @@ impl TuiBackend for McpHttpBackend {
     }
 
     async fn get_stats(&self) -> Result<GraphStats, TuiError> {
-        // Approximate from available tools
+        if let Ok(raw) = read_resource_text(&self.inner.peer, "memory://stats").await {
+            if let Ok(stats) = serde_json::from_str::<StatsResource>(&raw) {
+                let ns = self.list_namespaces().await.unwrap_or_default();
+                let ag = self.list_agents().await.unwrap_or_default();
+                return Ok(GraphStats {
+                    entities: stats.entity_count,
+                    memories: stats.memory_count,
+                    namespaces: ns.len(),
+                    agents: ag.len(),
+                });
+            }
+        }
+
         let ns = self.list_namespaces().await.unwrap_or_default();
         let ag = self.list_agents().await.unwrap_or_default();
         Ok(GraphStats {
@@ -290,11 +359,46 @@ impl TuiBackend for McpHttpBackend {
     async fn snapshot(&self, iso_timestamp: &str) -> Result<SnapshotResult, TuiError> {
         let args = json!({ "timestamp": iso_timestamp });
         let raw = call_tool_json_args(&self.inner.peer, "snapshot", args).await?;
-        Ok(serde_json::from_str(&raw).unwrap_or(SnapshotResult {
-            timestamp: iso_timestamp.to_string(),
-            entity_count: 0,
-            relation_count: 0,
-            entities: vec![],
-        }))
+        serde_json::from_str(&raw).map_err(|e| {
+            TuiError::Mcp(format!(
+                "Failed to parse snapshot response: {e}"
+            ))
+        })
+    }
+
+    async fn list_notes(
+        &self,
+        tag: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<NoteRow>, TuiError> {
+        let mut args = json!({ "limit": limit });
+        if let Some(t) = tag {
+            args["tags"] = json!([t]);
+        }
+        if let Some(ns) = &self.inner.namespace {
+            args["namespace"] = json!(ns);
+        }
+        let raw = call_tool_json_args(&self.inner.peer, "list_notes", args).await?;
+        Ok(serde_json::from_str(&raw).unwrap_or_default())
+    }
+
+    async fn query_agent_runs(
+        &self,
+        status: Option<&str>,
+        agent_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<AgentRunRow>, TuiError> {
+        let mut args = json!({ "limit": limit });
+        if let Some(s) = status {
+            args["status"] = json!(s);
+        }
+        if let Some(id) = agent_id {
+            args["agent_id"] = json!(id);
+        }
+        if let Some(ns) = &self.inner.namespace {
+            args["namespace"] = json!(ns);
+        }
+        let raw = call_tool_json_args(&self.inner.peer, "query_agent_runs", args).await?;
+        Ok(serde_json::from_str(&raw).unwrap_or_default())
     }
 }

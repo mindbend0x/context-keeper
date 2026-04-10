@@ -6,8 +6,16 @@ use clap::Parser;
 #[command(name = "ck-bench", about = "Benchmark runner for Context Keeper")]
 struct Cli {
     /// Path to the benchmark config YAML file.
-    #[arg(short, long)]
-    config: PathBuf,
+    /// Not required when --from-json is used.
+    #[arg(short, long, required_unless_present = "from_json")]
+    config: Option<PathBuf>,
+
+    /// Load results from a prior JSON output file instead of running a benchmark.
+    /// Use with --html to regenerate a dashboard without making any LLM calls.
+    ///
+    /// Example: ck-bench --from-json results.json --html report.html
+    #[arg(long)]
+    from_json: Option<PathBuf>,
 
     /// Load an external dataset. Format: locomo:/path/to/file.json or longmemeval:/path/to/file.json
     #[arg(short, long)]
@@ -50,41 +58,50 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    tracing::info!(config = %cli.config.display(), "Loading benchmark config");
-    let mut config = context_keeper_bench::config::load_config(&cli.config)?;
+    let results = if let Some(from_json) = &cli.from_json {
+        tracing::info!(path = %from_json.display(), "Loading results from JSON (skipping benchmark run)");
+        let raw = std::fs::read_to_string(from_json)
+            .map_err(|e| anyhow::anyhow!("Failed to read --from-json file: {e}"))?;
+        serde_json::from_str::<Vec<context_keeper_bench::metrics::ScenarioResult>>(&raw)
+            .map_err(|e| anyhow::anyhow!("Failed to parse --from-json file: {e}"))?
+    } else {
+        let config_path = cli.config.as_ref().unwrap();
+        tracing::info!(config = %config_path.display(), "Loading benchmark config");
+        let mut config = context_keeper_bench::config::load_config(config_path)?;
 
-    if let Some(dataset_spec) = &cli.dataset {
-        let (dtype, path) = dataset_spec.split_once(':').ok_or_else(|| {
-            anyhow::anyhow!("--dataset must be type:path (e.g. locomo:data.json)")
-        })?;
+        if let Some(dataset_spec) = &cli.dataset {
+            let (dtype, path) = dataset_spec.split_once(':').ok_or_else(|| {
+                anyhow::anyhow!("--dataset must be type:path (e.g. locomo:data.json)")
+            })?;
 
-        let path = std::path::Path::new(path);
-        let scenarios = match dtype {
-            "locomo" => context_keeper_bench::datasets::locomo::load(path)?,
-            "longmemeval" if cli.temporal_only => {
-                context_keeper_bench::datasets::longmemeval::load_temporal_subset(path)?
-            }
-            "longmemeval" => context_keeper_bench::datasets::longmemeval::load(path)?,
-            other => {
-                anyhow::bail!("Unknown dataset type '{other}'. Use 'locomo' or 'longmemeval'.")
-            }
-        };
+            let path = std::path::Path::new(path);
+            let scenarios = match dtype {
+                "locomo" => context_keeper_bench::datasets::locomo::load(path)?,
+                "longmemeval" if cli.temporal_only => {
+                    context_keeper_bench::datasets::longmemeval::load_temporal_subset(path)?
+                }
+                "longmemeval" => context_keeper_bench::datasets::longmemeval::load(path)?,
+                other => {
+                    anyhow::bail!("Unknown dataset type '{other}'. Use 'locomo' or 'longmemeval'.")
+                }
+            };
+
+            tracing::info!(
+                dataset = dtype,
+                scenarios = scenarios.len(),
+                "Loaded external dataset"
+            );
+            config.scenarios.extend(scenarios);
+        }
 
         tracing::info!(
-            dataset = dtype,
-            scenarios = scenarios.len(),
-            "Loaded external dataset"
+            providers = config.providers.len(),
+            scenarios = config.scenarios.len(),
+            "Starting benchmark run"
         );
-        config.scenarios.extend(scenarios);
-    }
 
-    tracing::info!(
-        providers = config.providers.len(),
-        scenarios = config.scenarios.len(),
-        "Starting benchmark run"
-    );
-
-    let results = context_keeper_bench::runner::run(&config, !cli.no_judge).await;
+        context_keeper_bench::runner::run(&config, !cli.no_judge).await
+    };
 
     if !cli.json_only {
         context_keeper_bench::report::print_report(&results);

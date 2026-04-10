@@ -152,7 +152,9 @@ curl -X POST http://localhost:3000/mcp \
 
 ## Security
 
-### Authentication
+For a full overview of authentication modes — static bearer tokens, OAuth 2.1, multi-tenancy, and the security checklist — see the dedicated [Authorization guide](./authorization).
+
+### Quick reference
 
 Set bearer tokens via the `MCP_AUTH_TOKENS` environment variable:
 
@@ -166,8 +168,10 @@ Clients must include the token in requests:
 Authorization: Bearer token1
 ```
 
+For production deployments with Claude Desktop or standard OAuth clients, use OAuth 2.1 by setting `MCP_OAUTH_ISSUER`. See [Authorization → OAuth 2.1](./authorization#mode-3--oauth-21).
+
 :::caution
-Without `MCP_AUTH_TOKENS`, the server requires `MCP_ALLOW_INSECURE_HTTP=1` to start. Never run without auth tokens in production.
+Without `MCP_AUTH_TOKENS` or `MCP_OAUTH_ISSUER`, the server requires `MCP_ALLOW_INSECURE_HTTP=true` to start. Never run without auth in production.
 :::
 
 ### TLS / HTTPS
@@ -233,6 +237,7 @@ MCP_HTTP_PORT=3001 MCP_TRANSPORT=http context-keeper-mcp
 
 ## Next steps
 
+- [Authorization](/docs/tutorials/authorization) — Bearer tokens, OAuth 2.1, multi-tenancy, security checklist
 - [Running with Docker](/docs/tutorials/running-with-docker) — Containerized HTTP deployment
 - [MCP Server Setup](/docs/tutorials/mcp-server-setup) — Connect your AI client
 - [MCP Tools Reference](/docs/mcp-tools) — Full tool documentation

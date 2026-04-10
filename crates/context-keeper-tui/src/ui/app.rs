@@ -110,7 +110,9 @@ impl App {
             | AppEvent::AgentsReady(Err(e))
             | AppEvent::CrossSearchReady(Err(e))
             | AppEvent::SnapshotReady(Err(e))
-            | AppEvent::ActivityReady(Err(e)) => {
+            | AppEvent::ActivityReady(Err(e))
+            | AppEvent::NotesReady(Err(e))
+            | AppEvent::AgentRunsReady(Err(e)) => {
                 self.status = format!("Error: {e}");
             }
             AppEvent::StatsReady(Ok(_)) | AppEvent::RecentReady(Ok(_)) => {

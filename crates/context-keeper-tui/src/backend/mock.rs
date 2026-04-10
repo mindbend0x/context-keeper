@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use super::TuiBackend;
 use crate::error::TuiError;
 use crate::types::{
-    AddMemoryResult, AgentInfoRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats, MemoryRow,
-    NamespaceInfo, SearchHit, SnapshotResult,
+    AddMemoryResult, AgentInfoRow, AgentRunRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats,
+    MemoryRow, NamespaceInfo, NoteRow, SearchHit, SnapshotResult,
 };
 
 /// Minimal backend that returns empty success values.
@@ -79,6 +79,23 @@ impl TuiBackend for MockTuiBackend {
             relation_count: 0,
             entities: vec![],
         })
+    }
+
+    async fn list_notes(
+        &self,
+        _tag: Option<&str>,
+        _limit: usize,
+    ) -> Result<Vec<NoteRow>, TuiError> {
+        Ok(vec![])
+    }
+
+    async fn query_agent_runs(
+        &self,
+        _status: Option<&str>,
+        _agent_id: Option<&str>,
+        _limit: usize,
+    ) -> Result<Vec<AgentRunRow>, TuiError> {
+        Ok(vec![])
     }
 }
 

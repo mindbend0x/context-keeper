@@ -37,6 +37,20 @@ use oauth::{OAuthConfig, OAuthStore};
 use tenant::parse_tenant_map;
 use tools::ContextKeeperServer;
 
+static START_TIME: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+async fn health_handler() -> axum::response::Json<serde_json::Value> {
+    let uptime_secs = START_TIME
+        .get()
+        .map(|t| t.elapsed().as_secs())
+        .unwrap_or(0);
+    axum::response::Json(serde_json::json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "uptime_secs": uptime_secs,
+    }))
+}
+
 type LlmServiceStack = (
     Arc<dyn Embedder>,
     Arc<dyn EntityExtractor>,
@@ -269,6 +283,8 @@ async fn main() -> Result<()> {
             .unwrap_or_default(),
     );
 
+    START_TIME.get_or_init(std::time::Instant::now);
+
     let valid_tokens: Arc<Vec<String>> = Arc::new(
         cli.auth_tokens
             .as_deref()
@@ -397,12 +413,15 @@ async fn main() -> Result<()> {
                     .merge(oauth_routes)
                     .merge(authorize_routes)
                     .merge(mcp_routes)
+                    .route("/health", get(health_handler))
             } else if valid_tokens.is_empty() {
                 tracing::warn!(
                     "MCP_ALLOW_INSECURE_HTTP is set — HTTP endpoint has NO authentication. \
                      Do not expose this to untrusted networks."
                 );
-                axum::Router::new().nest_service("/mcp", http_service)
+                axum::Router::new()
+                    .nest_service("/mcp", http_service)
+                    .route("/health", get(health_handler))
             } else {
                 tracing::info!(count = valid_tokens.len(), "Bearer token auth enabled");
                 let tokens = valid_tokens.clone();
@@ -412,6 +431,7 @@ async fn main() -> Result<()> {
                     .layer(middleware::from_fn(move |req, next| {
                         bearer_auth(tokens.clone(), tmap.clone(), req, next)
                     }))
+                    .route("/health", get(health_handler))
             };
 
             let listener = tokio::net::TcpListener::bind(&bind_addr).await?;

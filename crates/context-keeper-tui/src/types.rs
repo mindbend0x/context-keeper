@@ -122,8 +122,32 @@ pub struct MemoryItemJson {
 pub struct RelationDetailJson {
     pub relation_type: String,
     pub from_entity_id: String,
+    #[serde(default)]
+    pub from_entity_name: String,
     pub to_entity_id: String,
+    #[serde(default)]
+    pub to_entity_name: String,
     pub confidence: f32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NoteRow {
+    pub key: String,
+    pub content: String,
+    pub tags: Vec<String>,
+    pub namespace: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentRunRow {
+    pub agent_id: Option<String>,
+    pub session_id: Option<String>,
+    pub status: String,
+    pub summary: Option<String>,
+    pub namespace: Option<String>,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

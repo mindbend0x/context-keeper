@@ -17,8 +17,8 @@ use uuid::Uuid;
 use super::TuiBackend;
 use crate::error::TuiError;
 use crate::types::{
-    AddMemoryResult, AgentInfoRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats, MemoryRow,
-    NamespaceInfo, RelationDirection, RelationRow, SearchHit, SnapshotResult,
+    AddMemoryResult, AgentInfoRow, AgentRunRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats,
+    MemoryRow, NamespaceInfo, NoteRow, RelationDirection, RelationRow, SearchHit, SnapshotResult,
 };
 
 #[derive(Clone)]
@@ -391,6 +391,71 @@ impl TuiBackend for LocalBackend {
                 })
                 .collect(),
         })
+    }
+
+    async fn list_notes(
+        &self,
+        tag: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<NoteRow>, TuiError> {
+        let tags: Option<Vec<String>> = tag.map(|t| vec![t.to_string()]);
+        let notes = self
+            .repo
+            .list_notes(tags.as_deref(), limit, self.ns())
+            .await?;
+        Ok(notes
+            .into_iter()
+            .map(|n| NoteRow {
+                key: n.key,
+                content: n.content,
+                tags: n.tags,
+                namespace: n.namespace,
+                created_at: n.created_at.to_rfc3339(),
+                updated_at: n.updated_at.to_rfc3339(),
+            })
+            .collect())
+    }
+
+    async fn query_agent_runs(
+        &self,
+        status: Option<&str>,
+        agent_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<AgentRunRow>, TuiError> {
+        let episodes = self
+            .repo
+            .list_episodes_by_source("agent_status", agent_id, limit)
+            .await?;
+
+        let mut items = Vec::new();
+        for episode in &episodes {
+            let parsed: serde_json::Value = serde_json::from_str(&episode.content)
+                .unwrap_or_else(|_| serde_json::json!({"raw": episode.content}));
+
+            let ep_status = parsed
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+
+            if let Some(filter_status) = status {
+                if ep_status != filter_status {
+                    continue;
+                }
+            }
+
+            items.push(AgentRunRow {
+                agent_id: episode.agent.as_ref().map(|a| a.agent_id.clone()),
+                session_id: episode.session_id.clone(),
+                status: ep_status.to_string(),
+                summary: parsed
+                    .get("summary")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                namespace: episode.namespace.clone(),
+                created_at: episode.created_at.to_rfc3339(),
+            });
+        }
+        Ok(items)
     }
 }
 

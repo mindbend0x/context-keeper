@@ -8,7 +8,7 @@ RUST_LOG       ?= context_keeper=info,warn
 
 # ── Development ──────────────────────────────────────────────────────────────
 
-.PHONY: build test lint clippy fmt check run run-http dev dev-seed clean
+.PHONY: build test lint clippy fmt check run run-http dev dev-seed tui tui-remote bench-html cli clean
 
 build: ## Build the full workspace
 	cargo build
@@ -50,8 +50,22 @@ dev: ## Run MCP server in local dev/test mode (HTTP, memory, no auth)
 dev-seed: ## Same as dev, but pre-load context.sql
 	./scripts/dev-server.sh --seed
 
+tui: ## Run TUI locally (in-memory storage, --admin for all tabs; needs API keys to ingest)
+	STORAGE_BACKEND=memory cargo run -p context-keeper-tui -- --admin
+
+tui-remote: ## Connect TUI to the local dev server (make dev must be running)
+	CK_MCP_URL=http://localhost:3000/mcp cargo run -p context-keeper-tui --features remote-mcp -- --admin
+
 cli: ## Run CLI (pass ARGS, e.g. make cli ARGS="search --query 'test'")
 	RUST_LOG=$(RUST_LOG) cargo run -p context-keeper-cli -- $(ARGS)
+
+bench-html: ## Generate HTML benchmark dashboard from demo fixture (no API keys needed)
+	cargo run -p context-keeper-bench -- \
+		--from-json crates/context-keeper-bench/benches/demo-results.json \
+		--html bench-report.html
+	@echo ""
+	@echo "  Dashboard written to: bench-report.html"
+	@echo "  Open with: open bench-report.html"
 
 clean: ## Clean build artifacts
 	cargo clean

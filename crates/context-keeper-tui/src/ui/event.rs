@@ -1,8 +1,8 @@
 //! Application events produced by async backend operations and user input.
 
 use crate::types::{
-    AgentInfoRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats, MemoryRow, NamespaceInfo,
-    SearchHit, SnapshotResult,
+    AgentInfoRow, AgentRunRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats, MemoryRow,
+    NamespaceInfo, NoteRow, SearchHit, SnapshotResult,
 };
 
 pub enum AppEvent {
@@ -29,4 +29,6 @@ pub enum AppEvent {
     CrossSearchReady(Result<Vec<SearchHit>, String>),
     SnapshotReady(Result<SnapshotResult, String>),
     ActivityReady(Result<Vec<EpisodeRow>, String>),
+    NotesReady(Result<Vec<NoteRow>, String>),
+    AgentRunsReady(Result<Vec<AgentRunRow>, String>),
 }

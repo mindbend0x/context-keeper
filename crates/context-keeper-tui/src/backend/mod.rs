@@ -14,8 +14,8 @@ use async_trait::async_trait;
 
 use crate::error::TuiError;
 use crate::types::{
-    AddMemoryResult, AgentInfoRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats, MemoryRow,
-    NamespaceInfo, SearchHit, SnapshotResult,
+    AddMemoryResult, AgentInfoRow, AgentRunRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats,
+    MemoryRow, NamespaceInfo, NoteRow, SearchHit, SnapshotResult,
 };
 
 #[async_trait]
@@ -51,4 +51,17 @@ pub trait TuiBackend: Send + Sync {
     ) -> Result<Vec<SearchHit>, TuiError>;
 
     async fn snapshot(&self, iso_timestamp: &str) -> Result<SnapshotResult, TuiError>;
+
+    async fn list_notes(
+        &self,
+        tag: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<NoteRow>, TuiError>;
+
+    async fn query_agent_runs(
+        &self,
+        status: Option<&str>,
+        agent_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<AgentRunRow>, TuiError>;
 }
