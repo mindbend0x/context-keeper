@@ -20,16 +20,12 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: [self-hosted, fzc]
-            suffix: linux-x64
           - target: aarch64-unknown-linux-gnu
             os: [self-hosted, fzc]
-            suffix: linux-arm64
           - target: x86_64-apple-darwin
             os: macos-latest
-            suffix: macos-x64
           - target: aarch64-apple-darwin
             os: macos-latest
-            suffix: macos-arm64
     env:
       RUSTC_WRAPPER: sccache
     steps:
@@ -61,12 +57,12 @@ jobs:
       - name: Package artifacts
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/context-keeper-mcp dist/context-keeper-mcp-${{ matrix.suffix }}
-          cp target/${{ matrix.target }}/release/context-keeper dist/context-keeper-${{ matrix.suffix }}
+          cp target/${{ matrix.target }}/release/context-keeper-mcp dist/context-keeper-mcp-${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/context-keeper dist/context-keeper-cli-${{ matrix.target }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.suffix }}
+          name: binaries-${{ matrix.target }}
           path: dist/
 
   release:

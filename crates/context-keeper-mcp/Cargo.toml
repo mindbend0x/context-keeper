@@ -4,6 +4,8 @@ description = "MCP server binary exposing Context Keeper tools over stdio and SS
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+publish = false
 
 [[bin]]
 name = "context-keeper-mcp"
@@ -33,3 +35,8 @@ rand = "0.9"
 sha2 = "0.10"
 base64 = "0.22"
 serde_urlencoded = "0.7"
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"
+pkg-fmt = "bin"
+bin-dir = "{ bin }{ binary-ext }"

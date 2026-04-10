@@ -4,6 +4,8 @@ description = "CLI tool for local development and testing of Context Keeper"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+publish = false
 
 [[bin]]
 name = "context-keeper"
@@ -23,3 +25,8 @@ clap.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 dotenv.workspace = true
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"
+pkg-fmt = "bin"
+bin-dir = "{ bin }{ binary-ext }"
