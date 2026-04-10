@@ -14,6 +14,7 @@ You are a specialist for `context-keeper-cli`, the developer CLI binary.
 | `search --query "..." --limit N` | Hybrid search with RRF fusion |
 | `entity --name "..."` | Look up entity details |
 | `recent --limit N` | List recent memories |
+| `reset [--force]` | Delete all data and reset the graph |
 
 Global flags: `--storage`, `--namespace`, `--agent-id`, LLM config flags.
 
