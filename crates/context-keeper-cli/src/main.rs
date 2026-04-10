@@ -105,6 +105,12 @@ enum Commands {
         #[arg(short, long, default_value = "10")]
         limit: usize,
     },
+    /// Delete all data and reset the knowledge graph to an empty state
+    Reset {
+        /// Skip the confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[tokio::main]
@@ -329,6 +335,29 @@ async fn main() -> Result<()> {
                     info!("{}. [{}] {}", i + 1, memory.created_at, memory.content);
                 }
             }
+        }
+        Commands::Reset { force } => {
+            if !force {
+                eprint!("This will permanently delete all data. Continue? [y/N] ");
+                let mut answer = String::new();
+                std::io::stdin().read_line(&mut answer)?;
+                if !answer.trim().eq_ignore_ascii_case("y") {
+                    info!("Aborted.");
+                    return Ok(());
+                }
+            }
+
+            let entities = repo.count_active_entities().await.unwrap_or(0);
+            let memories = repo.count_memories().await.unwrap_or(0);
+            let episodes = repo.count_episodes().await.unwrap_or(0);
+            let relations = repo.count_active_relations().await.unwrap_or(0);
+
+            repo.reset_graph().await?;
+
+            info!(
+                "Reset complete — removed {} entities, {} relations, {} memories, {} episodes",
+                entities, relations, memories, episodes
+            );
         }
     }
 

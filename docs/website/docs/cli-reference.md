@@ -12,13 +12,19 @@ The Context Keeper CLI provides a command-line interface for adding and searchin
 
 ## Installation
 
-Install the CLI directly from source:
+Install the CLI via Homebrew or from source:
+
+```bash
+brew install mindbend0x/context-keeper/context-keeper
+```
+
+Or build from source:
 
 ```bash
 cargo install --path crates/context-keeper-cli
 ```
 
-Or build and run locally:
+Or run locally without installing:
 
 ```bash
 cargo run -p context-keeper-cli -- [COMMAND] [OPTIONS]

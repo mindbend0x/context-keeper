@@ -32,6 +32,7 @@ GitHub Actions workflow:
 - [ ] **Format** — `cargo fmt --check`
 - [ ] **Docker build** — Build and verify the Dockerfile
 - [ ] **Release job** — On tag push: build binaries for linux-x64/arm64, macos-x64/arm64, windows-x64. Create GitHub Release with artifacts.
+- [x] **Homebrew tap** — `update-tap` job in `release.yml` renders `Formula/context-keeper.rb.template` with release checksums and pushes to `mindbend0x/homebrew-context-keeper`. Users install via `brew install mindbend0x/context-keeper/context-keeper`.
 
 ### 2.3 — README Polish
 
@@ -41,7 +42,7 @@ GitHub Actions workflow:
 The README is already comprehensive (~10K lines) but needs tightening for public launch:
 
 - [ ] **Hero section** — One-liner + badges (crates.io, docs.rs, CI, Docker, license)
-- [ ] **30-second quickstart** — `cargo install context-keeper-cli` → `ck add` → `ck search`. Three commands.
+- [ ] **30-second quickstart** — `cargo install context-keeper-cli` or `brew install mindbend0x/context-keeper/context-keeper` → `context-keeper add` → `context-keeper search`. Three commands.
 - [ ] **Feature comparison table** — CK vs Graphiti vs Mem0 vs LangMem (from benchmark strategy doc)
 - [ ] **MCP integration section** — Claude Desktop + Cursor setup in under 5 lines each
 - [ ] **Architecture diagram** — ASCII or Mermaid, kept from existing docs

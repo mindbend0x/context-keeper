@@ -10,7 +10,13 @@ The Context Keeper CLI lets you add memories, search the knowledge graph, and in
 
 ## Installation
 
-### Via Cargo (recommended)
+### Via Homebrew (macOS / Linux)
+
+```bash
+brew install mindbend0x/context-keeper/context-keeper
+```
+
+### Via Cargo
 
 ```bash
 cargo install context-keeper-cli

@@ -76,6 +76,14 @@ That's it. The MCP server uses mock extraction by default (no API key needed). E
 
 ## Quickstart: CLI
 
+**Via Homebrew (macOS / Linux)**
+
+```bash
+brew install mindbend0x/context-keeper/context-keeper
+```
+
+**Via Cargo**
+
 ```bash
 cargo install context-keeper-cli
 ```

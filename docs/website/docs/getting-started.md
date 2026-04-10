@@ -20,6 +20,14 @@ Before you begin, ensure you have:
 
 ## Installation
 
+### Via Homebrew (macOS / Linux)
+
+The fastest way to install the CLI:
+
+```bash
+brew install mindbend0x/context-keeper/context-keeper
+```
+
 ### Via Cargo
 
 Install the MCP server and CLI directly:

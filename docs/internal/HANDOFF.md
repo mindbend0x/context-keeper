@@ -106,6 +106,10 @@ Publishing pipeline (Backlog):
 | FZ-63 | Docker Hub multi-arch publishing | Medium |
 | FZ-65 | License file + CONTRIBUTING.md | Low |
 
+### Homebrew Tap
+
+Homebrew distribution is live. `release.yml` has an `update-tap` job that renders `Formula/context-keeper.rb.template` with release checksums and pushes to [`mindbend0x/homebrew-context-keeper`](https://github.com/mindbend0x/homebrew-context-keeper). The `TAP_REPO_TOKEN` secret is set on the main repo for cross-repo push. On each `v*` tag, the formula is automatically updated with the new version and SHA256 hashes.
+
 ---
 
 ## Development Workflow Reminders

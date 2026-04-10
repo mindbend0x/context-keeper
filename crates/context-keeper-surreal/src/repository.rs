@@ -1120,6 +1120,21 @@ impl Repository {
             .unwrap_or(0) as usize)
     }
 
+    // ── Graph Reset ───────────────────────────────────────────────────
+
+    /// Delete all records from every table, effectively resetting the graph
+    /// to an empty state while preserving the schema and indexes.
+    pub async fn reset_graph(&self) -> Result<()> {
+        self.db
+            .query(
+                "DELETE episode; DELETE entity; DELETE memory; DELETE note; \
+                 DELETE relates_to; DELETE sourced_from; DELETE references;",
+            )
+            .await
+            .map_err(storage_err)?;
+        Ok(())
+    }
+
     // ── Notes (Long-Term Memory) ──────────────────────────────────────
 
     /// Upsert a note. If a note with the same (key, namespace) exists, it is
