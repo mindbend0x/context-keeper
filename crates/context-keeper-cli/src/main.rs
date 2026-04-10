@@ -25,7 +25,8 @@ use uuid::Uuid;
 #[derive(Parser)]
 #[command(
     name = "context-keeper",
-    about = "Temporal knowledge graph memory tool"
+    about = "Temporal knowledge graph memory tool",
+    version
 )]
 struct Cli {
     #[arg(short = 'e', long, env = "EMBEDDING_MODEL", global = true)]
