@@ -71,11 +71,11 @@ const stats = [
 export default function FeatureConstellation() {
   const [hovered, setHovered] = useState<string | null>(null);
 
-  const cx = 400;
-  const cy = 220;
-  const radius = 170;
-  const centerR = 36;
-  const nodeR = 28;
+  const cx = 440;
+  const cy = 240;
+  const radius = 190;
+  const centerR = 40;
+  const nodeR = 32;
 
   const positioned = features.map((f, i) => {
     const angle = (i / features.length) * Math.PI * 2 - Math.PI / 2;
@@ -91,7 +91,7 @@ export default function FeatureConstellation() {
       <div className="constellation-container">
         <div className="constellation-svg-wrapper">
           <svg
-            viewBox="0 0 800 440"
+            viewBox="0 0 880 490"
             className="constellation-svg"
             preserveAspectRatio="xMidYMid meet"
           >
@@ -167,8 +167,8 @@ export default function FeatureConstellation() {
                     className="constellation-node-circle"
                   />
                   <foreignObject
-                    x={f.x - 12} y={f.y - 12}
-                    width="24" height="24"
+                    x={f.x - 14} y={f.y - 14}
+                    width="28" height="28"
                   >
                     <div
                       xmlns="http://www.w3.org/1999/xhtml"
@@ -176,12 +176,12 @@ export default function FeatureConstellation() {
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        width: 24,
-                        height: 24,
+                        width: 28,
+                        height: 28,
                         color: f.color,
                       }}
                     >
-                      <f.Icon size={20} />
+                      <f.Icon size={22} />
                     </div>
                   </foreignObject>
                   <text
@@ -194,16 +194,16 @@ export default function FeatureConstellation() {
                   </text>
                   {isHovered && (
                     <foreignObject
-                      x={f.x - 100} y={f.y + nodeR + 26}
-                      width="200" height="60"
+                      x={f.x - 110} y={f.y + nodeR + 26}
+                      width="220" height="65"
                     >
                       <div
                         xmlns="http://www.w3.org/1999/xhtml"
                         style={{
-                          fontSize: "10px",
+                          fontSize: "11px",
                           color: "var(--ck-text-muted)",
                           textAlign: "center",
-                          lineHeight: 1.35,
+                          lineHeight: 1.4,
                           fontFamily: "var(--ifm-font-family-base)",
                         }}
                       >

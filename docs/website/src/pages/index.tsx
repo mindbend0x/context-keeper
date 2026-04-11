@@ -1,6 +1,8 @@
 import React from "react";
 import Layout from "@theme/Layout";
 import Link from "@docusaurus/Link";
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
 import HeroGraph from "../components/HeroGraph";
 import DemoTabs from "../components/DemoTabs";
 import PipelineViz from "../components/PipelineViz";
@@ -12,7 +14,7 @@ function Hero() {
   return (
     <section className="hero-landing">
       <HeroGraph />
-      <div style={{ maxWidth: 800, margin: "0 auto" }}>
+      <div style={{ maxWidth: 860, margin: "0 auto" }}>
         <div className="hero-badge">
           <span className="dot" /> Open source &middot; MIT License
         </div>
@@ -108,9 +110,15 @@ function QuickStart() {
     <section className="landing-section node-reveal" id="quickstart">
       <div className="section-label">Quick Start</div>
       <h2 className="section-title">Three commands to memory</h2>
+      <p className="section-desc">
+        Run Context Keeper locally via stdio, or connect to a remote instance
+        over HTTP.
+      </p>
       <div className="quickstart-code">
-        <pre>
-          <code>{`# Install the CLI
+        <Tabs defaultValue="stdio" className="quickstart-tabs">
+          <TabItem value="stdio" label="stdio (local)">
+            <pre>
+              <code>{`# Install the CLI
 brew install mindbend0x/context-keeper/context-keeper
 
 # Or build the MCP server from source
@@ -126,10 +134,33 @@ cargo build --release -p context-keeper-mcp
   }
 }
 
-# Or test with the CLI
+# Test with the CLI
 context-keeper add --text "Alice is a senior engineer at Acme Corp"
 context-keeper search --query "Who works at Acme?"`}</code>
-        </pre>
+            </pre>
+          </TabItem>
+          <TabItem value="http" label="HTTP (remote)">
+            <pre>
+              <code>{`# Start the HTTP server
+MCP_TRANSPORT=http MCP_HTTP_PORT=3000 context-keeper-mcp
+
+# Or run with Docker
+docker compose up -d
+
+# Point your MCP client to the HTTP endpoint
+{
+  "mcpServers": {
+    "context-keeper": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+
+# Test the connection
+curl http://localhost:3000/mcp`}</code>
+            </pre>
+          </TabItem>
+        </Tabs>
       </div>
       <div style={{ textAlign: "center", marginTop: "1.5rem" }}>
         <Link className="btn btn-primary" to="/docs/getting-started">

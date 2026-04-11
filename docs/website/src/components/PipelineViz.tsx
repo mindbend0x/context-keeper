@@ -33,10 +33,10 @@ function PipelineRow({
   hoveredIdx: number | null;
   onHover: (idx: number | null) => void;
 }) {
-  const nodeR = 26;
-  const startX = 80;
-  const spacing = 210;
-  const cy = yOffset + 40;
+  const nodeR = 30;
+  const startX = 90;
+  const spacing = 220;
+  const cy = yOffset + 46;
 
   return (
     <g>
@@ -124,16 +124,16 @@ function PipelineRow({
             </text>
             {isHovered && (
               <foreignObject
-                x={cx - 90} y={cy + nodeR + 28}
-                width="180" height="60"
+                x={cx - 100} y={cy + nodeR + 28}
+                width="200" height="65"
               >
                 <div
                   xmlns="http://www.w3.org/1999/xhtml"
                   style={{
-                    fontSize: "11px",
+                    fontSize: "11.5px",
                     color: "var(--ck-text-muted)",
                     textAlign: "center",
-                    lineHeight: 1.35,
+                    lineHeight: 1.4,
                     fontFamily: "var(--ifm-font-family-base)",
                   }}
                 >
@@ -152,14 +152,14 @@ export default function PipelineViz() {
   const [hoveredIngest, setHoveredIngest] = useState<number | null>(null);
   const [hoveredRetrieve, setHoveredRetrieve] = useState<number | null>(null);
 
-  const svgW = 780;
-  const svgH = 280;
+  const svgW = 840;
+  const svgH = 300;
 
   return (
     <div className="pipeline-viz">
       <div className="pipeline-phase-label">Ingestion pipeline</div>
       <svg
-        viewBox={`0 0 ${svgW} 140`}
+        viewBox={`0 0 ${svgW} 160`}
         className="pipeline-viz-svg"
         preserveAspectRatio="xMidYMid meet"
       >
@@ -172,11 +172,11 @@ export default function PipelineViz() {
         />
       </svg>
 
-      <div className="pipeline-phase-label" style={{ marginTop: "1.5rem" }}>
+      <div className="pipeline-phase-label" style={{ marginTop: "2rem" }}>
         Retrieval pipeline
       </div>
       <svg
-        viewBox={`0 0 ${svgW} 140`}
+        viewBox={`0 0 ${svgW} 160`}
         className="pipeline-viz-svg"
         preserveAspectRatio="xMidYMid meet"
       >

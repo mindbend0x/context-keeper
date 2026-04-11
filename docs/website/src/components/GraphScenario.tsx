@@ -77,7 +77,7 @@ function typeColor(type: string): string {
   switch (type) {
     case "person": return "var(--ck-accent)";
     case "org":    return "#eab308";
-    case "team":   return "#22d3ee";
+    case "team":   return "#a3e635";
     default:       return "var(--ck-accent)";
   }
 }

@@ -24,11 +24,11 @@ graph TD
     SURREAL["context-keeper-surreal<br/><small>SurrealDB · 35+ CRUD methods</small>"] --> CORE
     CORE["context-keeper-core<br/><small>Models · Pipeline · Search · Traits</small>"]
 
-    style CORE fill:#0891b2,stroke:#0e7490,color:#fff
-    style RIG fill:#06b6d4,stroke:#0891b2,color:#fff
+    style CORE fill:#4d7c0f,stroke:#3f6212,color:#fff
+    style RIG fill:#65a30d,stroke:#4d7c0f,color:#fff
     style SURREAL fill:#7c3aed,stroke:#6d28d9,color:#fff
-    style CLI fill:#22d3ee,stroke:#06b6d4,color:#000
-    style MCP fill:#22d3ee,stroke:#06b6d4,color:#000
+    style CLI fill:#a3e635,stroke:#84cc16,color:#000
+    style MCP fill:#a3e635,stroke:#84cc16,color:#000
 ```
 
 ### Interactive view
