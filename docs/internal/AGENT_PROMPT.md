@@ -2,7 +2,7 @@
 
 You are working on **Context Keeper**, a temporal knowledge graph memory layer for AI agents. It gives MCP-compatible assistants persistent memory that tracks entities, relationships, and how they change over time. The stack is Rust, SurrealDB, Rig (AI framework), and rmcp (MCP SDK).
 
-The project is open-source (MIT), hosted at `github.com/0x313/context-keeper`, and tracked in Linear under team **FZ**.
+The project is open-source (MIT), hosted at `github.com/mindbend0x/context-keeper`, and tracked in Linear under team **FZ**.
 
 ---
 

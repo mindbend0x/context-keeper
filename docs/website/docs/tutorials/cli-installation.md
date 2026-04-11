@@ -16,18 +16,10 @@ The Context Keeper CLI lets you add memories, search the knowledge graph, and in
 brew install mindbend0x/context-keeper/context-keeper
 ```
 
-### Via Cargo
-
-```bash
-cargo install context-keeper-cli
-```
-
-This installs the `context-keeper` binary to `~/.cargo/bin/`.
-
 ### From source
 
 ```bash
-git clone https://github.com/0x313/context-keeper.git
+git clone https://github.com/mindbend0x/context-keeper.git
 cd context-keeper
 cargo build --release -p context-keeper-cli
 ```

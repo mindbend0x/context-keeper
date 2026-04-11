@@ -167,3 +167,52 @@ git cherry-pick feat/fz-XX-short-description   # or PR/merge
 - **`merge_summaries` uses word-novelty**: if the new summary adds words not in the old one, they're concatenated with `"; "`. If no new words, new summary wins outright.
 - **Stop words in `MockEntityExtractor`**: ~60 common English words filtered to reduce false entity extraction (e.g., sentence-initial capitals like "The", "This", etc.).
 - **Bench crate not in workspace**: `context-keeper-bench` exists on `feat/fz-53-bench-crate` but hasn't been merged. `cargo bench` will fail on `feat/prototype-v1`.
+
+---
+
+## Docs Update: Private Homebrew Releases (2026-04-11)
+
+### What Changed
+
+All installation documentation was updated to reflect the actual release channels. The crates are not published to crates.io (`publish = false`), so every `cargo install context-keeper-mcp` / `cargo install context-keeper-cli` reference was replaced with working alternatives.
+
+### Decisions Made
+
+1. **Removed all `cargo install` references** — crates have `publish = false` and are not on crates.io. Publishing is future work (FZ-64).
+2. **Homebrew = CLI only** — the formula (`Formula/context-keeper.rb.template`) only packages the CLI binary. Docs now explicitly state this and point users to from-source or GitHub Releases for the MCP server.
+3. **Canonical GitHub org is `mindbend0x`** — the release workflow, Homebrew formula, and tap all use `mindbend0x/context-keeper`. All docs, `Cargo.toml`, and config files were updated from `0x313/context-keeper` to `mindbend0x/context-keeper` for consistency.
+
+### Install Channels After This Change
+
+| Binary | Homebrew | From Source | GitHub Release |
+|--------|----------|-------------|----------------|
+| CLI (`context-keeper`) | Yes (primary) | Yes | Yes |
+| MCP server (`context-keeper-mcp`) | No | Yes | Yes |
+
+### Files Changed
+
+| File | What changed |
+|------|-------------|
+| `README.md` | MCP quickstart: from-source + Releases link. CLI quickstart: Homebrew + from-source (no `cargo install`). |
+| `docs/website/docs/getting-started.md` | Removed "Via Cargo" section. Added binary table and tip about Homebrew = CLI only. |
+| `docs/website/docs/tutorials/cli-installation.md` | Removed "Via Cargo" subsection, kept Homebrew + from-source. |
+| `docs/website/docs/cli-reference.md` | Replaced `cargo install --path` with `git clone` + `cargo build` from-source. |
+| `docs/website/docs/tutorials/mcp-server-setup.md` | Replaced `cargo install context-keeper-mcp` prereq with from-source build + Releases download. |
+| `Cargo.toml` | `[workspace.package].repository` URL: `0x313` → `mindbend0x`. |
+| `CONTRIBUTING.md` | Clone URL and issues link: `0x313` → `mindbend0x`. |
+| `docs/website/docs/contributing.md` | Clone URL and issues link: `0x313` → `mindbend0x`. |
+| `docs/website/docs/tutorials/running-locally.md` | Clone URL: `0x313` → `mindbend0x`. |
+| `docs/website/docs/tutorials/running-with-docker.md` | Clone URL: `0x313` → `mindbend0x`. |
+| `docs/website/src/pages/index.tsx` | GitHub links: `0x313` → `mindbend0x`. |
+| `docs/website/docusaurus.config.ts` | Edit URL + navbar/footer links: `0x313` → `mindbend0x`. |
+| `docs/internal/AGENT_PROMPT.md` | Repo reference: `0x313` → `mindbend0x`. |
+| `plugins/cursor/package.json` | Repository URL: `0x313` → `mindbend0x`. |
+| `docs/website/landing-preview.html` | Replaced `cargo install` with `brew install`, updated quickstart code block, fixed GitHub URLs. |
+| `plugins/cursor/README.md` | Replaced `cargo install context-keeper-mcp` prereq with from-source build + Releases download. |
+| `plugins/perplexity/README.md` | Replaced `cargo install context-keeper-mcp` prereq with from-source build + Releases download. Updated binary resolution table. |
+
+### Remaining Gaps
+
+- **MCP server not in Homebrew**: adding it to the formula requires a release infra change (update `Formula/context-keeper.rb.template` to also install the MCP binary).
+- **crates.io publishing** (FZ-64): once published, `cargo install` references can be restored.
+- **`docs/website/build-preview/`**: static build output is stale — needs regeneration after these doc changes.

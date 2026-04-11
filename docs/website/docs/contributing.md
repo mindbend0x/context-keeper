@@ -19,7 +19,7 @@ Context Keeper is open source under the MIT license. Contributions are welcome a
 ### Clone and Build
 
 ```bash
-git clone https://github.com/0x313/context-keeper.git
+git clone https://github.com/mindbend0x/context-keeper.git
 cd context-keeper
 cargo build
 ```
@@ -199,7 +199,7 @@ async fn test_search_returns_top_5_by_default() { /* ... */ }
 
 ## Issues and Feature Requests
 
-- Check [existing issues](https://github.com/0x313/context-keeper/issues) to avoid duplicates.
+- Check [existing issues](https://github.com/mindbend0x/context-keeper/issues) to avoid duplicates.
 - Use clear, descriptive titles and provide context (e.g., error messages, expected vs. actual behavior).
 - For feature requests, explain the use case and desired outcome.
 

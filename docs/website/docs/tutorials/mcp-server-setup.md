@@ -10,19 +10,21 @@ This tutorial walks you through adding Context Keeper as an MCP server in each m
 
 ## Prerequisites
 
-Install the MCP server binary:
+Build the MCP server binary from source:
 
 ```bash
-cargo install context-keeper-mcp
-```
-
-Or build from source:
-
-```bash
-git clone https://github.com/0x313/context-keeper.git
+git clone https://github.com/mindbend0x/context-keeper.git
 cd context-keeper
 cargo build --release -p context-keeper-mcp
 ```
+
+Then make the binary available on your PATH:
+
+```bash
+cp target/release/context-keeper-mcp ~/.cargo/bin/
+```
+
+Or download a pre-built binary from [GitHub Releases](https://github.com/mindbend0x/context-keeper/releases) and place it on your PATH.
 
 Verify the binary is available:
 

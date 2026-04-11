@@ -75,7 +75,7 @@ function Hero() {
           </Link>
           <a
             className="btn btn-secondary"
-            href="https://github.com/0x313/context-keeper"
+            href="https://github.com/mindbend0x/context-keeper"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -84,8 +84,7 @@ function Hero() {
         </div>
         <div className="hero-install">
           <span className="prompt">$</span>
-          <code>cargo install context-keeper-mcp</code>
-          <span style={{ fontSize: "0.7rem", color: "var(--ck-text-muted)", marginLeft: "0.25rem" }}>(soon)</span>
+          <code>brew install mindbend0x/context-keeper/context-keeper</code>
         </div>
       </div>
     </section>
@@ -312,8 +311,12 @@ function QuickStart() {
       <h2 className="section-title">Three commands to memory</h2>
       <div className="quickstart-code">
         <pre>
-          <code>{`# Install
-cargo install context-keeper-mcp
+          <code>{`# Install the CLI
+brew install mindbend0x/context-keeper/context-keeper
+
+# Or build the MCP server from source
+git clone https://github.com/mindbend0x/context-keeper.git && cd context-keeper
+cargo build --release -p context-keeper-mcp
 
 # Add to your MCP client config (Claude Desktop, Cursor, etc.)
 {
@@ -325,7 +328,6 @@ cargo install context-keeper-mcp
 }
 
 # Or test with the CLI
-cargo install context-keeper-cli
 context-keeper add --text "Alice is a senior engineer at Acme Corp"
 context-keeper search --query "Who works at Acme?"`}</code>
         </pre>
@@ -353,7 +355,7 @@ function Cta() {
         </Link>
         <a
           className="btn btn-secondary"
-          href="https://github.com/0x313/context-keeper"
+          href="https://github.com/mindbend0x/context-keeper"
           target="_blank"
           rel="noopener noreferrer"
         >

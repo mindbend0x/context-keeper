@@ -18,8 +18,13 @@ A VS Code/Cursor extension that connects to the Context Keeper knowledge graph v
 Install the `context-keeper-mcp` binary:
 
 ```bash
-cargo install context-keeper-mcp
+git clone https://github.com/mindbend0x/context-keeper.git
+cd context-keeper
+cargo build --release -p context-keeper-mcp
+cp target/release/context-keeper-mcp ~/.cargo/bin/
 ```
+
+Or download a pre-built binary from [GitHub Releases](https://github.com/mindbend0x/context-keeper/releases) and place it on your `PATH`.
 
 Verify it's on your `PATH`:
 

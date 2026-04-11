@@ -17,7 +17,7 @@ This tutorial covers building Context Keeper from source, configuring your envir
 ## Clone and build
 
 ```bash
-git clone https://github.com/0x313/context-keeper.git
+git clone https://github.com/mindbend0x/context-keeper.git
 cd context-keeper
 cargo build --release
 ```

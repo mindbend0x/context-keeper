@@ -21,7 +21,9 @@ brew install mindbend0x/context-keeper/context-keeper
 Or build from source:
 
 ```bash
-cargo install --path crates/context-keeper-cli
+git clone https://github.com/mindbend0x/context-keeper.git
+cd context-keeper
+cargo build --release -p context-keeper-cli
 ```
 
 Or run locally without installing:
