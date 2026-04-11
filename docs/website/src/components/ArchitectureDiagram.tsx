@@ -1,59 +1,42 @@
 import React, { useState } from "react";
 
-// ── Node positions ─────────────────────────────────────────────────
-// Layout: Top row (binaries) → Bottom row (foundation)
-// SVG viewBox is 640x380
+/*
+  Hub-and-spoke layout: core at center, binaries above, implementations below.
+  All edges radiate from/to core, making the architecture immediately clear.
+
+  SVG viewBox: 640 x 400
+*/
 
 const nodes = {
-  cli:     { x: 100, y: 40,  w: 140, h: 72, label: "cli",     sub: "Developer CLI",        icon: "terminal" },
-  mcp:     { x: 400, y: 40,  w: 140, h: 72, label: "mcp",     sub: "MCP Server",           icon: "plug" },
-  rig:     { x: 40,  y: 260, w: 150, h: 72, label: "rig",     sub: "LLM Integrations",     icon: "brain" },
-  core:    { x: 245, y: 260, w: 150, h: 72, label: "core",    sub: "Pipeline · Search · Traits", icon: "gear" },
-  surreal: { x: 450, y: 260, w: 150, h: 72, label: "surreal", sub: "SurrealDB · Storage",  icon: "database" },
+  cli:     { x: 110, y: 30,  w: 150, h: 72, label: "cli",     sub: "Developer CLI",              icon: "terminal", layer: "binary" },
+  mcp:     { x: 380, y: 30,  w: 150, h: 72, label: "mcp",     sub: "MCP Server",                 icon: "plug",     layer: "binary" },
+  core:    { x: 235, y: 175, w: 170, h: 80, label: "core",    sub: "Pipeline · Search · Traits",  icon: "gear",     layer: "core" },
+  rig:     { x: 50,  y: 320, w: 160, h: 72, label: "rig",     sub: "LLM Integrations",           icon: "brain",    layer: "impl" },
+  surreal: { x: 430, y: 320, w: 160, h: 72, label: "surreal", sub: "SurrealDB · Storage",        icon: "database", layer: "impl" },
 } as const;
 
 type NodeId = keyof typeof nodes;
 
-// ── Edges (from → to, following actual Cargo.toml deps) ────────────
-const edges: { from: NodeId; to: NodeId; style: "orchestrates" | "implements" }[] = [
-  // Binaries orchestrate all three foundation crates
-  { from: "cli", to: "core",    style: "orchestrates" },
-  { from: "cli", to: "rig",     style: "orchestrates" },
-  { from: "cli", to: "surreal", style: "orchestrates" },
-  { from: "mcp", to: "core",    style: "orchestrates" },
-  { from: "mcp", to: "rig",     style: "orchestrates" },
-  { from: "mcp", to: "surreal", style: "orchestrates" },
-  // Implementation crates depend on core
-  { from: "rig",     to: "core", style: "implements" },
-  { from: "surreal", to: "core", style: "implements" },
+interface Edge {
+  from: NodeId;
+  to: NodeId;
+  type: "depends" | "implements" | "wires";
+  label?: string;
+}
+
+const edges: Edge[] = [
+  { from: "cli", to: "core",    type: "depends",    label: "uses" },
+  { from: "mcp", to: "core",    type: "depends",    label: "uses" },
+  { from: "rig", to: "core",    type: "implements", label: "implements" },
+  { from: "surreal", to: "core", type: "implements", label: "implements" },
+  { from: "cli", to: "rig",     type: "wires" },
+  { from: "cli", to: "surreal", type: "wires" },
+  { from: "mcp", to: "rig",     type: "wires" },
+  { from: "mcp", to: "surreal", type: "wires" },
 ];
 
-// ── Animated data flow paths ───────────────────────────────────────
-const flowPaths = [
-  {
-    id: "ingest",
-    label: "Ingestion",
-    color: "var(--ck-accent)",
-    // mcp top → core center → surreal center
-    d: `M ${nodes.mcp.x + nodes.mcp.w / 2} ${nodes.mcp.y + nodes.mcp.h}
-        L ${nodes.core.x + nodes.core.w / 2} ${nodes.core.y}
-        L ${nodes.surreal.x + nodes.surreal.w / 2} ${nodes.surreal.y}`,
-  },
-  {
-    id: "retrieve",
-    label: "Retrieval",
-    color: "var(--ck-accent-400, #fb923c)",
-    // cli top → core center → rig center (for LLM query rewriting)
-    d: `M ${nodes.cli.x + nodes.cli.w / 2} ${nodes.cli.y + nodes.cli.h}
-        L ${nodes.core.x + nodes.core.w / 2} ${nodes.core.y}
-        L ${nodes.rig.x + nodes.rig.w / 2} ${nodes.rig.y}`,
-  },
-];
-
-// ── Icon paths (simple inline SVGs) ────────────────────────────────
 function NodeIcon({ type, x, y }: { type: string; x: number; y: number }) {
   const size = 16;
-  const props = { x, y, width: size, height: size, fill: "var(--ck-accent)", opacity: 0.9 };
 
   switch (type) {
     case "terminal":
@@ -74,8 +57,8 @@ function NodeIcon({ type, x, y }: { type: string; x: number; y: number }) {
       return (
         <g transform={`translate(${x},${y})`}>
           <circle cx="8" cy="8" r="6" fill="none" stroke="var(--ck-accent)" strokeWidth="1.5" opacity={0.9} />
-          <path d="M8 4c-2 0-3 2-3 4s1 4 3 4 3-2 3-4-1-4-3-4z" fill="none" stroke="var(--ck-accent)" strokeWidth="1" opacity={0.7} />
-          <path d="M5 8h6" stroke="var(--ck-accent)" strokeWidth="1" opacity={0.5} />
+          <path d="M5 8h6" stroke="var(--ck-accent)" strokeWidth="1" opacity={0.6} />
+          <path d="M8 5v6" stroke="var(--ck-accent)" strokeWidth="1" opacity={0.6} />
         </g>
       );
     case "gear":
@@ -90,7 +73,6 @@ function NodeIcon({ type, x, y }: { type: string; x: number; y: number }) {
         <g transform={`translate(${x},${y})`}>
           <ellipse cx="8" cy="5" rx="5" ry="2.5" fill="none" stroke="var(--ck-accent)" strokeWidth="1.5" opacity={0.9} />
           <path d="M3 5v6c0 1.4 2.2 2.5 5 2.5s5-1.1 5-2.5V5" fill="none" stroke="var(--ck-accent)" strokeWidth="1.5" opacity={0.9} />
-          <path d="M3 8c0 1.4 2.2 2.5 5 2.5s5-1.1 5-2.5" fill="none" stroke="var(--ck-accent)" strokeWidth="1" opacity={0.5} />
         </g>
       );
     default:
@@ -98,153 +80,190 @@ function NodeIcon({ type, x, y }: { type: string; x: number; y: number }) {
   }
 }
 
-// ── Edge path calculator ───────────────────────────────────────────
 function edgePath(from: NodeId, to: NodeId): string {
   const f = nodes[from];
   const t = nodes[to];
   const fx = f.x + f.w / 2;
-  const fy = f.y + f.h;
   const tx = t.x + t.w / 2;
-  const ty = t.y;
 
-  // Bezier curve for smoother edges
-  const cy1 = fy + (ty - fy) * 0.4;
-  const cy2 = fy + (ty - fy) * 0.6;
-  return `M ${fx} ${fy} C ${fx} ${cy1}, ${tx} ${cy2}, ${tx} ${ty}`;
+  const fromAbove = f.y < t.y;
+  const fy = fromAbove ? f.y + f.h : f.y;
+  const ty = fromAbove ? t.y : t.y + t.h;
+
+  const mid = (fy + ty) / 2;
+  return `M ${fx} ${fy} C ${fx} ${mid}, ${tx} ${mid}, ${tx} ${ty}`;
 }
 
-// ── Main Component ─────────────────────────────────────────────────
-export default function ArchitectureDiagram() {
-  const [hoveredNode, setHoveredNode] = useState<NodeId | null>(null);
+function edgeStyle(type: Edge["type"], active: boolean, dimmed: boolean) {
+  const base = {
+    depends: {
+      stroke: active ? "var(--ck-accent)" : "var(--ck-border)",
+      strokeWidth: active ? 2.5 : 1.5,
+      strokeDasharray: "none",
+      opacity: dimmed ? 0.1 : active ? 1 : 0.4,
+    },
+    implements: {
+      stroke: active ? "var(--ck-entity-org)" : "var(--ck-border)",
+      strokeWidth: active ? 2.5 : 2,
+      strokeDasharray: "none",
+      opacity: dimmed ? 0.1 : active ? 1 : 0.5,
+    },
+    wires: {
+      stroke: active ? "var(--ck-text-muted)" : "var(--ck-border)",
+      strokeWidth: 1,
+      strokeDasharray: "5 4",
+      opacity: dimmed ? 0.05 : active ? 0.6 : 0.2,
+    },
+  };
+  return base[type];
+}
 
-  function isEdgeActive(e: typeof edges[number]) {
-    if (!hoveredNode) return false;
-    return e.from === hoveredNode || e.to === hoveredNode;
+export default function ArchitectureDiagram() {
+  const [hovered, setHovered] = useState<NodeId | null>(null);
+
+  function isEdgeActive(e: Edge) {
+    if (!hovered) return false;
+    return e.from === hovered || e.to === hovered;
   }
 
   return (
     <div className="arch-diagram-container">
       <svg
         className="arch-diagram-svg"
-        viewBox="0 0 640 380"
+        viewBox="0 0 640 420"
         preserveAspectRatio="xMidYMid meet"
         role="img"
-        aria-label="Context Keeper architecture diagram showing five Rust crates and their dependencies"
+        aria-label="Context Keeper architecture: core at center, cli and mcp above, rig and surreal below"
       >
         <defs>
-          {/* Arrowhead markers */}
-          <marker id="arrow-default" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
-            <path d="M0 0 L10 4 L0 8 Z" fill="var(--ck-border)" opacity="0.5" />
-          </marker>
-          <marker id="arrow-active" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+          <marker id="arr-depends" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="7" markerHeight="5" orient="auto-start-reverse">
             <path d="M0 0 L10 4 L0 8 Z" fill="var(--ck-accent)" />
           </marker>
-          <marker id="arrow-implements" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
-            <path d="M0 0 L10 4 L0 8 Z" fill="var(--ck-accent)" opacity="0.7" />
+          <marker id="arr-depends-dim" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="7" markerHeight="5" orient="auto-start-reverse">
+            <path d="M0 0 L10 4 L0 8 Z" fill="var(--ck-border)" opacity="0.5" />
+          </marker>
+          <marker id="arr-impl" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="7" markerHeight="5" orient="auto-start-reverse">
+            <path d="M0 0 L10 4 L0 8 Z" fill="var(--ck-entity-org)" />
+          </marker>
+          <marker id="arr-impl-dim" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="7" markerHeight="5" orient="auto-start-reverse">
+            <path d="M0 0 L10 4 L0 8 Z" fill="var(--ck-border)" opacity="0.4" />
           </marker>
         </defs>
 
-        {/* ── Layer labels ──────────────────────────────────── */}
-        <text x="10" y="78" className="arch-layer-label">BINARIES</text>
-        <text x="10" y="298" className="arch-layer-label">FOUNDATION</text>
+        {/* Layer labels */}
+        <text x="16" y="68" className="arch-layer-label">BINARIES</text>
+        <text x="16" y="230" className="arch-layer-label">CORE</text>
+        <text x="16" y="360" className="arch-layer-label">PROVIDERS</text>
 
-        {/* ── Edges ─────────────────────────────────────────── */}
-        {edges.map((e, i) => {
-          const active = isEdgeActive(e);
-          return (
-            <path
-              key={i}
-              d={edgePath(e.from, e.to)}
-              fill="none"
-              stroke={active ? "var(--ck-accent)" : "var(--ck-border)"}
-              strokeWidth={e.style === "implements" ? 2.5 : 1.5}
-              strokeDasharray={e.style === "orchestrates" ? "6 4" : "none"}
-              opacity={hoveredNode && !active ? 0.15 : (active ? 1 : 0.4)}
-              markerEnd={
-                active
-                  ? "url(#arrow-active)"
-                  : e.style === "implements"
-                  ? "url(#arrow-implements)"
-                  : "url(#arrow-default)"
-              }
-              className="arch-edge"
-            />
-          );
-        })}
+        {/* Edges — wires first (behind), then structural */}
+        {edges
+          .slice()
+          .sort((a, b) => {
+            const order = { wires: 0, depends: 1, implements: 2 };
+            return order[a.type] - order[b.type];
+          })
+          .map((e, i) => {
+            const active = isEdgeActive(e);
+            const dimmed = !!hovered && !active;
+            const style = edgeStyle(e.type, active, dimmed);
+            const marker =
+              e.type === "implements"
+                ? active ? "url(#arr-impl)" : "url(#arr-impl-dim)"
+                : e.type === "depends"
+                  ? active ? "url(#arr-depends)" : "url(#arr-depends-dim)"
+                  : undefined;
 
-        {/* ── Animated flow paths ───────────────────────────── */}
-        {flowPaths.map((fp) => (
-          <g key={fp.id}>
-            {/* Faint background path */}
-            <path d={fp.d} fill="none" stroke={fp.color} strokeWidth="2" opacity="0.08" />
-            {/* Animated pulse */}
-            <path
-              d={fp.d}
-              fill="none"
-              stroke={fp.color}
-              strokeWidth="2.5"
-              strokeDasharray="12 28"
-              opacity="0.4"
-              className={`arch-flow-pulse arch-flow-${fp.id}`}
-            />
-          </g>
-        ))}
+            return (
+              <path
+                key={`${e.from}-${e.to}-${i}`}
+                d={edgePath(e.from, e.to)}
+                fill="none"
+                stroke={style.stroke}
+                strokeWidth={style.strokeWidth}
+                strokeDasharray={style.strokeDasharray}
+                opacity={style.opacity}
+                markerEnd={marker}
+                className="arch-edge"
+              />
+            );
+          })}
 
-        {/* ── Nodes ─────────────────────────────────────────── */}
-        {(Object.entries(nodes) as [NodeId, typeof nodes[NodeId]][]).map(([id, n]) => {
+        {/* Edge labels for primary connections (only when hovered) */}
+        {hovered && edges
+          .filter((e) => (e.from === hovered || e.to === hovered) && e.label)
+          .map((e, i) => {
+            const f = nodes[e.from];
+            const t = nodes[e.to];
+            const mx = (f.x + f.w / 2 + t.x + t.w / 2) / 2;
+            const fromAbove = f.y < t.y;
+            const fy = fromAbove ? f.y + f.h : f.y;
+            const ty = fromAbove ? t.y : t.y + t.h;
+            const my = (fy + ty) / 2 - 6;
+            return (
+              <text
+                key={`label-${i}`}
+                x={mx}
+                y={my}
+                textAnchor="middle"
+                style={{
+                  fontFamily: "var(--ifm-font-family-monospace)",
+                  fontSize: "9px",
+                  fill: e.type === "implements" ? "var(--ck-entity-org)" : "var(--ck-accent)",
+                  opacity: 0.7,
+                }}
+              >
+                {e.label}
+              </text>
+            );
+          })}
+
+        {/* Nodes */}
+        {(Object.entries(nodes) as [NodeId, (typeof nodes)[NodeId]][]).map(([id, n]) => {
           const isCore = id === "core";
-          const isHovered = hoveredNode === id;
+          const isHovered = hovered === id;
+          const dimmed = !!hovered && !isHovered && !edges.some(
+            (e) => (e.from === hovered && e.to === id) || (e.to === hovered && e.from === id)
+          );
+
           return (
             <g
               key={id}
-              className={`arch-node-group ${isHovered ? "arch-node-hovered" : ""}`}
-              onMouseEnter={() => setHoveredNode(id)}
-              onMouseLeave={() => setHoveredNode(null)}
+              onMouseEnter={() => setHovered(id)}
+              onMouseLeave={() => setHovered(null)}
               style={{ cursor: "default" }}
             >
-              {/* Glow effect on hover */}
               {isHovered && (
                 <rect
-                  x={n.x - 4}
-                  y={n.y - 4}
-                  width={n.w + 8}
-                  height={n.h + 8}
+                  x={n.x - 4} y={n.y - 4}
+                  width={n.w + 8} height={n.h + 8}
                   rx="14"
-                  fill="var(--ck-accent)"
-                  opacity="0.08"
+                  fill={isCore ? "var(--ck-accent)" : "var(--ck-accent)"}
+                  opacity="0.06"
                 />
               )}
-              {/* Node background */}
               <rect
-                x={n.x}
-                y={n.y}
-                width={n.w}
-                height={n.h}
+                x={n.x} y={n.y}
+                width={n.w} height={n.h}
                 rx="10"
                 fill="var(--ck-surface)"
                 stroke={isCore ? "var(--ck-accent)" : "var(--ck-border)"}
                 strokeWidth={isCore ? 2 : 1.5}
-                opacity={hoveredNode && !isHovered ? 0.5 : 1}
+                opacity={dimmed ? 0.35 : 1}
                 className="arch-node-rect"
               />
-              {/* Icon */}
-              <NodeIcon type={n.icon} x={n.x + 12} y={n.y + 12} />
-              {/* Label */}
+              <NodeIcon type={n.icon} x={n.x + 14} y={n.y + 14} />
               <text
-                x={n.x + 36}
-                y={n.y + 26}
+                x={n.x + 38} y={n.y + 28}
                 className="arch-node-label"
-                opacity={hoveredNode && !isHovered ? 0.5 : 1}
+                opacity={dimmed ? 0.35 : 1}
               >
                 {n.label}
               </text>
-              {/* Subtitle */}
               <text
-                x={n.x + n.w / 2}
-                y={n.y + 50}
+                x={n.x + n.w / 2} y={n.y + 52}
                 textAnchor="middle"
                 className="arch-node-sub"
-                opacity={hoveredNode && !isHovered ? 0.4 : 0.7}
+                opacity={dimmed ? 0.25 : 0.7}
               >
                 {n.sub}
               </text>
@@ -253,21 +272,24 @@ export default function ArchitectureDiagram() {
         })}
       </svg>
 
-      {/* ── Legend ───────────────────────────────────────────── */}
       <div className="arch-legend">
         <div className="arch-legend-item">
-          <svg width="32" height="8"><line x1="0" y1="4" x2="32" y2="4" stroke="var(--ck-accent)" strokeWidth="2.5" strokeDasharray="6 4" /></svg>
-          <span>Orchestrates</span>
+          <svg width="28" height="8">
+            <line x1="0" y1="4" x2="28" y2="4" stroke="var(--ck-accent)" strokeWidth="2" />
+          </svg>
+          <span>Depends on</span>
         </div>
         <div className="arch-legend-item">
-          <svg width="32" height="8"><line x1="0" y1="4" x2="32" y2="4" stroke="var(--ck-accent)" strokeWidth="2.5" /></svg>
+          <svg width="28" height="8">
+            <line x1="0" y1="4" x2="28" y2="4" stroke="var(--ck-entity-org)" strokeWidth="2" />
+          </svg>
           <span>Implements traits</span>
         </div>
         <div className="arch-legend-item">
-          <svg width="32" height="8">
-            <line x1="0" y1="4" x2="32" y2="4" stroke="var(--ck-accent)" strokeWidth="2.5" strokeDasharray="12 28" className="arch-flow-pulse arch-flow-legend" />
+          <svg width="28" height="8">
+            <line x1="0" y1="4" x2="28" y2="4" stroke="var(--ck-text-muted)" strokeWidth="1" strokeDasharray="5 4" />
           </svg>
-          <span>Data flow</span>
+          <span>Wires concrete types</span>
         </div>
       </div>
     </div>

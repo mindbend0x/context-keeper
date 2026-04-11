@@ -1,73 +1,29 @@
-import React, { useEffect } from "react";
+import React from "react";
 import Layout from "@theme/Layout";
 import Link from "@docusaurus/Link";
+import HeroGraph from "../components/HeroGraph";
 import DemoTabs from "../components/DemoTabs";
-import GraphScenario from "../components/GraphScenario";
+import PipelineViz from "../components/PipelineViz";
+import FeatureConstellation from "../components/FeatureConstellation";
+import ToolTerminal from "../components/ToolTerminal";
+import { useNodeReveal } from "../hooks/useNodeReveal";
 
-// ── Scroll reveal hook ──────────────────────────────────────────────
-function useScrollReveal() {
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => {
-          if (e.isIntersecting) e.target.classList.add("visible");
-        });
-      },
-      { threshold: 0.08 }
-    );
-    document.querySelectorAll(".reveal").forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-  }, []);
-}
-
-// ── Rotating words hook ─────────────────────────────────────────────
-const rotatingWords = [
-  "AI agents", 
-  "coding assistants", 
-  "notetaking tools", 
-  "chat apps", 
-  "workflows",
-];
-
-function useRotatingWord(words: string[], intervalMs = 3000) {
-  const [index, setIndex] = React.useState(0);
-  const [animate, setAnimate] = React.useState(true);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setAnimate(false);
-      setTimeout(() => {
-        setIndex((i) => (i + 1) % words.length);
-        setAnimate(true);
-      }, 300);
-    }, intervalMs);
-    return () => clearInterval(timer);
-  }, [words.length, intervalMs]);
-
-  return { word: words[index], animate };
-}
-
-// ── Hero ────────────────────────────────────────────────────────────
 function Hero() {
-  const { word, animate } = useRotatingWord(rotatingWords);
-
   return (
     <section className="hero-landing">
+      <HeroGraph />
       <div style={{ maxWidth: 800, margin: "0 auto" }}>
         <div className="hero-badge">
           <span className="dot" /> Open source &middot; MIT License
         </div>
         <h1 className="hero-title">
-          Persistent memory across
-          <br />
-          <span className={`gradient-animated hero-rotating ${animate ? "hero-rotating-in" : "hero-rotating-out"}`}>
-            {word}
-          </span>
+          Memory that{" "}
+          <span className="hero-accent">compounds</span>
         </h1>
         <p className="hero-sub">
-          CTX.K (Context Keeper) is a temporal knowledge graph that gives MCP-compatible assistants the
-          ability to remember. Entities, relationships, and how they change over
-          time &mdash; searchable, snapshotable, and built in Rust.
+          Every conversation starts from zero. CTX.K is a temporal knowledge
+          graph that gives MCP-compatible assistants the ability to remember
+          &mdash; entities, relationships, and how they change over time.
         </p>
         <div className="hero-actions">
           <Link className="btn btn-primary" to="/docs/getting-started">
@@ -91,28 +47,9 @@ function Hero() {
   );
 }
 
-// ── Problem ─────────────────────────────────────────────────────────
-function Problem() {
-  return (
-    <section className="landing-section reveal" style={{ paddingBottom: "1rem" }}>
-      <div style={{ maxWidth: 720, margin: "0 auto", textAlign: "center" }}>
-        <div className="section-label">The Problem</div>
-        <h2 className="section-title">AI assistants forget everything</h2>
-        <p className="section-desc">
-          Every conversation starts from zero. Your agent doesn't know what it
-          learned yesterday, can't track how facts change over time, and has no
-          way to connect related information across sessions. Context windows are
-          a cache, not a memory.
-        </p>
-      </div>
-    </section>
-  );
-}
-
-// ── Demo Showcase ──────────────────────────────────────────────────
 function DemoShowcase() {
   return (
-    <section className="demo-showcase reveal" id="demo">
+    <section className="demo-showcase node-reveal" id="demo">
       <div className="section-label">See It In Action</div>
       <h2 className="section-title">One tool, every client</h2>
       <p className="section-desc">
@@ -124,189 +61,51 @@ function DemoShowcase() {
   );
 }
 
-// ── Pipeline step component ────────────────────────────────────────
-function PipelineStep({
-  num,
-  title,
-  desc,
-  showArrow = true,
-}: {
-  num: string;
-  title: string;
-  desc: string;
-  showArrow?: boolean;
-}) {
-  return (
-    <div className="pipeline-step">
-      <div className="step-num">{num}</div>
-      <h4>{title}</h4>
-      <p>{desc}</p>
-      {showArrow && (
-        <div className="pipeline-arrow">&rarr;</div>
-      )}
-    </div>
-  );
-}
-
-// ── How it works ────────────────────────────────────────────────────
 function HowItWorks() {
   return (
-    <section className="landing-section reveal" id="how-it-works">
+    <section className="landing-section node-reveal" id="how-it-works">
       <div className="section-label">How It Works</div>
       <h2 className="section-title">From text to temporal knowledge graph</h2>
       <p className="section-desc">
         Every piece of text your agent ingests becomes structured, searchable
         knowledge with a timeline.
       </p>
-
-      <div className="pipeline">
-        <PipelineStep num="1" title="Ingest" desc="Agent sends text via add_memory. Source is tagged (chat, document, code)." />
-        <PipelineStep num="2" title="Extract" desc="LLM extracts entities (people, orgs, concepts) and relationships between them." />
-        <PipelineStep num="3" title="Embed" desc="Vector embeddings generated for semantic search. BM25 index updated for keywords." />
-        <PipelineStep num="4" title="Store" desc="Entities upserted with temporal bounds. Relations merged. Graph evolves over time." showArrow={false} />
-      </div>
-
-      <div className="section-label" style={{ marginTop: "2.5rem" }}>
-        Then, when the agent needs to remember
-      </div>
-
-      <div className="pipeline">
-        <PipelineStep num="A" title="Search" desc="Hybrid vector + keyword search fused with Reciprocal Rank Fusion (RRF)." />
-        <PipelineStep num="B" title="Expand" desc="LLM rewrites the query into semantic variants, each searched independently." />
-        <PipelineStep num="C" title="Traverse" desc="Follow entity relationships through the graph. See who connects to what." />
-        <PipelineStep num="D" title="Snapshot" desc="Query the graph at any point in time. See what was true last Tuesday." showArrow={false} />
-      </div>
+      <PipelineViz />
     </section>
   );
 }
-
-// ── Use cases ───────────────────────────────────────────────────────
-const useCases = [
-  { icon: "\u{1F4AC}", title: "Conversational Memory", desc: "Give your chat agent persistent memory across sessions. It remembers preferences, past decisions, and context without stuffing everything into the prompt.", tags: ["Claude Desktop", "Cursor"] },
-  { icon: "\u{1F4DA}", title: "Knowledge Base for RAG", desc: "Ingest documents, meeting notes, and wikis into a structured graph. Hybrid search retrieves better context than vector-only RAG.", tags: ["retrieval-augmented generation"] },
-  { icon: "\u{1F50D}", title: "Codebase Intelligence", desc: "Feed your agent context about your codebase: who owns what, architectural decisions, dependency relationships.", tags: ["developer tools"] },
-  { icon: "\u{23F3}", title: "Temporal Audit Trail", desc: "Track how facts change over time. When did Alice move teams? Snapshot any point in time and diff it against the present.", tags: ["compliance", "change tracking"] },
-  { icon: "\u{1F916}", title: "Multi-Agent Shared Memory", desc: "Run Context Keeper over HTTP and let multiple agents read and write to the same knowledge graph.", tags: ["HTTP transport", "Docker"] },
-  { icon: "\u{1F9E9}", title: "Personal Knowledge Graph", desc: "Build a structured map of your notes, contacts, and projects. Search by concept, not just keywords.", tags: ["personal productivity"] },
-];
-
-function UseCases() {
-  return (
-    <section className="landing-section reveal" id="use-cases">
-      <div className="section-label">Use Cases</div>
-      <h2 className="section-title">Built for agents that need to remember</h2>
-      <div className="usecase-grid">
-        {useCases.map((uc, i) => (
-          <div className="usecase-card" key={i}>
-            <div className="icon">{uc.icon}</div>
-            <h3>{uc.title}</h3>
-            <p>{uc.desc}</p>
-            {uc.tags.map((t) => (
-              <span className="usecase-tag" key={t}>{t}</span>
-            ))}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-// ── Features ────────────────────────────────────────────────────────
-const features = [
-  { icon: "\u{1F570}\u{FE0F}", title: "Temporal Knowledge Graph", desc: "Every entity and relation carries valid_from / valid_until timestamps. Point-in-time snapshots let you query the graph at any moment." },
-  { icon: "\u{1F50E}", title: "Hybrid Search + RRF", desc: "HNSW vector similarity and BM25 keyword search, fused with Reciprocal Rank Fusion (K=60). LLM-powered query expansion." },
-  { icon: "\u{1F517}", title: "MCP Native", desc: "10 tools, browsable entity resources, and 3 prompt templates. Works with Claude Desktop, Cursor, and any MCP-compatible client." },
-  { icon: "\u{2699}\u{FE0F}", title: "Trait-Based Architecture", desc: "Core defines pure traits for embedders, extractors, and query rewriters. Swap providers without touching the pipeline." },
-  { icon: "\u{1F4BE}", title: "SurrealDB All-in-One", desc: "One database for documents, graph edges, vector indexes, and full-text search. No middleware glue." },
-  { icon: "\u{1F433}", title: "Ship Anywhere", desc: "Run as an MCP server (stdio or HTTP), a CLI tool, or a Docker container. RocksDB persistence by default." },
-];
 
 function Features() {
   return (
-    <section className="landing-section reveal" id="features">
+    <section className="landing-section node-reveal" id="features">
       <div className="section-label">Features</div>
       <h2 className="section-title">What makes it different</h2>
-      <div className="feature-grid">
-        {features.map((f, i) => (
-          <div className="feature-card" key={i}>
-            <div className="icon">{f.icon}</div>
-            <h3>{f.title}</h3>
-            <p>{f.desc}</p>
-          </div>
-        ))}
-      </div>
-      <div className="stats-row">
-        {[
-          ["5", "Rust crates"],
-          ["10", "MCP tools"],
-          ["35+", "DB operations"],
-          ["0", "API keys to test"],
-        ].map(([v, l]) => (
-          <div className="stat" key={l}>
-            <div className="stat-value">{v}</div>
-            <div className="stat-label">{l}</div>
-          </div>
-        ))}
-      </div>
+      <FeatureConstellation />
     </section>
   );
 }
-
-// ── Scenario ───────────────────────────────────────────────────────
-function Scenario() {
-  return (
-    <section className="landing-section reveal" id="scenario">
-      <div className="section-label">In Practice</div>
-      <h2 className="section-title">Watch the graph grow</h2>
-      <p className="section-desc">
-        Every memory your agent adds builds up a connected knowledge graph.
-        Entities appear, relationships form, and facts evolve over time.
-      </p>
-      <GraphScenario />
-    </section>
-  );
-}
-
-// ── MCP Tools ───────────────────────────────────────────────────────
-const tools = [
-  { name: "add_memory", desc: "Ingest text, extract entities and relations, store everything with embeddings. Returns a diff of what changed." },
-  { name: "search_memory", desc: "Hybrid vector + keyword search with RRF fusion. Filter by entity type." },
-  { name: "expand_search", desc: "LLM rewrites your query into semantic variants, searches each, and merges results." },
-  { name: "get_entity", desc: "Look up any entity by name. Get its type, summary, temporal bounds, and relationships." },
-  { name: "snapshot", desc: "Point-in-time graph state. Pass a timestamp, get back every entity and relation." },
-  { name: "list_recent", desc: "The N most recent memories, ordered by creation time." },
-  { name: "list_agents", desc: "See which AI agents have contributed to the graph, with namespaces and episode counts." },
-  { name: "list_namespaces", desc: "List all namespaces in the graph with entity counts for multi-tenant visibility." },
-  { name: "agent_activity", desc: "Audit a specific agent's recent contributions by agent_id." },
-  { name: "cross_namespace_search", desc: "Search across all namespaces globally, ignoring namespace scoping." },
-];
 
 function McpTools() {
   return (
-    <section className="landing-section reveal" id="mcp-tools">
+    <section className="landing-section node-reveal" id="mcp-tools">
       <div className="section-label">MCP Interface</div>
       <h2 className="section-title">10 tools your agent can call</h2>
-      <div className="tools-grid">
-        {tools.map((t, i) => (
-          <div className="tool-card" key={i}>
-            <h3>{t.name}</h3>
-            <p>{t.desc}</p>
-          </div>
-        ))}
-      </div>
+      <p className="section-desc">
+        Click any tool to see its description and sample response.
+      </p>
+      <ToolTerminal />
       <div style={{ textAlign: "center", marginTop: "1.5rem" }}>
         <Link className="btn btn-secondary" to="/docs/mcp-tools">
-          Full MCP Reference →
+          Full MCP Reference &rarr;
         </Link>
       </div>
     </section>
   );
 }
 
-// ── Quick Start ─────────────────────────────────────────────────────
 function QuickStart() {
   return (
-    <section className="landing-section reveal" id="quickstart">
+    <section className="landing-section node-reveal" id="quickstart">
       <div className="section-label">Quick Start</div>
       <h2 className="section-title">Three commands to memory</h2>
       <div className="quickstart-code">
@@ -334,17 +133,16 @@ context-keeper search --query "Who works at Acme?"`}</code>
       </div>
       <div style={{ textAlign: "center", marginTop: "1.5rem" }}>
         <Link className="btn btn-primary" to="/docs/getting-started">
-          Full Getting Started Guide →
+          Full Getting Started Guide &rarr;
         </Link>
       </div>
     </section>
   );
 }
 
-// ── CTA ─────────────────────────────────────────────────────────────
 function Cta() {
   return (
-    <section className="cta-band reveal">
+    <section className="cta-band node-reveal">
       <h2 className="section-title">Ready to give your agent a memory?</h2>
       <p className="section-desc" style={{ marginBottom: "1.5rem" }}>
         Open source. Rust-fast. Drop it into any MCP client.
@@ -366,9 +164,8 @@ function Cta() {
   );
 }
 
-// ── Page ────────────────────────────────────────────────────────────
 export default function Home(): React.JSX.Element {
-  useScrollReveal();
+  useNodeReveal();
 
   return (
     <Layout
@@ -376,12 +173,9 @@ export default function Home(): React.JSX.Element {
       description="A temporal knowledge graph that gives MCP-compatible assistants long-term memory. Track entities, relationships, and changes over time. Built in Rust."
     >
       <Hero />
-      <Problem />
       <DemoShowcase />
       <HowItWorks />
-      <UseCases />
       <Features />
-      <Scenario />
       <McpTools />
       <QuickStart />
       <Cta />

@@ -1,8 +1,8 @@
 ---
-
-## sidebar_position: 6
+sidebar_position: 6
 title: Authorization
-description: Secure your Context Keeper HTTP server with static bearer tokens, OAuth 2.1, or dev-mode insecure access.
+description: "Secure your Context Keeper HTTP server with static bearer tokens, OAuth 2.1, or dev-mode insecure access."
+---
 
 # Authorization
 
