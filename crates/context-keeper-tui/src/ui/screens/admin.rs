@@ -72,6 +72,7 @@ pub struct AdminState {
     pub agent_runs: Vec<AgentRunRow>,
     pub scroll_offset: usize,
     pub cursor: usize,
+    pub confirm_delete: Option<String>,
 }
 
 impl Default for AdminState {
@@ -89,6 +90,7 @@ impl Default for AdminState {
             agent_runs: Vec::new(),
             scroll_offset: 0,
             cursor: 0,
+            confirm_delete: None,
         }
     }
 }
@@ -114,6 +116,9 @@ impl AdminState {
             AppEvent::AgentRunsReady(Ok(r)) => {
                 self.agent_runs = r.clone();
                 self.cursor = 0;
+            }
+            AppEvent::NamespaceDeleteReady(Ok(_)) => {
+                self.confirm_delete = None;
             }
             _ => {}
         }
@@ -145,6 +150,28 @@ impl AdminState {
             return;
         }
 
+        if let Some(ref ns) = self.confirm_delete {
+            match key.code {
+                KeyCode::Char('y') => {
+                    let ns = ns.clone();
+                    let tx2 = tx.clone();
+                    let b = Arc::clone(backend);
+                    tokio::spawn(async move {
+                        let r = b.delete_namespace(&ns).await.map_err(|e| e.to_string());
+                        let _ = tx2.send(AppEvent::NamespaceDeleteReady(r));
+                        let r2 = b.list_namespaces().await.map_err(|e| e.to_string());
+                        let _ = tx2.send(AppEvent::NamespacesReady(r2));
+                    });
+                    self.confirm_delete = None;
+                }
+                KeyCode::Esc | KeyCode::Char('n') => {
+                    self.confirm_delete = None;
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match key.code {
             KeyCode::Left | KeyCode::Char('h') => {
                 let i = self.sub_tab.index();
@@ -172,6 +199,11 @@ impl AdminState {
                 let len = self.current_list_len();
                 if len > 0 && self.cursor < len - 1 {
                     self.cursor += 1;
+                }
+            }
+            KeyCode::Char('d') => {
+                if self.sub_tab == SubTab::Namespaces && !self.namespaces.is_empty() {
+                    self.confirm_delete = Some(self.namespaces[self.cursor].name.clone());
                 }
             }
             _ => {}
@@ -335,6 +367,21 @@ impl AdminState {
             return;
         }
 
+        let body_area = if let Some(ref ns) = self.confirm_delete {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(1), Constraint::Min(3)])
+                .split(area);
+            let msg = format!(" Delete namespace '{ns}'? Press 'y' to confirm, Esc to cancel ");
+            f.render_widget(
+                Paragraph::new(msg).style(Style::default().fg(theme::ERROR)),
+                chunks[0],
+            );
+            chunks[1]
+        } else {
+            area
+        };
+
         let header = Row::new(vec![
             Cell::from("Namespace").style(
                 Style::default()
@@ -367,7 +414,7 @@ impl AdminState {
         .header(header)
         .block(block);
 
-        f.render_widget(table, area);
+        f.render_widget(table, body_area);
     }
 
     fn render_agents(&self, f: &mut Frame<'_>, area: Rect) {
@@ -791,6 +838,9 @@ impl AdminState {
         if self.input_focused {
             return vec![("Enter", "submit"), ("Esc", "back")];
         }
+        if self.sub_tab == SubTab::Namespaces && self.confirm_delete.is_some() {
+            return vec![("y", "confirm delete"), ("Esc", "cancel")];
+        }
         let mut h = vec![("h/l", "sub-tab")];
         if self.current_needs_input() {
             h.push(("/", "input"));
@@ -800,6 +850,9 @@ impl AdminState {
                 h.push(("r", "reload"));
             }
             _ => {}
+        }
+        if self.sub_tab == SubTab::Namespaces && !self.namespaces.is_empty() {
+            h.push(("d", "delete"));
         }
         h.push(("j/k", "navigate"));
         h.push(("Tab", "next screen"));

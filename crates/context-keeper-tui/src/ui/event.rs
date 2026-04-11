@@ -31,4 +31,5 @@ pub enum AppEvent {
     ActivityReady(Result<Vec<EpisodeRow>, String>),
     NotesReady(Result<Vec<NoteRow>, String>),
     AgentRunsReady(Result<Vec<AgentRunRow>, String>),
+    NamespaceDeleteReady(Result<String, String>),
 }

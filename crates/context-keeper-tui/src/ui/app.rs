@@ -112,7 +112,8 @@ impl App {
             | AppEvent::SnapshotReady(Err(e))
             | AppEvent::ActivityReady(Err(e))
             | AppEvent::NotesReady(Err(e))
-            | AppEvent::AgentRunsReady(Err(e)) => {
+            | AppEvent::AgentRunsReady(Err(e))
+            | AppEvent::NamespaceDeleteReady(Err(e)) => {
                 self.status = format!("Error: {e}");
             }
             AppEvent::StatsReady(Ok(_)) | AppEvent::RecentReady(Ok(_)) => {
@@ -134,6 +135,9 @@ impl App {
                 self.status = format!("{} entities", l.len());
             }
             AppEvent::IngestReady(Ok(msg)) => {
+                self.status = msg.clone();
+            }
+            AppEvent::NamespaceDeleteReady(Ok(msg)) => {
                 self.status = msg.clone();
             }
             _ => {}

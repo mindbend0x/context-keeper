@@ -36,6 +36,8 @@ pub trait TuiBackend: Send + Sync {
 
     async fn list_namespaces(&self) -> Result<Vec<NamespaceInfo>, TuiError>;
 
+    async fn delete_namespace(&self, namespace: &str) -> Result<String, TuiError>;
+
     async fn list_agents(&self) -> Result<Vec<AgentInfoRow>, TuiError>;
 
     async fn agent_activity(

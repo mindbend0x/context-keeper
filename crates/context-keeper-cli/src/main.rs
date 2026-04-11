@@ -111,6 +111,15 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Delete all data within a specific namespace
+    DeleteNamespace {
+        /// The namespace to delete
+        #[arg(short, long)]
+        namespace: String,
+        /// Skip the confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[tokio::main]
@@ -357,6 +366,22 @@ async fn main() -> Result<()> {
             info!(
                 "Reset complete — removed {} entities, {} relations, {} memories, {} episodes",
                 entities, relations, memories, episodes
+            );
+        }
+        Commands::DeleteNamespace { namespace, force } => {
+            if !force {
+                eprint!("This will permanently delete all data in namespace '{}'. Continue? [y/N] ", namespace);
+                let mut answer = String::new();
+                std::io::stdin().read_line(&mut answer)?;
+                if !answer.trim().eq_ignore_ascii_case("y") {
+                    info!("Aborted.");
+                    return Ok(());
+                }
+            }
+            let result = repo.delete_namespace(&namespace).await?;
+            info!(
+                "Deleted namespace '{}' — removed {} entities, {} memories, {} episodes",
+                namespace, result.entities_deleted, result.memories_deleted, result.episodes_deleted
             );
         }
     }

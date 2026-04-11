@@ -1135,6 +1135,52 @@ impl Repository {
         Ok(())
     }
 
+    /// Delete all data belonging to a specific namespace: entities, memories,
+    /// episodes, notes, and any graph edges that reference them.
+    pub async fn delete_namespace(&self, namespace: &str) -> Result<DeleteNamespaceResult> {
+        let mut response = self
+            .db
+            .query(
+                "LET $eids = (SELECT VALUE id FROM entity WHERE namespace = $ns);
+                 LET $mids = (SELECT VALUE id FROM memory WHERE namespace = $ns);
+                 LET $epids = (SELECT VALUE id FROM episode WHERE namespace = $ns);
+                 DELETE FROM relates_to WHERE in IN $eids OR out IN $eids;
+                 DELETE FROM sourced_from WHERE in IN $mids OR out IN $epids;
+                 DELETE FROM references WHERE in IN $mids OR out IN $eids;
+                 DELETE FROM entity WHERE namespace = $ns;
+                 DELETE FROM memory WHERE namespace = $ns;
+                 DELETE FROM episode WHERE namespace = $ns;
+                 DELETE FROM note WHERE namespace = $ns;
+                 RETURN {
+                    entities: count($eids),
+                    memories: count($mids),
+                    episodes: count($epids)
+                 };",
+            )
+            .bind(("ns", namespace.to_string()))
+            .await
+            .map_err(storage_err)?;
+
+        #[derive(Debug, Default, Deserialize, SurrealValue)]
+        struct Counts {
+            #[serde(default)]
+            entities: usize,
+            #[serde(default)]
+            memories: usize,
+            #[serde(default)]
+            episodes: usize,
+        }
+
+        let counts: Option<Counts> = response.take(10).map_err(storage_err)?;
+        let counts = counts.unwrap_or_default();
+
+        Ok(DeleteNamespaceResult {
+            entities_deleted: counts.entities,
+            memories_deleted: counts.memories,
+            episodes_deleted: counts.episodes,
+        })
+    }
+
     // ── Notes (Long-Term Memory) ──────────────────────────────────────
 
     /// Upsert a note. If a note with the same (key, namespace) exists, it is

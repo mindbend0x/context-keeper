@@ -330,6 +330,12 @@ impl TuiBackend for McpHttpBackend {
         Ok(serde_json::from_str(&raw).unwrap_or_default())
     }
 
+    async fn delete_namespace(&self, namespace: &str) -> Result<String, TuiError> {
+        let args = json!({ "namespace": namespace });
+        let raw = call_tool_json_args(&self.inner.peer, "delete_namespace", args).await?;
+        Ok(raw)
+    }
+
     async fn list_agents(&self) -> Result<Vec<AgentInfoRow>, TuiError> {
         let raw = call_tool_no_args(&self.inner.peer, "list_agents").await?;
         Ok(serde_json::from_str(&raw).unwrap_or_default())

@@ -52,6 +52,10 @@ impl TuiBackend for MockTuiBackend {
         Ok(vec![])
     }
 
+    async fn delete_namespace(&self, _namespace: &str) -> Result<String, TuiError> {
+        Ok("Mock: namespace deleted".to_string())
+    }
+
     async fn list_agents(&self) -> Result<Vec<AgentInfoRow>, TuiError> {
         Ok(vec![])
     }

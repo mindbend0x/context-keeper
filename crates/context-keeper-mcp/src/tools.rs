@@ -181,6 +181,12 @@ pub struct DeleteNoteInput {
     pub namespace: Option<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DeleteNamespaceInput {
+    #[schemars(description = "The namespace to delete all data for (entities, memories, episodes, notes, and their relations)")]
+    pub namespace: String,
+}
+
 // ── Agent status inputs ─────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1062,6 +1068,18 @@ impl ContextKeeperServer {
         }
     }
 
+    #[tool(description = "Permanently delete ALL data within a namespace: entities, relations, memories, episodes, and notes. This is irreversible.")]
+    async fn delete_namespace(
+        &self,
+        ctx: RequestContext<RoleServer>,
+        Parameters(input): Parameters<DeleteNamespaceInput>,
+    ) -> Result<String, McpError> {
+        let repo = self.repo_for(&ctx).await?;
+        let result = repo.delete_namespace(&input.namespace).await.map_err(to_mcp)?;
+        serde_json::to_string_pretty(&result)
+            .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
+    }
+
     // ── Agent Status Tools ──────────────────────────────────────────────
 
     #[tool(
@@ -1198,7 +1216,8 @@ impl ServerHandler for ContextKeeperServer {
              snapshot for point-in-time queries, and list_recent for recent memories. \
              For lightweight long-term memory: save_note stores a text note with a unique key, \
              get_note retrieves it by key, search_notes finds notes by content similarity, \
-             list_notes lists all notes (optionally filtered by tags), and delete_note removes a note. \
+             list_notes lists all notes (optionally filtered by tags), delete_note removes a note, \
+             and delete_namespace permanently deletes all data in a namespace (entities, relations, memories, episodes, notes). \
              Notes are simpler than add_memory — they skip entity/relation extraction and are ideal \
              for storing preferences, decisions, context, or any text you want to recall later. \
              For multi-agent workflows: list_agents shows contributing agents, list_namespaces \

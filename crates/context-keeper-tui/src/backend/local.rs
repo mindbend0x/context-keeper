@@ -294,6 +294,14 @@ impl TuiBackend for LocalBackend {
             .collect())
     }
 
+    async fn delete_namespace(&self, namespace: &str) -> Result<String, TuiError> {
+        let result = self.repo.delete_namespace(namespace).await?;
+        Ok(format!(
+            "Deleted namespace — removed {} entities, {} memories, {} episodes",
+            result.entities_deleted, result.memories_deleted, result.episodes_deleted
+        ))
+    }
+
     async fn list_agents(&self) -> Result<Vec<AgentInfoRow>, TuiError> {
         let raw = self.repo.list_agents().await?;
         Ok(raw

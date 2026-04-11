@@ -264,6 +264,14 @@ pub struct SearchResult {
     pub score: f32,
 }
 
+/// Summary of what was removed when deleting a namespace.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DeleteNamespaceResult {
+    pub entities_deleted: usize,
+    pub memories_deleted: usize,
+    pub episodes_deleted: usize,
+}
+
 /// Distance metric for vector similarity search.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DistanceMetric {
