@@ -34,7 +34,7 @@ const config: Config = {
         docs: {
           sidebarPath: "./sidebars.ts",
           editUrl:
-            "https://github.com/0x313/context-keeper/tree/main/docs/website/",
+            "https://github.com/mindbend0x/context-keeper/tree/main/docs/website/",
         },
         blog: false,
         theme: {
@@ -62,7 +62,7 @@ const config: Config = {
           label: "Docs",
         },
         {
-          href: "https://github.com/0x313/context-keeper",
+          href: "https://github.com/mindbend0x/context-keeper",
           label: "GitHub",
           position: "right",
         },
@@ -93,7 +93,7 @@ const config: Config = {
           items: [
             {
               label: "GitHub",
-              href: "https://github.com/0x313/context-keeper",
+              href: "https://github.com/mindbend0x/context-keeper",
             },
             { label: "Contributing", to: "/docs/contributing" },
           ],

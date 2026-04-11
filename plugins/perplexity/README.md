@@ -17,11 +17,16 @@ Register Context Keeper as an MCP server in the [Perplexity](https://perplexity.
 
 2. **Helper App (PerplexityXPC)** — The Perplexity app is sandboxed; the Helper App bridges it to local MCP servers. You'll be prompted to install it when you first add a connector.
 
-3. **context-keeper-mcp binary** — Install via Cargo:
+3. **context-keeper-mcp binary** — Build from source:
 
 ```bash
-cargo install context-keeper-mcp
+git clone https://github.com/mindbend0x/context-keeper.git
+cd context-keeper
+cargo build --release -p context-keeper-mcp
+cp target/release/context-keeper-mcp ~/.cargo/bin/
 ```
+
+Or download a pre-built binary from [GitHub Releases](https://github.com/mindbend0x/context-keeper/releases) and place it on your `PATH`.
 
 Verify it's on your `PATH`:
 
@@ -92,11 +97,11 @@ When using stdio transport, configure the server through `env` in the connector 
 
 ## Binary Resolution
 
-If you built from source instead of `cargo install`, point `command` to the binary directly:
+Point `command` to the binary based on how you installed:
 
 | Location | When |
 |---|---|
-| Result of `which context-keeper-mcp` | Installed via `cargo install` |
+| Result of `which context-keeper-mcp` | Copied to a directory on your `PATH` |
 | `target/release/context-keeper-mcp` | Built with `cargo build --release` |
 | `target/debug/context-keeper-mcp` | Built with `cargo build` |
 

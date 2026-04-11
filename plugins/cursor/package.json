@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/0x313/context-keeper"
+    "url": "https://github.com/mindbend0x/context-keeper"
   },
   "engines": {
     "vscode": "^1.85.0"

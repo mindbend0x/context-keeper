@@ -11,7 +11,7 @@ Docker is the easiest way to run Context Keeper as a persistent HTTP server. Thi
 ## Quick start
 
 ```bash
-git clone https://github.com/0x313/context-keeper.git
+git clone https://github.com/mindbend0x/context-keeper.git
 cd context-keeper
 ```
 

@@ -28,26 +28,26 @@ The fastest way to install the CLI:
 brew install mindbend0x/context-keeper/context-keeper
 ```
 
-### Via Cargo
-
-Install the MCP server and CLI directly:
-
-```bash
-cargo install context-keeper-mcp
-cargo install context-keeper-cli
-```
-
 ### From Source
 
 Clone the repository and build:
 
 ```bash
-git clone https://github.com/0x313/context-keeper.git
+git clone https://github.com/mindbend0x/context-keeper.git
 cd context-keeper
 cargo build --release
 ```
 
-Binaries will be in `target/release/`.
+Binaries will be in `target/release/`:
+
+| Binary | Description |
+|--------|-------------|
+| `context-keeper` | CLI tool |
+| `context-keeper-mcp` | MCP server (stdio or HTTP) |
+
+:::tip
+The Homebrew tap installs the CLI only. For the MCP server, build from source or download a binary from [GitHub Releases](https://github.com/mindbend0x/context-keeper/releases).
+:::
 
 ## Quick Start with CLI
 

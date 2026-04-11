@@ -20,9 +20,16 @@ The demo ingests Alice and Bob at Acme Corp, updates Alice's job to BigCo, then 
 
 **1. Install**
 
+Build from source:
+
 ```bash
-cargo install context-keeper-mcp
+git clone https://github.com/mindbend0x/context-keeper.git
+cd context-keeper
+cargo build --release -p context-keeper-mcp
+cp target/release/context-keeper-mcp ~/.cargo/bin/
 ```
+
+Or download a pre-built binary from [GitHub Releases](https://github.com/mindbend0x/context-keeper/releases).
 
 **2. Configure your client**
 
@@ -82,10 +89,13 @@ That's it. The MCP server uses mock extraction by default (no API key needed). E
 brew install mindbend0x/context-keeper/context-keeper
 ```
 
-**Via Cargo**
+**From Source**
 
 ```bash
-cargo install context-keeper-cli
+git clone https://github.com/mindbend0x/context-keeper.git
+cd context-keeper
+cargo build --release -p context-keeper-cli
+cp target/release/context-keeper ~/.cargo/bin/
 ```
 
 ```bash

@@ -11,7 +11,7 @@ Thank you for your interest in contributing to Context Keeper! This guide covers
 ## Getting Started
 
 ```bash
-git clone https://github.com/0x313/context-keeper.git
+git clone https://github.com/mindbend0x/context-keeper.git
 cd context-keeper
 cargo build
 cargo test
@@ -50,7 +50,7 @@ Context Keeper is a Cargo workspace with five crates. Understanding the dependen
 
 ## Reporting Issues
 
-Please file issues on [GitHub](https://github.com/0x313/context-keeper/issues) with:
+Please file issues on [GitHub](https://github.com/mindbend0x/context-keeper/issues) with:
 - A clear description of the problem or enhancement
 - Steps to reproduce (for bugs)
 - Expected vs actual behavior

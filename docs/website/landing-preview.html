@@ -358,7 +358,7 @@ a { color: inherit; text-decoration: none; }
   <span class="navbar-brand">Context Keeper</span>
   <div class="navbar-links">
     <a href="#">Docs</a>
-    <a href="https://github.com/0x313/context-keeper" target="_blank">GitHub ↗</a>
+    <a href="https://github.com/mindbend0x/context-keeper" target="_blank">GitHub ↗</a>
   </div>
 </nav>
 
@@ -370,12 +370,11 @@ a { color: inherit; text-decoration: none; }
     <p class="hero-sub">A temporal knowledge graph that gives MCP-compatible assistants the ability to remember. Entities, relationships, and how they change over time — searchable, snapshotable, and built in Rust.</p>
     <div class="hero-actions">
       <a class="btn btn-primary" href="#">Get Started</a>
-      <a class="btn btn-secondary" href="https://github.com/0x313/context-keeper" target="_blank">View on GitHub</a>
+      <a class="btn btn-secondary" href="https://github.com/mindbend0x/context-keeper" target="_blank">View on GitHub</a>
     </div>
     <div class="hero-install">
       <span class="prompt">$</span>
-      <code>cargo install context-keeper-mcp</code>
-      <span style="font-size:0.7rem;color:var(--ck-text-muted);margin-left:0.25rem">(soon)</span>
+      <code>brew install mindbend0x/context-keeper/context-keeper</code>
     </div>
   </div>
 </section>
@@ -501,8 +500,12 @@ a { color: inherit; text-decoration: none; }
   <div class="section-label">Quick Start</div>
   <h2 class="section-title">Three commands to memory</h2>
   <div class="quickstart-code">
-    <pre><code># Install
-cargo install context-keeper-mcp
+    <pre><code># Install the CLI
+brew install mindbend0x/context-keeper/context-keeper
+
+# Or build the MCP server from source
+git clone https://github.com/mindbend0x/context-keeper.git && cd context-keeper
+cargo build --release -p context-keeper-mcp
 
 # Add to your MCP client config (Claude Desktop, Cursor, etc.)
 {
@@ -514,7 +517,6 @@ cargo install context-keeper-mcp
 }
 
 # Or test with the CLI
-cargo install context-keeper-cli
 context-keeper add --text "Alice is a senior engineer at Acme Corp"
 context-keeper search --query "Who works at Acme?"</code></pre>
   </div>
@@ -529,7 +531,7 @@ context-keeper search --query "Who works at Acme?"</code></pre>
   <p class="section-desc" style="margin-bottom:1.5rem">Open source. Rust-fast. Drop it into any MCP client.</p>
   <div class="hero-actions">
     <a class="btn btn-primary" href="#">Get Started</a>
-    <a class="btn btn-secondary" href="https://github.com/0x313/context-keeper" target="_blank">Star on GitHub</a>
+    <a class="btn btn-secondary" href="https://github.com/mindbend0x/context-keeper" target="_blank">Star on GitHub</a>
   </div>
 </section>
 
@@ -546,7 +548,7 @@ context-keeper search --query "Who works at Acme?"</code></pre>
     </div>
     <div class="footer-col">
       <h4>Community</h4>
-      <ul><li><a href="https://github.com/0x313/context-keeper" target="_blank">GitHub ↗</a></li><li><a href="#">Contributing</a></li></ul>
+      <ul><li><a href="https://github.com/mindbend0x/context-keeper" target="_blank">GitHub ↗</a></li><li><a href="#">Contributing</a></li></ul>
     </div>
   </div>
   <div class="footer-copy">Copyright © 2026 Context Keeper Contributors. MIT License.</div>

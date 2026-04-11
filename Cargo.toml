@@ -15,7 +15,7 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/0x313/context-keeper"
+repository = "https://github.com/mindbend0x/context-keeper"
 
 [workspace.dependencies]
 # Internal crates
