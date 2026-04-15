@@ -70,8 +70,6 @@ jobs:
     needs: build
     runs-on: [self-hosted, fzc]
     steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -99,17 +97,20 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Compute checksums from binaries
+        run: |
+          set -euo pipefail
+          echo "SHA_MACOS_ARM64=$(sha256sum artifacts/context-keeper-cli-aarch64-apple-darwin | awk '{print $1}')" >> "$GITHUB_ENV"
+          echo "SHA_MACOS_X64=$(sha256sum artifacts/context-keeper-cli-x86_64-apple-darwin | awk '{print $1}')" >> "$GITHUB_ENV"
+          echo "SHA_LINUX_ARM64=$(sha256sum artifacts/context-keeper-cli-aarch64-unknown-linux-gnu | awk '{print $1}')" >> "$GITHUB_ENV"
+          echo "SHA_LINUX_X64=$(sha256sum artifacts/context-keeper-cli-x86_64-unknown-linux-gnu | awk '{print $1}')" >> "$GITHUB_ENV"
+
       - name: Render formula and push to tap
         env:
           TAP_REPO_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-
-          SHA_MACOS_ARM64=$(grep 'context-keeper-cli-aarch64-apple-darwin$' artifacts/checksums-sha256.txt | awk '{print $1}')
-          SHA_MACOS_X64=$(grep 'context-keeper-cli-x86_64-apple-darwin$' artifacts/checksums-sha256.txt | awk '{print $1}')
-          SHA_LINUX_ARM64=$(grep 'context-keeper-cli-aarch64-unknown-linux-gnu$' artifacts/checksums-sha256.txt | awk '{print $1}')
-          SHA_LINUX_X64=$(grep 'context-keeper-cli-x86_64-unknown-linux-gnu$' artifacts/checksums-sha256.txt | awk '{print $1}')
 
           sed \
             -e "s/@@VERSION@@/${VERSION}/g" \
@@ -119,11 +120,14 @@ jobs:
             -e "s/@@SHA_LINUX_X64@@/${SHA_LINUX_X64}/g" \
             Formula/context-keeper.rb.template > formula-out.rb
 
+          cat formula-out.rb
+
           git clone https://x-access-token:${TAP_REPO_TOKEN}@github.com/mindbend0x/homebrew-context-keeper.git tap
           cp formula-out.rb tap/Formula/context-keeper.rb
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/context-keeper.rb
+          git diff --cached --quiet && echo "Formula unchanged, skipping push" && exit 0
           git commit -m "context-keeper ${VERSION}"
           git push
