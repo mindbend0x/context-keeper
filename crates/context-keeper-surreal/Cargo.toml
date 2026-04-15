@@ -1,0 +1,27 @@
+[package]
+name = "context-keeper-surreal"
+description = "SurrealDB storage layer: client, schema management, and VectorStoreIndex implementation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+context-keeper-core.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+surrealdb.workspace = true
+dashmap = "6"
+dirs = "6"
+
+[features]
+default = []
+rocksdb = ["surrealdb/kv-rocksdb"]
+ws = ["surrealdb/protocol-ws"]
+full = ["rocksdb", "ws"]

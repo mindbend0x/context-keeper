@@ -1,0 +1,360 @@
+[
+  {
+    "scenario_name": "entity_extraction",
+    "provider_name": "gpt-4o-mini",
+    "operation": "entity_extraction",
+    "input_count": 5,
+    "iterations": [
+      {
+        "latency": { "secs": 1, "nanos": 240000000 },
+        "entity_count": 4,
+        "relation_count": null,
+        "memory_count": null,
+        "error": null,
+        "quality": {
+          "entity_precision": 0.92,
+          "entity_recall": 0.88,
+          "entity_f1": 0.90,
+          "entity_type_accuracy": 0.87,
+          "relation_precision": null,
+          "relation_recall": null,
+          "relation_f1": null
+        },
+        "tokens_consumed": 312
+      },
+      {
+        "latency": { "secs": 1, "nanos": 480000000 },
+        "entity_count": 5,
+        "relation_count": null,
+        "memory_count": null,
+        "error": null,
+        "quality": {
+          "entity_precision": 0.95,
+          "entity_recall": 0.91,
+          "entity_f1": 0.93,
+          "entity_type_accuracy": 0.90,
+          "relation_precision": null,
+          "relation_recall": null,
+          "relation_f1": null
+        },
+        "tokens_consumed": 340
+      },
+      {
+        "latency": { "secs": 1, "nanos": 110000000 },
+        "entity_count": 3,
+        "relation_count": null,
+        "memory_count": null,
+        "error": null,
+        "quality": {
+          "entity_precision": 0.88,
+          "entity_recall": 0.85,
+          "entity_f1": 0.865,
+          "entity_type_accuracy": 0.84,
+          "relation_precision": null,
+          "relation_recall": null,
+          "relation_f1": null
+        },
+        "tokens_consumed": 295
+      },
+      {
+        "latency": { "secs": 1, "nanos": 690000000 },
+        "entity_count": 6,
+        "relation_count": null,
+        "memory_count": null,
+        "error": null,
+        "quality": {
+          "entity_precision": 0.93,
+          "entity_recall": 0.90,
+          "entity_f1": 0.915,
+          "entity_type_accuracy": 0.88,
+          "relation_precision": null,
+          "relation_recall": null,
+          "relation_f1": null
+        },
+        "tokens_consumed": 380
+      },
+      {
+        "latency": { "secs": 1, "nanos": 350000000 },
+        "entity_count": 4,
+        "relation_count": null,
+        "memory_count": null,
+        "error": null,
+        "quality": {
+          "entity_precision": 0.91,
+          "entity_recall": 0.89,
+          "entity_f1": 0.90,
+          "entity_type_accuracy": 0.86,
+          "relation_precision": null,
+          "relation_recall": null,
+          "relation_f1": null
+        },
+        "tokens_consumed": 320
+      }
+    ],
+    "behavioral": null
+  },
+  {
+    "scenario_name": "relation_extraction",
+    "provider_name": "gpt-4o-mini",
+    "operation": "relation_extraction",
+    "input_count": 5,
+    "iterations": [
+      {
+        "latency": { "secs": 1, "nanos": 620000000 },
+        "entity_count": 3,
+        "relation_count": 2,
+        "memory_count": null,
+        "error": null,
+        "quality": {
+          "entity_precision": 0.90,
+          "entity_recall": 0.87,
+          "entity_f1": 0.885,
+          "entity_type_accuracy": 0.85,
+          "relation_precision": 0.88,
+          "relation_recall": 0.82,
+          "relation_f1": 0.849
+        },
+        "tokens_consumed": 445
+      },
+      {
+        "latency": { "secs": 1, "nanos": 880000000 },
+        "entity_count": 4,
+        "relation_count": 3,
+        "memory_count": null,
+        "error": null,
+        "quality": {
+          "entity_precision": 0.94,
+          "entity_recall": 0.90,
+          "entity_f1": 0.919,
+          "entity_type_accuracy": 0.89,
+          "relation_precision": 0.91,
+          "relation_recall": 0.86,
+          "relation_f1": 0.884
+        },
+        "tokens_consumed": 510
+      },
+      {
+        "latency": { "secs": 1, "nanos": 450000000 },
+        "entity_count": 3,
+        "relation_count": 2,
+        "memory_count": null,
+        "error": null,
+        "quality": {
+          "entity_precision": 0.87,
+          "entity_recall": 0.84,
+          "entity_f1": 0.855,
+          "entity_type_accuracy": 0.82,
+          "relation_precision": 0.84,
+          "relation_recall": 0.80,
+          "relation_f1": 0.819
+        },
+        "tokens_consumed": 430
+      },
+      {
+        "latency": { "secs": 2, "nanos": 10000000 },
+        "entity_count": 5,
+        "relation_count": 4,
+        "memory_count": null,
+        "error": null,
+        "quality": {
+          "entity_precision": 0.92,
+          "entity_recall": 0.89,
+          "entity_f1": 0.904,
+          "entity_type_accuracy": 0.87,
+          "relation_precision": 0.89,
+          "relation_recall": 0.85,
+          "relation_f1": 0.869
+        },
+        "tokens_consumed": 590
+      },
+      {
+        "latency": { "secs": 1, "nanos": 710000000 },
+        "entity_count": 3,
+        "relation_count": 2,
+        "memory_count": null,
+        "error": null,
+        "quality": {
+          "entity_precision": 0.89,
+          "entity_recall": 0.86,
+          "entity_f1": 0.875,
+          "entity_type_accuracy": 0.83,
+          "relation_precision": 0.86,
+          "relation_recall": 0.82,
+          "relation_f1": 0.839
+        },
+        "tokens_consumed": 460
+      }
+    ],
+    "behavioral": null
+  },
+  {
+    "scenario_name": "ingestion_e2e",
+    "provider_name": "gpt-4o-mini",
+    "operation": "ingestion",
+    "input_count": 5,
+    "iterations": [
+      {
+        "latency": { "secs": 2, "nanos": 830000000 },
+        "entity_count": 4,
+        "relation_count": 3,
+        "memory_count": 1,
+        "error": null,
+        "quality": null,
+        "tokens_consumed": 680
+      },
+      {
+        "latency": { "secs": 3, "nanos": 120000000 },
+        "entity_count": 5,
+        "relation_count": 4,
+        "memory_count": 1,
+        "error": null,
+        "quality": null,
+        "tokens_consumed": 720
+      },
+      {
+        "latency": { "secs": 2, "nanos": 640000000 },
+        "entity_count": 3,
+        "relation_count": 2,
+        "memory_count": 1,
+        "error": null,
+        "quality": null,
+        "tokens_consumed": 610
+      },
+      {
+        "latency": { "secs": 3, "nanos": 380000000 },
+        "entity_count": 6,
+        "relation_count": 5,
+        "memory_count": 1,
+        "error": null,
+        "quality": null,
+        "tokens_consumed": 790
+      },
+      {
+        "latency": { "secs": 2, "nanos": 950000000 },
+        "entity_count": 4,
+        "relation_count": 3,
+        "memory_count": 1,
+        "error": null,
+        "quality": null,
+        "tokens_consumed": 660
+      }
+    ],
+    "behavioral": null
+  },
+  {
+    "scenario_name": "hybrid_search",
+    "provider_name": "gpt-4o-mini",
+    "operation": "search",
+    "input_count": 5,
+    "iterations": [
+      { "latency": { "secs": 0, "nanos": 143000000 }, "entity_count": null, "relation_count": null, "memory_count": 3, "error": null, "quality": null, "tokens_consumed": null },
+      { "latency": { "secs": 0, "nanos": 118000000 }, "entity_count": null, "relation_count": null, "memory_count": 4, "error": null, "quality": null, "tokens_consumed": null },
+      { "latency": { "secs": 0, "nanos": 162000000 }, "entity_count": null, "relation_count": null, "memory_count": 2, "error": null, "quality": null, "tokens_consumed": null },
+      { "latency": { "secs": 0, "nanos": 135000000 }, "entity_count": null, "relation_count": null, "memory_count": 5, "error": null, "quality": null, "tokens_consumed": null },
+      { "latency": { "secs": 0, "nanos": 151000000 }, "entity_count": null, "relation_count": null, "memory_count": 3, "error": null, "quality": null, "tokens_consumed": null }
+    ],
+    "behavioral": null
+  },
+  {
+    "scenario_name": "temporal_reasoning",
+    "provider_name": "gpt-4o-mini",
+    "operation": "behavioral",
+    "input_count": 0,
+    "iterations": [],
+    "behavioral": {
+      "iterations": 3,
+      "total_latency": { "secs": 24, "nanos": 510000000 },
+      "verifications": [
+        [
+          {
+            "query": "Who is Alice's current employer?",
+            "found_entities": ["Alice", "Acme Corp"],
+            "missing_expected": [],
+            "found_unexpected": [],
+            "pass": true,
+            "answer_score": null,
+            "reasoning_type": "state_tracking"
+          },
+          {
+            "query": "What did Alice do before joining Acme Corp?",
+            "found_entities": ["Alice", "DataCo"],
+            "missing_expected": [],
+            "found_unexpected": [],
+            "pass": true,
+            "answer_score": null,
+            "reasoning_type": "temporal_ordering"
+          },
+          {
+            "query": "When did Alice become VP of Engineering?",
+            "found_entities": ["Alice"],
+            "missing_expected": ["2024-03"],
+            "found_unexpected": [],
+            "pass": false,
+            "answer_score": null,
+            "reasoning_type": "time_anchoring"
+          }
+        ],
+        [
+          {
+            "query": "What is the relationship between Bob and Acme Corp?",
+            "found_entities": ["Bob", "Acme Corp"],
+            "missing_expected": [],
+            "found_unexpected": [],
+            "pass": true,
+            "answer_score": null,
+            "reasoning_type": "state_tracking"
+          },
+          {
+            "query": "Did Bob report to Alice before or after the merger?",
+            "found_entities": ["Bob", "Alice", "merger"],
+            "missing_expected": [],
+            "found_unexpected": [],
+            "pass": true,
+            "answer_score": null,
+            "reasoning_type": "temporal_ordering"
+          },
+          {
+            "query": "How long has Bob been at Acme Corp?",
+            "found_entities": ["Bob", "Acme Corp"],
+            "missing_expected": ["3 years"],
+            "found_unexpected": [],
+            "pass": false,
+            "answer_score": null,
+            "reasoning_type": "duration_reasoning"
+          }
+        ],
+        [
+          {
+            "query": "Which team does Carol lead?",
+            "found_entities": ["Carol", "platform team"],
+            "missing_expected": [],
+            "found_unexpected": [],
+            "pass": true,
+            "answer_score": null,
+            "reasoning_type": "state_tracking"
+          },
+          {
+            "query": "Who led the platform team before Carol?",
+            "found_entities": ["Carol", "platform team", "David"],
+            "missing_expected": [],
+            "found_unexpected": [],
+            "pass": true,
+            "answer_score": null,
+            "reasoning_type": "temporal_ordering"
+          },
+          {
+            "query": "When was Carol promoted to team lead?",
+            "found_entities": ["Carol"],
+            "missing_expected": ["Q1 2024"],
+            "found_unexpected": [],
+            "pass": false,
+            "answer_score": null,
+            "reasoning_type": "time_anchoring"
+          }
+        ]
+      ],
+      "errors": [],
+      "estimated_tokens": 4820
+    }
+  }
+]

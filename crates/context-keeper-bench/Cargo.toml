@@ -1,0 +1,29 @@
+[package]
+name = "context-keeper-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "ck-bench"
+path = "src/main.rs"
+
+[dependencies]
+context-keeper-core = { workspace = true }
+context-keeper-rig = { workspace = true }
+context-keeper-surreal = { workspace = true, features = ["full"] }
+rig-core = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = "0.10"
+chrono = { workspace = true }
+uuid = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+comfy-table = "7"
+dotenv = { workspace = true }

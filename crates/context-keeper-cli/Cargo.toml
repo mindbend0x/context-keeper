@@ -1,0 +1,32 @@
+[package]
+name = "context-keeper-cli"
+description = "CLI tool for local development and testing of Context Keeper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "context-keeper"
+path = "src/main.rs"
+
+[dependencies]
+context-keeper-core.workspace = true
+context-keeper-surreal = { workspace = true, features = ["full"] }
+context-keeper-rig.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+dotenv.workspace = true
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"
+pkg-fmt = "bin"
+bin-dir = "{ bin }{ binary-ext }"

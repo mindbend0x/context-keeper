@@ -1,0 +1,42 @@
+[package]
+name = "context-keeper-tui"
+description = "Terminal UI for Context Keeper (local DB or remote MCP)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "context-keeper-tui"
+path = "src/main.rs"
+
+[features]
+default = []
+remote-mcp = ["dep:rmcp"]
+
+[dependencies]
+context-keeper-core.workspace = true
+context-keeper-surreal.workspace = true
+context-keeper-rig.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+dotenv.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true
+ratatui = "0.29"
+crossterm = "0.28"
+textwrap = "0.16"
+
+rmcp = { version = "0.8", optional = true, features = [
+    "client",
+    "transport-streamable-http-client-reqwest",
+] }

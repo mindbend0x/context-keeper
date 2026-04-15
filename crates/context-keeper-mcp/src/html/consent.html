@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Authorize — Context Keeper</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1117;
+      color: #e0e0e6;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .card {
+      background: #1a1c25;
+      border: 1px solid #2a2d38;
+      border-radius: 12px;
+      padding: 2rem;
+      max-width: 420px;
+      width: 100%;
+      box-shadow: 0 4px 24px rgba(0,0,0,.4);
+    }
+    .logo {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #8b8fa3;
+      margin-bottom: 1.5rem;
+      letter-spacing: .02em;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      margin-bottom: .75rem;
+    }
+    .client-id {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: .82rem;
+      color: #a78bfa;
+      background: #252836;
+      border-radius: 6px;
+      padding: .4rem .65rem;
+      display: inline-block;
+      margin-bottom: 1rem;
+      word-break: break-all;
+    }
+    .scope-label { font-size: .85rem; color: #8b8fa3; margin-bottom: .35rem; }
+    .scope-value {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: .85rem;
+      color: #34d399;
+      margin-bottom: 1.5rem;
+    }
+    .actions { display: flex; gap: .75rem; }
+    button {
+      flex: 1;
+      padding: .65rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: .95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .15s, transform .1s;
+    }
+    button:active { transform: scale(.97); }
+    .btn-approve { background: #6d5acd; color: #fff; }
+    .btn-approve:hover { background: #7c6bd6; }
+    .btn-deny { background: #2a2d38; color: #8b8fa3; }
+    .btn-deny:hover { background: #343745; color: #c0c3d1; }
+    .footer {
+      margin-top: 1.5rem;
+      font-size: .75rem;
+      color: #555;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">Context Keeper</div>
+    <h1>Authorize application</h1>
+    <div class="client-id">{{client_id}}</div>
+    <div class="scope-label">Requested scope</div>
+    <div class="scope-value">{{scope}}</div>
+
+    <form method="POST" action="{{issuer}}/oauth/approve" class="actions">
+      <input type="hidden" name="session_id" value="{{session_id}}">
+      <button type="submit" name="approved" value="false" class="btn-deny">Deny</button>
+      <button type="submit" name="approved" value="true" class="btn-approve">Approve</button>
+    </form>
+
+    <div class="footer">Redirects to {{redirect_uri}}</div>
+  </div>
+</body>
+</html>

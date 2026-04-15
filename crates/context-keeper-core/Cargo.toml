@@ -1,0 +1,18 @@
+[package]
+name = "context-keeper-core"
+description = "Core engine for Context Keeper: ingestion, temporal management, and hybrid search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+schemars.workspace = true

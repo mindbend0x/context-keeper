@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "context-keeper": {
+      "command": "/path/to/context-keeper-mcp",
+      "args": ["--transport", "stdio"],
+      "env": {
+        "STORAGE_BACKEND": "memory",
+        "DB_FILE_PATH": "context.sql",
+        "OPENAI_API_URL": "https://api.openai.com/v1",
+        "OPENAI_API_KEY": "sk-your-api-key-here",
+        "EMBEDDING_MODEL": "text-embedding-3-small",
+        "EMBEDDING_DIMS": "1536",
+        "EXTRACTION_MODEL": "gpt-4o-mini"
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "context-keeper": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}

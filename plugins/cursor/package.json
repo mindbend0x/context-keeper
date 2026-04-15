@@ -1,0 +1,91 @@
+{
+  "name": "context-keeper",
+  "displayName": "Context Keeper",
+  "description": "Persistent knowledge graph memory for AI assistants — powered by Context Keeper MCP",
+  "version": "0.1.0",
+  "publisher": "context-keeper",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mindbend0x/context-keeper"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "contextKeeper.searchMemory",
+        "title": "Context Keeper: Search Memory"
+      },
+      {
+        "command": "contextKeeper.addMemory",
+        "title": "Context Keeper: Add Memory from Selection"
+      },
+      {
+        "command": "contextKeeper.refreshRecent",
+        "title": "Context Keeper: Refresh Recent Memories"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "contextKeeper.searchMemory",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "context-keeper",
+          "title": "Context Keeper",
+          "icon": "$(database)"
+        }
+      ]
+    },
+    "views": {
+      "context-keeper": [
+        {
+          "id": "contextKeeper.recentMemories",
+          "name": "Recent Memories"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Context Keeper",
+      "properties": {
+        "contextKeeper.binaryPath": {
+          "type": "string",
+          "default": "context-keeper-mcp",
+          "description": "Path to the context-keeper-mcp binary"
+        },
+        "contextKeeper.storagePath": {
+          "type": "string",
+          "default": "",
+          "description": "Override the RocksDB storage path (leave empty for default ~/.context-keeper/data)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

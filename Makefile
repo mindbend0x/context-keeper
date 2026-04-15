@@ -1,0 +1,124 @@
+# Context Keeper — Development & Deployment Makefile
+# Usage: make <target>
+
+# ── Configuration ────────────────────────────────────────────────────────────
+COMPOSE_FILE   := docker-compose.staging.yml
+DEPLOY_SCRIPT  := ./scripts/deploy-staging.sh
+RUST_LOG       ?= context_keeper=info,warn
+
+# ── Development ──────────────────────────────────────────────────────────────
+
+.PHONY: build test lint clippy fmt check run run-http dev dev-seed tui tui-remote bench-html cli clean
+
+build: ## Build the full workspace
+	cargo build
+
+build-release: ## Build release binaries
+	cargo build --release
+
+test: ## Run all workspace tests
+	cargo test --workspace
+
+clippy: ## Run clippy (workspace + all targets, -D warnings; matches CI)
+	cargo clippy --workspace --all-targets -- -D warnings
+
+lint: clippy ## Same as clippy
+
+fmt: ## Check formatting
+	cargo fmt --check
+
+fmt-fix: ## Auto-fix formatting
+	cargo fmt
+
+check: lint fmt test ## Run lint + fmt + tests (CI equivalent)
+
+run: ## Run MCP server locally (stdio transport)
+	RUST_LOG=$(RUST_LOG) cargo run -p context-keeper-mcp
+
+run-http: ## Run MCP server locally (HTTP on port 3000)
+	RUST_LOG=$(RUST_LOG) MCP_TRANSPORT=http MCP_HTTP_PORT=3000 cargo run -p context-keeper-mcp
+
+run-debug: ## Run MCP server with debug logging
+	RUST_LOG=context_keeper=debug cargo run -p context-keeper-mcp
+
+run-http-debug: ## Run MCP server HTTP with debug logging
+	RUST_LOG=context_keeper=debug MCP_TRANSPORT=http MCP_HTTP_PORT=3000 cargo run -p context-keeper-mcp
+
+dev: ## Run MCP server in local dev/test mode (HTTP, memory, no auth)
+	./scripts/dev-server.sh
+
+dev-seed: ## Same as dev, but pre-load context.sql
+	./scripts/dev-server.sh --seed
+
+tui: ## Run TUI locally (in-memory storage, --admin for all tabs; needs API keys to ingest)
+	STORAGE_BACKEND=memory cargo run -p context-keeper-tui -- --admin
+
+tui-remote: ## Connect TUI to the local dev server (make dev must be running)
+	CK_MCP_URL=http://localhost:3000/mcp cargo run -p context-keeper-tui --features remote-mcp -- --admin
+
+cli: ## Run CLI (pass ARGS, e.g. make cli ARGS="search --query 'test'")
+	RUST_LOG=$(RUST_LOG) cargo run -p context-keeper-cli -- $(ARGS)
+
+bench-html: ## Generate HTML benchmark dashboard from demo fixture (no API keys needed)
+	cargo run -p context-keeper-bench -- \
+		--from-json crates/context-keeper-bench/benches/demo-results.json \
+		--html bench-report.html
+	@echo ""
+	@echo "  Dashboard written to: bench-report.html"
+	@echo "  Open with: open bench-report.html"
+
+clean: ## Clean build artifacts
+	cargo clean
+
+# ── Docker (local) ───────────────────────────────────────────────────────────
+
+.PHONY: docker-build docker-up docker-down docker-logs docker-ps docker-rebuild
+
+docker-build: ## Build Docker image locally
+	docker compose -f $(COMPOSE_FILE) build context-keeper-mcp
+
+docker-up: ## Start the full stack locally
+	docker compose -f $(COMPOSE_FILE) up -d
+
+docker-down: ## Stop all services
+	docker compose -f $(COMPOSE_FILE) down
+
+docker-logs: ## Tail logs from all services
+	docker compose -f $(COMPOSE_FILE) logs -f --tail=100
+
+docker-ps: ## Show service status
+	docker compose -f $(COMPOSE_FILE) ps
+
+docker-rebuild: ## Rebuild and restart the MCP service
+	docker compose -f $(COMPOSE_FILE) up -d --build context-keeper-mcp
+
+# ── Staging Deployment ───────────────────────────────────────────────────────
+
+.PHONY: deploy deploy-env deploy-restart deploy-logs deploy-status deploy-down
+
+deploy: ## Full deploy to staging (sync + build + up)
+	$(DEPLOY_SCRIPT) deploy
+
+deploy-env: ## Sync .env.staging to devbox and restart
+	$(DEPLOY_SCRIPT) --sync-env
+
+deploy-restart: ## Restart services on staging (no rebuild)
+	$(DEPLOY_SCRIPT) --restart
+
+deploy-logs: ## Tail staging logs
+	$(DEPLOY_SCRIPT) --logs
+
+deploy-status: ## Show staging service status
+	$(DEPLOY_SCRIPT) --status
+
+deploy-down: ## Stop staging services
+	$(DEPLOY_SCRIPT) --down
+
+# ── Help ─────────────────────────────────────────────────────────────────────
+
+.PHONY: help
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+
+.DEFAULT_GOAL := help
