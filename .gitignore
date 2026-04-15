@@ -21,6 +21,9 @@ Thumbs.db
 .env.local
 .env.staging
 
+# Claude
+.claude/
+
 # SSH keys
 .keys/
 
