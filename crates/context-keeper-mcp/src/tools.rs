@@ -340,16 +340,14 @@ fn search_result_to_item(
             memory_content: None,
             score: r.score,
         })
-    } else if let Some(m) = r.memory.as_ref() {
-        Some(SearchResultItem {
+    } else {
+        r.memory.as_ref().map(|m| SearchResultItem {
             name: "[memory]".to_string(),
             entity_type: "memory".to_string(),
             summary: m.content.clone(),
             memory_content: Some(m.content.clone()),
             score: r.score,
         })
-    } else {
-        None
     }
 }
 
