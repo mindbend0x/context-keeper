@@ -17,8 +17,9 @@ use uuid::Uuid;
 use super::TuiBackend;
 use crate::error::TuiError;
 use crate::types::{
-    AddMemoryResult, AgentInfoRow, AgentRunRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats,
-    MemoryRow, NamespaceInfo, NoteRow, RelationDirection, RelationRow, SearchHit, SnapshotResult,
+    AddMemoryResult, AgentInfoRow, AgentRunRow, EntityDetail, EntitySummary, EpisodeRow,
+    GraphStats, MemoryRow, NamespaceInfo, NoteRow, RelationDirection, RelationRow, SearchHit,
+    SnapshotResult,
 };
 
 #[derive(Clone)]
@@ -401,11 +402,7 @@ impl TuiBackend for LocalBackend {
         })
     }
 
-    async fn list_notes(
-        &self,
-        tag: Option<&str>,
-        limit: usize,
-    ) -> Result<Vec<NoteRow>, TuiError> {
+    async fn list_notes(&self, tag: Option<&str>, limit: usize) -> Result<Vec<NoteRow>, TuiError> {
         let tags: Option<Vec<String>> = tag.map(|t| vec![t.to_string()]);
         let notes = self
             .repo

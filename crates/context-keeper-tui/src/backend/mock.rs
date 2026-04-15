@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use super::TuiBackend;
 use crate::error::TuiError;
 use crate::types::{
-    AddMemoryResult, AgentInfoRow, AgentRunRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats,
-    MemoryRow, NamespaceInfo, NoteRow, SearchHit, SnapshotResult,
+    AddMemoryResult, AgentInfoRow, AgentRunRow, EntityDetail, EntitySummary, EpisodeRow,
+    GraphStats, MemoryRow, NamespaceInfo, NoteRow, SearchHit, SnapshotResult,
 };
 
 /// Minimal backend that returns empty success values.

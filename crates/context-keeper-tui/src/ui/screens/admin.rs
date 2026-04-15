@@ -667,9 +667,7 @@ impl AdminState {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(theme::border_default())
-            .title(
-                Line::from(format!(" Notes ({}) ", self.notes.len())).style(theme::title()),
-            );
+            .title(Line::from(format!(" Notes ({}) ", self.notes.len())).style(theme::title()));
 
         if self.notes.is_empty() {
             f.render_widget(
@@ -809,11 +807,7 @@ impl AdminState {
                 Row::new(vec![
                     Cell::from(r.agent_id.as_deref().unwrap_or("-")).style(base),
                     Cell::from(r.status.as_str()).style(status_style),
-                    Cell::from(truncate(
-                        r.summary.as_deref().unwrap_or("-"),
-                        50,
-                    ))
-                    .style(base),
+                    Cell::from(truncate(r.summary.as_deref().unwrap_or("-"), 50)).style(base),
                     Cell::from(ts).style(base.fg(theme::TIMESTAMP)),
                 ])
             })

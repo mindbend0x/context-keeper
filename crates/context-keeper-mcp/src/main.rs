@@ -40,10 +40,7 @@ use tools::ContextKeeperServer;
 static START_TIME: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 
 async fn health_handler() -> axum::response::Json<serde_json::Value> {
-    let uptime_secs = START_TIME
-        .get()
-        .map(|t| t.elapsed().as_secs())
-        .unwrap_or(0);
+    let uptime_secs = START_TIME.get().map(|t| t.elapsed().as_secs()).unwrap_or(0);
     axum::response::Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),

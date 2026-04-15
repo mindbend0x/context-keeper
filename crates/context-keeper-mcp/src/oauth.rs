@@ -354,7 +354,6 @@ pub async fn oauth_approve(
     State(cfg): State<OAuthConfig>,
     Form(form): Form<ApprovalForm>,
 ) -> impl IntoResponse {
-
     let mut sessions = cfg.oauth_store.auth_sessions.write().await;
     let Some(session) = sessions.get_mut(&form.session_id) else {
         return (

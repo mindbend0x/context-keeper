@@ -183,7 +183,9 @@ pub struct DeleteNoteInput {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DeleteNamespaceInput {
-    #[schemars(description = "The namespace to delete all data for (entities, memories, episodes, notes, and their relations)")]
+    #[schemars(
+        description = "The namespace to delete all data for (entities, memories, episodes, notes, and their relations)"
+    )]
     pub namespace: String,
 }
 
@@ -1068,14 +1070,19 @@ impl ContextKeeperServer {
         }
     }
 
-    #[tool(description = "Permanently delete ALL data within a namespace: entities, relations, memories, episodes, and notes. This is irreversible.")]
+    #[tool(
+        description = "Permanently delete ALL data within a namespace: entities, relations, memories, episodes, and notes. This is irreversible."
+    )]
     async fn delete_namespace(
         &self,
         ctx: RequestContext<RoleServer>,
         Parameters(input): Parameters<DeleteNamespaceInput>,
     ) -> Result<String, McpError> {
         let repo = self.repo_for(&ctx).await?;
-        let result = repo.delete_namespace(&input.namespace).await.map_err(to_mcp)?;
+        let result = repo
+            .delete_namespace(&input.namespace)
+            .await
+            .map_err(to_mcp)?;
         serde_json::to_string_pretty(&result)
             .map_err(|e| McpError::internal_error(format!("Serialization failed: {e}"), None))
     }

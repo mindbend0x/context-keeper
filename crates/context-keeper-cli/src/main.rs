@@ -370,7 +370,10 @@ async fn main() -> Result<()> {
         }
         Commands::DeleteNamespace { namespace, force } => {
             if !force {
-                eprint!("This will permanently delete all data in namespace '{}'. Continue? [y/N] ", namespace);
+                eprint!(
+                    "This will permanently delete all data in namespace '{}'. Continue? [y/N] ",
+                    namespace
+                );
                 let mut answer = String::new();
                 std::io::stdin().read_line(&mut answer)?;
                 if !answer.trim().eq_ignore_ascii_case("y") {
@@ -381,7 +384,10 @@ async fn main() -> Result<()> {
             let result = repo.delete_namespace(&namespace).await?;
             info!(
                 "Deleted namespace '{}' — removed {} entities, {} memories, {} episodes",
-                namespace, result.entities_deleted, result.memories_deleted, result.episodes_deleted
+                namespace,
+                result.entities_deleted,
+                result.memories_deleted,
+                result.episodes_deleted
             );
         }
     }

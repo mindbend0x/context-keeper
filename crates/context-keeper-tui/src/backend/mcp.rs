@@ -14,9 +14,9 @@ use serde_json::json;
 use super::TuiBackend;
 use crate::error::TuiError;
 use crate::types::{
-    AddMemoryResult, AgentInfoRow, AgentRunRow, EntityDetail, EntitySummary, EpisodeRow, GraphStats,
-    MemoryItemJson, MemoryRow, NamespaceInfo, NoteRow, RelationDirection, RelationRow, SearchHit,
-    SearchHitJson, SnapshotResult,
+    AddMemoryResult, AgentInfoRow, AgentRunRow, EntityDetail, EntitySummary, EpisodeRow,
+    GraphStats, MemoryItemJson, MemoryRow, NamespaceInfo, NoteRow, RelationDirection, RelationRow,
+    SearchHit, SearchHitJson, SnapshotResult,
 };
 
 fn map_service_err(e: ServiceError) -> TuiError {
@@ -94,9 +94,7 @@ async fn read_resource_text(peer: &Peer<RoleClient>, uri: &str) -> Result<String
             return Ok(text.clone());
         }
     }
-    Err(TuiError::Mcp(
-        "No text content in resource response".into(),
-    ))
+    Err(TuiError::Mcp("No text content in resource response".into()))
 }
 
 struct Inner {
@@ -365,18 +363,11 @@ impl TuiBackend for McpHttpBackend {
     async fn snapshot(&self, iso_timestamp: &str) -> Result<SnapshotResult, TuiError> {
         let args = json!({ "timestamp": iso_timestamp });
         let raw = call_tool_json_args(&self.inner.peer, "snapshot", args).await?;
-        serde_json::from_str(&raw).map_err(|e| {
-            TuiError::Mcp(format!(
-                "Failed to parse snapshot response: {e}"
-            ))
-        })
+        serde_json::from_str(&raw)
+            .map_err(|e| TuiError::Mcp(format!("Failed to parse snapshot response: {e}")))
     }
 
-    async fn list_notes(
-        &self,
-        tag: Option<&str>,
-        limit: usize,
-    ) -> Result<Vec<NoteRow>, TuiError> {
+    async fn list_notes(&self, tag: Option<&str>, limit: usize) -> Result<Vec<NoteRow>, TuiError> {
         let mut args = json!({ "limit": limit });
         if let Some(t) = tag {
             args["tags"] = json!([t]);
