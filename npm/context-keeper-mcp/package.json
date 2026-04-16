@@ -1,0 +1,31 @@
+{
+  "name": "context-keeper-mcp",
+  "version": "@@VERSION@@",
+  "description": "MCP server for Context Keeper — temporal knowledge graph memory for AI agents",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mindbend0x/context-keeper"
+  },
+  "homepage": "https://github.com/mindbend0x/context-keeper",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "knowledge-graph",
+    "memory",
+    "ai-agents",
+    "context-keeper"
+  ],
+  "bin": {
+    "context-keeper-mcp": "bin/run.js"
+  },
+  "files": [
+    "bin/run.js"
+  ],
+  "optionalDependencies": {
+    "@context-keeper/mcp-darwin-arm64": "@@VERSION@@",
+    "@context-keeper/mcp-darwin-x64": "@@VERSION@@",
+    "@context-keeper/mcp-linux-arm64": "@@VERSION@@",
+    "@context-keeper/mcp-linux-x64": "@@VERSION@@"
+  }
+}
