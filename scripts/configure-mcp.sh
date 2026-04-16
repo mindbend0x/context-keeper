@@ -80,6 +80,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── Detect binary ─────────────────────────────────────────────────────
+USE_NPX=false
 if [[ -z "$BINARY" ]]; then
     if command -v context-keeper-mcp &>/dev/null; then
         BINARY="$(command -v context-keeper-mcp)"
@@ -87,9 +88,12 @@ if [[ -z "$BINARY" ]]; then
         BINARY="$REPO_ROOT/target/release/context-keeper-mcp"
     elif [[ -x "$REPO_ROOT/target/debug/context-keeper-mcp" ]]; then
         BINARY="$REPO_ROOT/target/debug/context-keeper-mcp"
+    elif command -v npx &>/dev/null; then
+        USE_NPX=true
+        info "Binary not found on PATH; using npx to run context-keeper-mcp"
     else
         BINARY="context-keeper-mcp"
-        warn "Binary not found; using 'context-keeper-mcp' (must be in PATH)"
+        warn "Binary not found and npx unavailable; using 'context-keeper-mcp' (must be in PATH)"
     fi
 fi
 
@@ -116,7 +120,20 @@ build_config() {
         env_json="$env_json, $part"
     done
 
-    cat <<EOF
+    if $USE_NPX; then
+        cat <<EOF
+{
+  "mcpServers": {
+    "context-keeper": {
+      "command": "npx",
+      "args": ["context-keeper-mcp", "--transport", "stdio"],
+      "env": { $env_json }
+    }
+  }
+}
+EOF
+    else
+        cat <<EOF
 {
   "mcpServers": {
     "context-keeper": {
@@ -127,6 +144,7 @@ build_config() {
   }
 }
 EOF
+    fi
 }
 
 # ── Target path ───────────────────────────────────────────────────────
@@ -188,7 +206,11 @@ echo -e "${GREEN}  Context Keeper MCP configured${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "  Target:   ${CYAN}${TARGET}${NC}"
-echo -e "  Binary:   ${CYAN}${BINARY}${NC}"
+if $USE_NPX; then
+    echo -e "  Command:  ${CYAN}npx context-keeper-mcp${NC}"
+else
+    echo -e "  Binary:   ${CYAN}${BINARY}${NC}"
+fi
 echo -e "  Storage:  ${CYAN}${STORAGE}${NC}"
 echo -e "  Config:   ${CYAN}${TARGET_PATH}${NC}"
 if [[ -n "$API_URL" ]]; then

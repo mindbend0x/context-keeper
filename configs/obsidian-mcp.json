@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp",
-      "args": ["--transport", "stdio"],
+      "command": "npx",
+      "args": ["context-keeper-mcp", "--transport", "stdio"],
       "env": {
         "OPENAI_API_URL": "",
         "OPENAI_API_KEY": "",

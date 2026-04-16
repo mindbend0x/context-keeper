@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp",
-      "args": ["--transport", "stdio"],
+      "command": "npx",
+      "args": ["context-keeper-mcp", "--transport", "stdio"],
       "env": {
         "STORAGE_BACKEND": "memory",
         "DB_FILE_PATH": "context.sql"
