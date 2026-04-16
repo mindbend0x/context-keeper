@@ -10,27 +10,18 @@ This tutorial walks you through adding Context Keeper as an MCP server in each m
 
 ## Prerequisites
 
-Build the MCP server binary from source:
+The easiest way to use the MCP server is via `npx`, which downloads the correct binary for your platform automatically. All you need is **Node.js 18+** installed.
+
+Alternatively, you can build from source:
 
 ```bash
 git clone https://github.com/mindbend0x/context-keeper.git
 cd context-keeper
 cargo build --release -p context-keeper-mcp
-```
-
-Then make the binary available on your PATH:
-
-```bash
 cp target/release/context-keeper-mcp ~/.cargo/bin/
 ```
 
 Or download a pre-built binary from [GitHub Releases](https://github.com/mindbend0x/context-keeper/releases) and place it on your PATH.
-
-Verify the binary is available:
-
-```bash
-context-keeper-mcp --help
-```
 
 :::tip
 No API key is needed to get started. Context Keeper runs in mock mode by default, using heuristic extraction. Add LLM environment variables later for production-quality extraction.
@@ -52,7 +43,8 @@ Add Context Keeper to your project-level or global settings:
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp"
+      "command": "npx",
+      "args": ["context-keeper-mcp"]
     }
   }
 }
@@ -64,7 +56,8 @@ Add Context Keeper to your project-level or global settings:
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp"
+      "command": "npx",
+      "args": ["context-keeper-mcp"]
     }
   }
 }
@@ -93,7 +86,8 @@ Cursor has built-in MCP support in its settings.
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp"
+      "command": "npx",
+      "args": ["context-keeper-mcp"]
     }
   }
 }
@@ -105,7 +99,8 @@ Alternatively, add it to your project's `.cursor/mcp.json`:
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp"
+      "command": "npx",
+      "args": ["context-keeper-mcp"]
     }
   }
 }
@@ -138,7 +133,8 @@ Add Context Keeper to the `mcpServers` section:
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp"
+      "command": "npx",
+      "args": ["context-keeper-mcp"]
     }
   }
 }
@@ -156,7 +152,8 @@ To use LLM-powered extraction, pass environment variables:
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp",
+      "command": "npx",
+      "args": ["context-keeper-mcp"],
       "env": {
         "OPENAI_API_URL": "https://api.openai.com/v1",
         "OPENAI_API_KEY": "sk-xxxxx",
@@ -185,7 +182,7 @@ ChatGPT requires an HTTP-accessible MCP server. You'll need to run Context Keepe
 ### Start the HTTP server
 
 ```bash
-MCP_TRANSPORT=http MCP_HTTP_PORT=3000 context-keeper-mcp
+MCP_TRANSPORT=http MCP_HTTP_PORT=3000 npx context-keeper-mcp
 ```
 
 Or use Docker for a persistent setup:
@@ -230,7 +227,8 @@ Perplexity supports MCP servers for enhanced research workflows.
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp"
+      "command": "npx",
+      "args": ["context-keeper-mcp"]
     }
   }
 }
@@ -252,7 +250,15 @@ Point to your running HTTP server endpoint: `http://localhost:3000/mcp`
 
 ### Binary not found
 
-If you see `command not found: context-keeper-mcp`:
+If you're using `npx` and see an error about the platform package not being found, try:
+
+```bash
+npx context-keeper-mcp --help
+```
+
+If that fails, ensure Node.js 18+ is installed: `node --version`.
+
+If you installed from source and see `command not found: context-keeper-mcp`:
 
 1. Check that Cargo's bin directory is in your PATH:
    ```bash
@@ -263,18 +269,12 @@ If you see `command not found: context-keeper-mcp`:
    ```bash
    export PATH="$HOME/.cargo/bin:$PATH"
    ```
-3. Or use the full path in your config:
-   ```json
-   {
-     "command": "/Users/yourname/.cargo/bin/context-keeper-mcp"
-   }
-   ```
 
 ### No tools appearing
 
 1. Restart the client completely (not just reload)
 2. Check the config file for JSON syntax errors
-3. Test the binary directly: `context-keeper-mcp` should start without errors
+3. Test the server directly: `npx context-keeper-mcp --help` should print usage
 4. Check client logs for MCP connection errors
 
 ### Mock mode vs LLM mode
