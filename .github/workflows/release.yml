@@ -158,6 +158,17 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Verify npm auth
+        run: |
+          set -euo pipefail
+          test -n "${NODE_AUTH_TOKEN:-}" && echo "Token present (len=${#NODE_AUTH_TOKEN})" || { echo "NODE_AUTH_TOKEN MISSING"; exit 1; }
+          echo "--- ~/.npmrc (redacted) ---"
+          sed 's/_authToken=.*/_authToken=<redacted>/' ~/.npmrc || echo "(no ~/.npmrc)"
+          echo "--- npm whoami ---"
+          npm whoami
+          echo "--- npm access list packages @context-keeper ---"
+          npm access list packages @context-keeper || true
+
       - name: Stage binaries and stamp versions
         run: |
           set -euo pipefail
