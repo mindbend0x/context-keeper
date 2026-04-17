@@ -4,6 +4,7 @@ description = "Core engine for Context Keeper: ingestion, temporal management, a
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 tokio.workspace = true

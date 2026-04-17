@@ -19,9 +19,9 @@ repository = "https://github.com/mindbend0x/context-keeper"
 
 [workspace.dependencies]
 # Internal crates
-context-keeper-core = { path = "crates/context-keeper-core" }
-context-keeper-rig = { path = "crates/context-keeper-rig" }
-context-keeper-surreal = { path = "crates/context-keeper-surreal" }
+context-keeper-core = { path = "crates/context-keeper-core", version = "0.1.0" }
+context-keeper-rig = { path = "crates/context-keeper-rig", version = "0.1.0" }
+context-keeper-surreal = { path = "crates/context-keeper-surreal", version = "0.1.0" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
