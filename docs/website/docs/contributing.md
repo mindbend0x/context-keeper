@@ -1,8 +1,8 @@
 ---
-sidebar_position: 9
+
+## sidebar_position: 9
 title: Contributing
 description: How to contribute to Context Keeper.
----
 
 # Contributing
 
@@ -95,6 +95,7 @@ cargo test -p context-keeper-test
 ```
 
 Five integration test suites cover end-to-end workflows:
+
 - Memory ingestion
 - Entity extraction and updates
 - Relation tracking
@@ -191,11 +192,92 @@ async fn test_search_returns_top_5_by_default() { /* ... */ }
 2. **Create a branch** — Use a descriptive name like `feat/fz-XX-description` or `fix/fz-XX-description` (where XX is the Linear issue number, if applicable).
 3. **Make changes** — Implement your feature or fix, adding tests as needed.
 4. **Run tests** — Ensure all tests pass:
-   ```bash
+  ```bash
    cargo test
-   ```
+  ```
 5. **Commit with a clear message** — Reference the Linear issue if applicable.
 6. **Push and open a pull request** — Link the PR to the corresponding Linear issue.
+
+## Release Process
+
+Releases are fully automated via GitHub Actions. Pushing a version tag to `main` triggers the entire pipeline.
+
+### Triggering a Release
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The tag **must** match the `v`* pattern (e.g. `v0.1.0`, `v1.2.3`). This triggers `.github/workflows/release.yml`, which runs three jobs in parallel after the build completes:
+
+
+| Job             | What it does                                                                                        |
+| --------------- | --------------------------------------------------------------------------------------------------- |
+| **release**     | Creates a GitHub Release with pre-built binaries and checksums for all 4 targets                    |
+| **update-tap**  | Renders the Homebrew formula template and pushes it to the `mindbend0x/homebrew-context-keeper` tap |
+| **publish-npm** | Publishes the MCP server to npm as `context-keeper-mcp` with platform-specific binary packages      |
+
+
+### Build Targets
+
+The `build` job compiles both `context-keeper-cli` and `context-keeper-mcp` for:
+
+
+| Target                      | Runner             |
+| --------------------------- | ------------------ |
+| `x86_64-unknown-linux-gnu`  | `ubuntu-latest`    |
+| `aarch64-unknown-linux-gnu` | `ubuntu-24.04-arm` |
+| `x86_64-apple-darwin`       | `macos-latest`     |
+| `aarch64-apple-darwin`      | `macos-latest`     |
+
+
+### npm Publishing
+
+The MCP server is distributed via npm so users can run `npx context-keeper-mcp` without a manual install. The `npm/` directory at the repo root contains the package scaffolding:
+
+```
+npm/
+  context-keeper-mcp/        # Main package (JS shim + optionalDependencies)
+    package.json
+    bin/run.js               # Resolves platform → binary, execs with stdio inherited
+  darwin-arm64/              # @context-keeper/mcp-darwin-arm64
+  darwin-x64/                # @context-keeper/mcp-darwin-x64
+  linux-arm64/               # @context-keeper/mcp-linux-arm64
+  linux-x64/                 # @context-keeper/mcp-linux-x64
+```
+
+All `package.json` files use `@@VERSION@@` placeholders. During release, the CI pipeline:
+
+1. Copies each compiled `context-keeper-mcp` binary into its matching platform package
+2. Replaces `@@VERSION@@` with the tag version (e.g. `0.1.0` from `v0.1.0`)
+3. Publishes the 4 platform packages first (`@context-keeper/mcp-*`)
+4. Publishes the main `context-keeper-mcp` package last (it depends on the platform packages via `optionalDependencies`)
+
+npm uses the `os` and `cpu` fields in each platform package's `package.json` to install only the matching binary for the user's system.
+
+### Homebrew Publishing
+
+The Homebrew tap publishes the **CLI only** (not the MCP server). The CI:
+
+1. Computes SHA-256 checksums of the CLI binaries
+2. Renders `Formula/context-keeper.rb.template` with the checksums and version
+3. Pushes the rendered formula to the `mindbend0x/homebrew-context-keeper` tap repo
+
+### Required Secrets
+
+
+| Secret           | Purpose                                              |
+| ---------------- | ---------------------------------------------------- |
+| `TAP_REPO_TOKEN` | GitHub PAT with push access to the Homebrew tap repo |
+| `NPM_TOKEN`      | npm automation token for the `@context-keeper` org   |
+
+
+> Note: These values are currently added as secrets in Github within the release workflow.
+
+### Version Alignment
+
+All npm packages share the same version derived from the git tag. The Homebrew formula version and GitHub Release tag are also aligned. Keep the workspace `Cargo.toml` version in sync with the tag you plan to push.
 
 ## Issues and Feature Requests
 
