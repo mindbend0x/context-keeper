@@ -139,6 +139,11 @@ jobs:
     name: Publish npm packages
     needs: build
     runs-on: ubuntu-latest
+    # NODE_AUTH_TOKEN must be set for the whole job so setup-node can write .npmrc
+    # when registry-url is used. Putting the token only on `npm publish` steps leaves
+    # the registry unauthenticated and causes ENEEDAUTH.
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -146,6 +151,7 @@ jobs:
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
+          always-auth: true
 
       - uses: actions/download-artifact@v4
         with:
@@ -169,8 +175,6 @@ jobs:
           done
 
       - name: Publish platform packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for dir in ./npm/darwin-arm64 ./npm/darwin-x64 ./npm/linux-arm64 ./npm/linux-x64; do
             echo "Publishing ${dir}..."
@@ -178,6 +182,4 @@ jobs:
           done
 
       - name: Publish main package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish ./npm/context-keeper-mcp --access public
