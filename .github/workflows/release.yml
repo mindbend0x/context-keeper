@@ -172,7 +172,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for dir in npm/darwin-arm64 npm/darwin-x64 npm/linux-arm64 npm/linux-x64; do
+          for dir in ./npm/darwin-arm64 ./npm/darwin-x64 ./npm/linux-arm64 ./npm/linux-x64; do
             echo "Publishing ${dir}..."
             npm publish "$dir" --access public
           done
@@ -180,4 +180,4 @@ jobs:
       - name: Publish main package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish npm/context-keeper-mcp --access public
+        run: npm publish ./npm/context-keeper-mcp --access public
