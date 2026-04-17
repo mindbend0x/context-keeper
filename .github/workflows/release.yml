@@ -134,3 +134,50 @@ jobs:
           git diff --cached --quiet && echo "Formula unchanged, skipping push" && exit 0
           git commit -m "context-keeper ${VERSION}"
           git push
+
+  publish-npm:
+    name: Publish npm packages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Stage binaries and stamp versions
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          cp artifacts/context-keeper-mcp-aarch64-apple-darwin    npm/darwin-arm64/context-keeper-mcp
+          cp artifacts/context-keeper-mcp-x86_64-apple-darwin     npm/darwin-x64/context-keeper-mcp
+          cp artifacts/context-keeper-mcp-aarch64-unknown-linux-gnu npm/linux-arm64/context-keeper-mcp
+          cp artifacts/context-keeper-mcp-x86_64-unknown-linux-gnu  npm/linux-x64/context-keeper-mcp
+
+          chmod +x npm/*/context-keeper-mcp
+
+          for pkg_json in npm/*/package.json; do
+            sed -i "s/@@VERSION@@/${VERSION}/g" "$pkg_json"
+          done
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for dir in npm/darwin-arm64 npm/darwin-x64 npm/linux-arm64 npm/linux-x64; do
+            echo "Publishing ${dir}..."
+            npm publish "$dir" --access public
+          done
+
+      - name: Publish main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish npm/context-keeper-mcp --access public

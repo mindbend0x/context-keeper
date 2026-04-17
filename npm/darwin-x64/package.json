@@ -1,0 +1,15 @@
+{
+  "name": "@context-keeper/mcp-darwin-x64",
+  "version": "@@VERSION@@",
+  "description": "context-keeper-mcp binary for macOS x64 (Intel)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mindbend0x/context-keeper"
+  },
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "files": [
+    "context-keeper-mcp"
+  ]
+}

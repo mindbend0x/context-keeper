@@ -42,8 +42,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp",
-      "args": []
+      "command": "npx",
+      "args": ["context-keeper-mcp"]
     }
   }
 }
@@ -60,8 +60,8 @@ Add to `.cursor/mcp.json` in your project (or global settings):
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp",
-      "args": []
+      "command": "npx",
+      "args": ["context-keeper-mcp"]
     }
   }
 }
@@ -204,7 +204,8 @@ For the MCP server, you can pass these as environment variables in your client c
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp",
+      "command": "npx",
+      "args": ["context-keeper-mcp"],
       "env": {
         "OPENAI_API_URL": "https://api.openai.com/v1",
         "OPENAI_API_KEY": "sk-...",

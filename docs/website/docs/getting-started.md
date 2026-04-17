@@ -14,19 +14,24 @@ Welcome to Context Keeper! This guide will help you install and run the system i
 
 Before you begin, ensure you have:
 
-- **Rust toolchain** — Install via [rustup](https://rustup.rs/) (latest stable)
+- **Node.js 18+** — Required for `npx` to install the MCP server ([download](https://nodejs.org/))
+- **Optional: Rust toolchain** — Only needed to build from source ([rustup](https://rustup.rs/))
 - **Optional: Docker** — For containerized setup
 - **Optional: OpenAI-compatible API key** — Only needed for LLM-powered extraction. Mock mode works without it.
 
 ## Installation
 
-### Via Homebrew (macOS / Linux)
+### CLI via Homebrew (macOS / Linux)
 
 The fastest way to install the CLI:
 
 ```bash
 brew install mindbend0x/context-keeper/context-keeper
 ```
+
+### MCP Server via npx
+
+The MCP server requires no separate install — use `npx` directly in your client config (see [MCP Server Setup](#mcp-server-setup) below). This downloads the correct binary for your platform automatically.
 
 ### From Source
 
@@ -44,10 +49,6 @@ Binaries will be in `target/release/`:
 |--------|-------------|
 | `context-keeper` | CLI tool |
 | `context-keeper-mcp` | MCP server (stdio or HTTP) |
-
-:::tip
-The Homebrew tap installs the CLI only. For the MCP server, build from source or download a binary from [GitHub Releases](https://github.com/mindbend0x/context-keeper/releases).
-:::
 
 ## Quick Start with CLI
 
@@ -86,7 +87,8 @@ Add to `.claude/settings.json` in your project root (or `~/.claude/settings.json
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp"
+      "command": "npx",
+      "args": ["context-keeper-mcp"]
     }
   }
 }
@@ -106,7 +108,8 @@ Edit the config file for your platform:
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp"
+      "command": "npx",
+      "args": ["context-keeper-mcp"]
     }
   }
 }
@@ -122,7 +125,8 @@ Add to your Cursor MCP settings or `.cursor/mcp.json`:
 {
   "mcpServers": {
     "context-keeper": {
-      "command": "context-keeper-mcp"
+      "command": "npx",
+      "args": ["context-keeper-mcp"]
     }
   }
 }
@@ -133,7 +137,7 @@ Add to your Cursor MCP settings or `.cursor/mcp.json`:
 These clients require HTTP transport. Start the server first:
 
 ```bash
-MCP_TRANSPORT=http MCP_HTTP_PORT=3000 context-keeper-mcp
+MCP_TRANSPORT=http MCP_HTTP_PORT=3000 npx context-keeper-mcp
 ```
 
 Then point the client to `http://localhost:3000/mcp`.
@@ -143,7 +147,7 @@ Then point the client to `http://localhost:3000/mcp`.
 For remote, containerized, or multi-agent setups, run in HTTP mode:
 
 ```bash
-MCP_TRANSPORT=http MCP_HTTP_PORT=3000 context-keeper-mcp
+MCP_TRANSPORT=http MCP_HTTP_PORT=3000 npx context-keeper-mcp
 ```
 
 :::info
