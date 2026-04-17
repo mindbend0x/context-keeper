@@ -1,8 +1,9 @@
 name: Benchmark
 
+# Scheduled runs were disabled: they queued until timeout when no self-hosted runner
+# with labels [self-hosted, fzc] was available. Re-add `schedule` here when that
+# runner is reliably online.
 on:
-  schedule:
-    - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
   workflow_dispatch:
     inputs:
       config:
@@ -23,7 +24,6 @@ jobs:
     runs-on: [self-hosted, fzc]
     environment: benchmark
     if: >-
-      github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'run-bench'))
@@ -212,43 +212,3 @@ jobs:
                 owner, repo, issue_number: prNumber, body,
               });
             }
-
-  deploy-dashboard:
-    name: Deploy Dashboard to Pages
-    needs: bench-llm
-    runs-on: ubuntu-latest
-    if: >-
-      needs.bench-llm.result == 'success' &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
-      github.ref == 'refs/heads/main'
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Download dashboard artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: bench-results-${{ github.run_number }}
-          path: site
-
-      - name: Prepare Pages directory
-        run: |
-          mkdir -p pages
-          if [ -f site/bench-dashboard.html ]; then
-            cp site/bench-dashboard.html pages/index.html
-          fi
-          if [ -f site/bench-results.json ]; then
-            cp site/bench-results.json pages/bench-results.json
-          fi
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: pages
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4

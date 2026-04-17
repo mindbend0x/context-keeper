@@ -270,7 +270,7 @@ The Homebrew tap publishes the **CLI only** (not the MCP server). The CI:
 | Secret           | Purpose                                              |
 | ---------------- | ---------------------------------------------------- |
 | `TAP_REPO_TOKEN` | GitHub PAT with push access to the Homebrew tap repo |
-| `NPM_TOKEN`      | npm automation token for the `@context-keeper` org   |
+| `NPM_TOKEN`      | npm token with **publish** access to `@context-keeper` (automation or granular). Must be exposed as `NODE_AUTH_TOKEN` for the entire `publish-npm` job so `actions/setup-node` can write `.npmrc`; setting it only on `npm publish` steps causes `ENEEDAUTH` in CI. |
 
 
 > Note: These values are currently added as secrets in Github within the release workflow.
