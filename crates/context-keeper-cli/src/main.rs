@@ -120,20 +120,77 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Launch the interactive Terminal UI (ratatui).
+    ///
+    /// Reuses the global `--storage`, `--db-file-path`, `--namespace`,
+    /// `--agent-id`, `--surreal-user`, `--surreal-pass` flags. Pass
+    /// `--remote-mcp <url>` to connect to a running MCP HTTP server instead
+    /// of the local SurrealDB.
+    #[cfg(feature = "tui")]
+    Tui {
+        /// Show the Admin tab (namespaces, agents, cross-search, snapshot, activity).
+        #[arg(long, default_value_t = false)]
+        admin: bool,
+
+        /// Append tracing logs to this file (stdout logging would corrupt the TUI).
+        #[arg(long, env = "CK_TUI_DEBUG_LOG")]
+        debug_log: Option<std::path::PathBuf>,
+
+        /// Use a remote MCP streamable HTTP server instead of local SurrealDB.
+        #[arg(long, env = "CK_MCP_URL")]
+        remote_mcp: Option<String>,
+
+        /// Bearer token for MCP HTTP (`MCP_AUTH_TOKENS` on the server).
+        #[arg(long, env = "CK_MCP_TOKEN")]
+        mcp_token: Option<String>,
+    },
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _ = dotenv();
+    let cli = Cli::parse();
+
+    // The TUI manages its own tracing subscriber (it has to redirect off
+    // stdout to avoid corrupting the alt-screen) and builds its own backend,
+    // so dispatch it before the heavy local-repo initialization below.
+    #[cfg(feature = "tui")]
+    if let Commands::Tui {
+        admin,
+        debug_log,
+        remote_mcp,
+        mcp_token,
+    } = &cli.command
+    {
+        let cfg = context_keeper_tui::TuiConfig {
+            embedding_model_name: cli.embedding_model_name.clone(),
+            embedding_dims: cli.embedding_dims,
+            extraction_model_name: cli.extraction_model_name.clone(),
+            api_url: cli.api_url.clone(),
+            api_key: cli.api_key.clone(),
+            embedding_api_url: cli.embedding_api_url.clone(),
+            embedding_api_key: cli.embedding_api_key.clone(),
+            db_file_path: cli.db_file_path.clone(),
+            storage: cli.storage.clone(),
+            namespace: cli.namespace.clone(),
+            agent_id: cli.agent_id.clone(),
+            surreal_user: cli.surreal_user.clone(),
+            surreal_pass: cli.surreal_pass.clone(),
+            admin: *admin,
+            debug_log: debug_log.clone(),
+            mcp_url: remote_mcp.clone(),
+            mcp_token: mcp_token.clone(),
+            init_tracing: true,
+        };
+        return context_keeper_tui::run(cfg).await;
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| EnvFilter::new("context_keeper=info,warn")),
         )
         .init();
-
-    let _ = dotenv();
-
-    let cli = Cli::parse();
 
     let embedding_dims = cli.embedding_dims.unwrap_or(1536);
     let config = SurrealConfig {
@@ -368,6 +425,8 @@ async fn main() -> Result<()> {
                 entities, relations, memories, episodes
             );
         }
+        #[cfg(feature = "tui")]
+        Commands::Tui { .. } => unreachable!("Tui dispatched above"),
         Commands::DeleteNamespace { namespace, force } => {
             if !force {
                 eprint!(

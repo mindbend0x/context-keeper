@@ -11,10 +11,19 @@ publish = false
 name = "context-keeper"
 path = "src/main.rs"
 
+[features]
+default = ["tui"]
+# Pulls in ratatui + crossterm via `context-keeper-tui`. Disable with
+# `--no-default-features` if you want a slimmer CLI without the TUI surface.
+tui = ["dep:context-keeper-tui"]
+# Re-export the optional `remote-mcp` backend of the TUI for `ctxk tui --remote-mcp`.
+tui-remote-mcp = ["tui", "context-keeper-tui/remote-mcp"]
+
 [dependencies]
 context-keeper-core.workspace = true
 context-keeper-surreal = { workspace = true, features = ["full"] }
 context-keeper-rig.workspace = true
+context-keeper-tui = { path = "../context-keeper-tui", optional = true }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
