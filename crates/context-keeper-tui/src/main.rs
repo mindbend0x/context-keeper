@@ -1,16 +1,12 @@
 //! Context Keeper TUI — local SurrealDB or remote MCP (HTTP).
+//!
+//! Thin shim over [`context_keeper_tui::run`]. The same entrypoint is invoked
+//! by `ctxk tui` in the main CLI.
 
-use std::fs::OpenOptions;
-use std::sync::Arc;
-
-use anyhow::Context as _;
 use clap::Parser;
 use context_keeper_surreal::default_storage_string;
-use context_keeper_tui::backend::TuiBackend;
-use context_keeper_tui::bootstrap::build_local_backend;
-use context_keeper_tui::ui::run_tui;
+use context_keeper_tui::{run, TuiConfig};
 use dotenv::dotenv;
-use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(name = "context-keeper-tui", about = "Terminal UI for Context Keeper")]
@@ -72,79 +68,31 @@ struct Cli {
     mcp_token: Option<String>,
 }
 
-fn init_tracing(debug_log: Option<&std::path::Path>) -> anyhow::Result<()> {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("context_keeper_tui=info,context_keeper=warn"));
-
-    if let Some(path) = debug_log {
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .with_context(|| format!("open debug log {}", path.display()))?;
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .with_writer(file)
-            .with_ansi(false)
-            .init();
-    } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .with_writer(std::io::sink)
-            .init();
-    }
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let _ = dotenv();
     let cli = Cli::parse();
-    init_tracing(cli.debug_log.as_deref())?;
 
-    let embedding_dims = cli.embedding_dims.unwrap_or(1536);
-
-    let backend: Arc<dyn TuiBackend> = if let Some(url) = cli.mcp_url.clone() {
-        #[cfg(feature = "remote-mcp")]
-        {
-            Arc::new(
-                context_keeper_tui::McpHttpBackend::connect(
-                    url.as_str(),
-                    cli.mcp_token.as_deref(),
-                    cli.namespace.clone(),
-                    cli.agent_id.clone(),
-                )
-                .await?,
-            )
-        }
-        #[cfg(not(feature = "remote-mcp"))]
-        {
-            let _ = (url, embedding_dims);
-            anyhow::bail!(
-                "Rebuild with `--features remote-mcp` to use --mcp-url, or omit it for local mode."
-            );
-        }
-    } else {
-        Arc::new(
-            build_local_backend(
-                &cli.storage,
-                &cli.db_file_path,
-                embedding_dims,
-                cli.surreal_user,
-                cli.surreal_pass,
-                cli.namespace,
-                cli.agent_id,
-                cli.api_url.as_deref(),
-                cli.api_key.as_deref(),
-                cli.embedding_model_name.as_deref(),
-                cli.extraction_model_name.as_deref(),
-                cli.embedding_api_url.as_deref(),
-                cli.embedding_api_key.as_deref(),
-            )
-            .await?,
-        )
+    let cfg = TuiConfig {
+        embedding_model_name: cli.embedding_model_name,
+        embedding_dims: cli.embedding_dims,
+        extraction_model_name: cli.extraction_model_name,
+        api_url: cli.api_url,
+        api_key: cli.api_key,
+        embedding_api_url: cli.embedding_api_url,
+        embedding_api_key: cli.embedding_api_key,
+        db_file_path: cli.db_file_path,
+        storage: cli.storage,
+        namespace: cli.namespace,
+        agent_id: cli.agent_id,
+        surreal_user: cli.surreal_user,
+        surreal_pass: cli.surreal_pass,
+        admin: cli.admin,
+        debug_log: cli.debug_log,
+        mcp_url: cli.mcp_url,
+        mcp_token: cli.mcp_token,
+        init_tracing: true,
     };
 
-    run_tui(backend, cli.admin).await?;
-    Ok(())
+    run(cfg).await
 }
