@@ -22,6 +22,8 @@ use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
+mod telemetry;
+
 #[derive(Parser)]
 #[command(
     name = "context-keeper",
@@ -120,6 +122,48 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Manage anonymous telemetry (opt-in). See README for what is collected.
+    Telemetry {
+        #[command(subcommand)]
+        action: TelemetryAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum TelemetryAction {
+    /// Print the current telemetry state and install id.
+    Status,
+    /// Enable anonymous telemetry.
+    Enable,
+    /// Disable anonymous telemetry.
+    Disable,
+}
+
+/// Stable classification strings for telemetry. We never emit the error's
+/// `.to_string()` because that can leak paths, arguments or other user data.
+fn classify_error(e: &anyhow::Error) -> &'static str {
+    // Walk the chain and look for well-known types.
+    for cause in e.chain() {
+        if cause.downcast_ref::<std::io::Error>().is_some() {
+            return "io";
+        }
+        if cause.downcast_ref::<serde_json::Error>().is_some() {
+            return "serde_json";
+        }
+    }
+    "unknown"
+}
+
+fn subcommand_name(cmd: &Commands) -> &'static str {
+    match cmd {
+        Commands::Add { .. } => "add",
+        Commands::Search { .. } => "search",
+        Commands::Entity { .. } => "entity",
+        Commands::Recent { .. } => "recent",
+        Commands::Reset { .. } => "reset",
+        Commands::DeleteNamespace { .. } => "delete-namespace",
+        Commands::Telemetry { .. } => "telemetry",
+    }
 }
 
 #[tokio::main]
@@ -135,6 +179,76 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // Short-circuit the telemetry management subcommand before touching the
+    // database or running the consent flow — users may want to configure
+    // telemetry before anything else happens.
+    if let Commands::Telemetry { action } = &cli.command {
+        return handle_telemetry_subcommand(action);
+    }
+
+    // Resolve consent (prompts on first run if stdin is a TTY) and
+    // initialise the OTLP pipeline. The handle is inert when telemetry is
+    // disabled, so it is always safe to call its `record_*` methods.
+    let consent = telemetry::resolve_consent()?;
+    let telemetry_handle = telemetry::init(&consent.config);
+    if consent.first_run {
+        telemetry_handle.record_install();
+    }
+    telemetry_handle.record_invoke(subcommand_name(&cli.command));
+
+    match run(cli, &telemetry_handle).await {
+        Ok(()) => {
+            telemetry_handle.shutdown();
+            Ok(())
+        }
+        Err(err) => {
+            telemetry_handle.record_error(classify_error(&err));
+            telemetry_handle.shutdown();
+            Err(err)
+        }
+    }
+}
+
+fn handle_telemetry_subcommand(action: &TelemetryAction) -> Result<()> {
+    match action {
+        TelemetryAction::Status => {
+            match telemetry::load_config()? {
+                Some(cfg) => {
+                    let active = telemetry::is_active(&cfg);
+                    println!("telemetry: {}", if cfg.telemetry.enabled { "enabled" } else { "disabled" });
+                    println!("install_id: {}", cfg.telemetry.install_id);
+                    if cfg.telemetry.enabled && !active {
+                        println!(
+                            "note: {}=1 is overriding consent for this process",
+                            telemetry::DISABLE_ENV_VAR
+                        );
+                    }
+                }
+                None => {
+                    println!("telemetry: not configured (will prompt on first run)");
+                }
+            }
+        }
+        TelemetryAction::Enable => {
+            let mut cfg = telemetry::load_config()?.unwrap_or_default();
+            cfg.telemetry.enabled = true;
+            if cfg.telemetry.install_id.is_empty() {
+                cfg.telemetry.install_id = Uuid::new_v4().to_string();
+            }
+            telemetry::save_config(&cfg)?;
+            println!("telemetry enabled. install_id={}", cfg.telemetry.install_id);
+        }
+        TelemetryAction::Disable => {
+            let mut cfg = telemetry::load_config()?.unwrap_or_default();
+            cfg.telemetry.enabled = false;
+            telemetry::save_config(&cfg)?;
+            println!("telemetry disabled.");
+        }
+    }
+    Ok(())
+}
+
+async fn run(cli: Cli, _telemetry: &telemetry::TelemetryHandle) -> Result<()> {
     let embedding_dims = cli.embedding_dims.unwrap_or(1536);
     let config = SurrealConfig {
         embedding_dimensions: embedding_dims,
@@ -389,6 +503,10 @@ async fn main() -> Result<()> {
                 result.memories_deleted,
                 result.episodes_deleted
             );
+        }
+        Commands::Telemetry { .. } => {
+            // Handled earlier in `main`; unreachable here.
+            unreachable!("telemetry subcommand should be handled before run()");
         }
     }
 

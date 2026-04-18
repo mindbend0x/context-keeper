@@ -57,6 +57,17 @@ clap = { version = "4", features = ["derive", "env"] }
 # Environment variables
 dotenv = "0.15.0"
 
+# Config parsing
+toml = "0.8"
+
+# User directory discovery
+dirs = "6"
+
+# Telemetry (opt-in, OTLP)
+opentelemetry = "0.27"
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"] }
+
 # LLMs
 rig-core = { version = "0.32.0" }
 

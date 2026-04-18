@@ -25,6 +25,11 @@ clap.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 dotenv.workspace = true
+toml.workspace = true
+dirs.workspace = true
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"
