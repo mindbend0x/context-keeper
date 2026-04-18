@@ -57,6 +57,7 @@ pub async fn open_local_repository(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 pub fn build_llm_stack(
     embedding_dims: usize,
     api_url: Option<&str>,

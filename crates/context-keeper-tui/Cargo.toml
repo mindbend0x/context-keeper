@@ -32,8 +32,8 @@ uuid.workspace = true
 dotenv.workspace = true
 async-trait.workspace = true
 anyhow.workspace = true
-ratatui = "0.29"
-crossterm = "0.28"
+ratatui = "0.30"
+crossterm = "0.29"
 textwrap = "0.16"
 
 rmcp = { version = "0.8", optional = true, features = [

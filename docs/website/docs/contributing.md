@@ -209,14 +209,17 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The tag **must** match the `v`* pattern (e.g. `v0.1.0`, `v1.2.3`). This triggers `.github/workflows/release.yml`, which runs three jobs in parallel after the build completes:
+The tag **must** match the `v`* pattern (e.g. `v0.1.0`, `v1.2.3`). This triggers `.github/workflows/release.yml`, which runs the following jobs:
 
 
-| Job             | What it does                                                                                        |
-| --------------- | --------------------------------------------------------------------------------------------------- |
-| **release**     | Creates a GitHub Release with pre-built binaries and checksums for all 4 targets                    |
-| **update-tap**  | Renders the Homebrew formula template and pushes it to the `mindbend0x/homebrew-context-keeper` tap |
-| **publish-npm** | Publishes the MCP server to npm as `context-keeper-mcp` with platform-specific binary packages      |
+| Job                    | What it does                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| **release**            | Creates a GitHub Release with pre-built binaries and checksums for all 4 targets                    |
+| **update-tap**         | Renders the Homebrew formula template and pushes it to the `mindbend0x/homebrew-context-keeper` tap |
+| **publish-npm**        | Publishes the MCP server to npm as `context-keeper-mcp` with platform-specific binary packages      |
+| **publish-crates**     | Publishes the library crates (`context-keeper-core`, `context-keeper-rig`, `context-keeper-surreal`) to crates.io in dependency order |
+| **bench-release**      | Runs the LLM quality benchmark on a self-hosted runner (best-effort, does not block the release)    |
+| **publish-dashboard**  | Attaches `bench-dashboard.html` to the GitHub Release and deploys it to the `gh-pages` branch       |
 
 
 ### Build Targets
@@ -264,16 +267,36 @@ The Homebrew tap publishes the **CLI only** (not the MCP server). The CI:
 2. Renders `Formula/context-keeper.rb.template` with the checksums and version
 3. Pushes the rendered formula to the `mindbend0x/homebrew-context-keeper` tap repo
 
+### Crates.io Publishing
+
+The `publish-crates` job publishes the three library crates to [crates.io](https://crates.io) in dependency order:
+
+1. `context-keeper-core` (no internal dependencies)
+2. `context-keeper-rig` (depends on `context-keeper-core`)
+3. `context-keeper-surreal` (depends on `context-keeper-core`)
+
+Binary crates (`context-keeper-cli`, `context-keeper-mcp`, `context-keeper-bench`, `context-keeper-tui`) are not published to crates.io — they have `publish = false` in their `Cargo.toml`.
+
+### Release Benchmark
+
+The `bench-release` job runs the LLM quality benchmark suite on a `[self-hosted, fzc]` runner using the `benchmark` environment. It uses `continue-on-error: true` so a missing runner or benchmark failure never blocks the release.
+
+When the benchmark succeeds, the `publish-dashboard` job:
+
+1. Attaches `bench-dashboard.html` as a downloadable asset on the GitHub Release
+2. Deploys it to the `gh-pages` branch at `/bench/`, served at `https://mindbend0x.github.io/context-keeper/bench/`
+
 ### Required Secrets
 
 
-| Secret           | Purpose                                              |
-| ---------------- | ---------------------------------------------------- |
-| `TAP_REPO_TOKEN` | GitHub PAT with push access to the Homebrew tap repo |
-| `NPM_TOKEN`      | npm token with **publish** access to `@context-keeper` (automation or granular). Must be exposed as `NODE_AUTH_TOKEN` for the entire `publish-npm` job so `actions/setup-node` can write `.npmrc`; setting it only on `npm publish` steps causes `ENEEDAUTH` in CI. |
+| Secret                 | Purpose                                              |
+| ---------------------- | ---------------------------------------------------- |
+| `TAP_REPO_TOKEN`       | GitHub PAT with push access to the Homebrew tap repo |
+| `NPM_TOKEN`            | npm token with **publish** access to `@context-keeper` (automation or granular). Must be exposed as `NODE_AUTH_TOKEN` for the entire `publish-npm` job so `actions/setup-node` can write `.npmrc`; setting it only on `npm publish` steps causes `ENEEDAUTH` in CI. |
+| `CARGO_REGISTRY_TOKEN` | crates.io API token with publish scope for `context-keeper-core`, `context-keeper-rig`, and `context-keeper-surreal` |
 
 
-> Note: These values are currently added as secrets in Github within the release workflow.
+> Note: These values are currently added as secrets in GitHub within the release workflow. The `benchmark` environment also requires `OPENAI_API_URL` and `OPENAI_API_KEY` for the benchmark run.
 
 ### Version Alignment
 
