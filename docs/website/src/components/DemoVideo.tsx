@@ -1,6 +1,10 @@
 import React from "react";
 import Link from "@docusaurus/Link";
 
+interface DemoApp {
+  name: string;
+}
+
 interface DemoVideoProps {
   src?: string;
   poster?: string;
@@ -9,6 +13,7 @@ interface DemoVideoProps {
   alt: string;
   ctaLabel?: string;
   ctaHref?: string;
+  apps?: DemoApp[];
 }
 
 export default function DemoVideo({
@@ -19,6 +24,7 @@ export default function DemoVideo({
   alt,
   ctaLabel,
   ctaHref,
+  apps,
 }: DemoVideoProps) {
   const isGif = src?.endsWith(".gif");
 
@@ -48,6 +54,15 @@ export default function DemoVideo({
             <p className="demo-placeholder-desc">{description}</p>
           )}
         </div>
+      )}
+      {apps && apps.length > 0 && (
+        <ul className="demo-apps-list" aria-label="Supported apps">
+          {apps.map((a) => (
+            <li key={a.name} className="demo-apps-list__item">
+              {a.name}
+            </li>
+          ))}
+        </ul>
       )}
       <div className="demo-meta">
         <p className="demo-caption">{caption}</p>
