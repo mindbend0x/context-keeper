@@ -20,10 +20,10 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use opentelemetry::global;
-use opentelemetry::trace::{Span, Tracer, TracerProvider as _};
+use opentelemetry::trace::{Span, Tracer};
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::SpanExporter;
-use opentelemetry_sdk::trace::{Config as TraceConfig, TracerProvider};
+use opentelemetry_sdk::trace::TracerProvider;
 use opentelemetry_sdk::Resource;
 
 /// Environment variable that hard-disables telemetry regardless of consent.
@@ -187,10 +187,12 @@ impl TelemetryHandle {
         }
     }
 
+    #[allow(dead_code)] // Public API; only used from `#[cfg(test)]` in this crate.
     pub fn is_active(&self) -> bool {
         self.active
     }
 
+    #[allow(dead_code)] // Public API; reserved for callers.
     pub fn install_id(&self) -> &str {
         &self.install_id
     }
@@ -302,7 +304,7 @@ fn build_provider(install_id: &str) -> Result<TracerProvider> {
 
     let provider = TracerProvider::builder()
         .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-        .with_config(TraceConfig::default().with_resource(resource))
+        .with_resource(resource)
         .build();
 
     Ok(provider)
