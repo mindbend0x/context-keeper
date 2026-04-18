@@ -2,6 +2,8 @@
 
 Temporal knowledge graph memory for AI agents. Give Claude, Cursor, or any MCP-compatible assistant a persistent memory that tracks entities, relationships, and changes over time — no API key required to get started.
 
+> **Privacy- and security-conscious?** All pre-built binaries are built on public GitHub Actions and shipped with SHA-256 checksums. The `npx` wrapper verifies the binary hash before executing. See [Security & integrity](#security--integrity) for details and manual verification steps.
+
 ## Demo
 
 See temporal reasoning in action — no API key or Docker required:
@@ -361,6 +363,47 @@ For the full MCP tool/resource/prompt reference with parameters and examples, se
 | `tokio` | Async runtime |
 | `clap` | CLI argument parsing |
 | `axum` | HTTP server for streamable HTTP transport |
+
+## Security & integrity
+
+Context Keeper ships pre-built binaries through [GitHub Releases](https://github.com/mindbend0x/context-keeper/releases), the `npx context-keeper-mcp` wrapper, and a Homebrew tap. Every binary is covered by a SHA-256 checksum that is published alongside the release and enforced at install/exec time.
+
+**How binaries are built.** Release binaries are produced exclusively by the public [release workflow](.github/workflows/release.yml) running on GitHub-hosted runners. The workflow is triggered by a `v*` tag push, builds each target (`x86_64`/`aarch64` × `linux`/`darwin`) from the tagged source, and uploads the resulting artifacts to the GitHub Release. The build log is public and immutable.
+
+**How checksums are produced.** For every released binary the workflow writes:
+
+- a per-binary `.sha256` sidecar (e.g. `context-keeper-mcp-x86_64-apple-darwin.sha256`), and
+- a combined `SHA256SUMS` manifest at the release level that lists every artifact.
+
+The main `context-keeper-mcp` npm package additionally ships a `SHA256SUMS` manifest keyed by platform tag (`darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`). The Homebrew formula pins each binary's SHA-256 inline per Homebrew convention.
+
+**How verification happens automatically.**
+
+- **npx / npm** — The wrapper (`npm/context-keeper-mcp/bin/run.js`) re-hashes the resolved platform binary on every invocation and compares against the shipped `SHA256SUMS` entry. On mismatch — or if the manifest is missing, or has no entry for the platform — the wrapper **fails hard** with the expected and actual hashes logged, and does **not** execute the binary.
+- **Homebrew** — Homebrew itself enforces the `sha256` pinned in the formula; a tampered download is rejected before `brew install` finishes.
+
+**Manually verifying a download.**
+
+```bash
+# 1. Download the binary and its sidecar from the release page.
+curl -LO https://github.com/mindbend0x/context-keeper/releases/download/vX.Y.Z/context-keeper-mcp-aarch64-apple-darwin
+curl -LO https://github.com/mindbend0x/context-keeper/releases/download/vX.Y.Z/context-keeper-mcp-aarch64-apple-darwin.sha256
+
+# 2. Verify the sidecar (one-binary check).
+shasum -a 256 -c context-keeper-mcp-aarch64-apple-darwin.sha256   # macOS
+sha256sum   -c context-keeper-mcp-aarch64-apple-darwin.sha256     # Linux
+
+# 3. Or verify the entire release against the combined manifest.
+curl -LO https://github.com/mindbend0x/context-keeper/releases/download/vX.Y.Z/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+Both should print `OK` for each file. Any other output means the binary does not match the published release and must not be trusted.
+
+**Future work (out of scope for now).**
+
+- **Sigstore / cosign signatures.** Keyless signing with GitHub OIDC identities would let users verify not just the hash but also the provenance of each artifact. Tracked for a follow-up release.
+- **Reproducible builds.** Bit-for-bit reproducibility (deterministic Rust builds with pinned toolchain, `SOURCE_DATE_EPOCH`, stripped timestamps) would let third parties rebuild and confirm the published hash. A longer-term goal.
 
 ## License
 
