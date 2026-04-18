@@ -1,8 +1,8 @@
 ---
-
-## sidebar_position: 9
+sidebar_position: 9
 title: Contributing
 description: How to contribute to Context Keeper.
+---
 
 # Contributing
 
