@@ -319,10 +319,11 @@ context-keeper/
 context-keeper [OPTIONS] <COMMAND>
 
 Commands:
-  add      Add a memory from text input
-  search   Search memories (hybrid vector + keyword)
-  entity   Get entity details by name
-  recent   List recent memories
+  add        Add a memory from text input
+  search     Search memories (hybrid vector + keyword)
+  entity     Get entity details by name
+  recent     List recent memories
+  telemetry  Manage anonymous telemetry (status / enable / disable)
 
 Global Options:
   -e, --embedding-model-name   Embedding model name    [env: EMBEDDING_MODEL]
@@ -342,6 +343,58 @@ docker compose up --build
 ```
 
 The MCP server will be available on `http://localhost:3000` with RocksDB persistence via a Docker volume.
+
+## Telemetry
+
+Context Keeper ships with **opt-in, anonymous** usage telemetry for the `context-keeper` CLI. We do **not** ship a default endpoint — events go nowhere unless you point them at your own OTLP receiver.
+
+**What's collected** (only when you opt in):
+
+| Event | Attributes |
+|-------|------------|
+| `cli.install` | anonymous install id, CLI version, OS, arch |
+| `cli.invoke` | subcommand name, CLI version, OS, arch, install id |
+| `cli.error`  | error class (enum variant, e.g. `io`, `serde_json`, `unknown`), CLI version, OS, arch, install id |
+
+**Never collected:** command arguments, file paths, config values, error messages, entity/memory content, API keys, or anything user-supplied.
+
+**First-run consent.** On first invocation, if `~/.context-keeper/config.toml` does not yet exist, the CLI prompts:
+
+```
+Enable anonymous telemetry? [y/N]
+```
+
+The default is **No**. If stdin is not a TTY (piped, CI, container without a terminal), telemetry stays disabled and no prompt is shown. Your decision is stored along with a randomly generated `install_id` so it is only asked once.
+
+**Manage consent at any time:**
+
+```bash
+context-keeper telemetry status     # show current state + install id
+context-keeper telemetry enable     # opt in
+context-keeper telemetry disable    # opt out
+```
+
+**Hard kill switch.** Setting `CK_TELEMETRY_DISABLE=1` suppresses emission for the current process regardless of stored consent. Useful in CI.
+
+**Point at your own receiver.** We use the standard OpenTelemetry env vars, so any OTLP-compatible receiver works:
+
+```bash
+# Local example with https://github.com/CtrlSpice/otel-desktop-viewer
+otel-desktop-viewer &
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+context-keeper telemetry enable
+context-keeper search --query "hello"
+```
+
+Headers for hosted backends:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://api.honeycomb.io
+export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=<your-api-key>"
+```
+
+See [`.env.example`](.env.example) for the full list of supported variables.
 
 ## Running Tests
 
