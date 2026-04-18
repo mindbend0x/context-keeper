@@ -249,10 +249,24 @@ jobs:
         run: npm publish ./npm/context-keeper-mcp --access public
 
   bench-release:
-    name: Release Benchmark
-    runs-on: [self-hosted, fzc]
+    name: Release Benchmark (${{ matrix.runner.id }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - id: hosted
+            labels: ubuntu-latest
+          - id: self-hosted
+            labels: [self-hosted, fzc]
+    runs-on: ${{ matrix.runner.labels }}
     environment: benchmark
     continue-on-error: true
+    # Fast-fail if the target runner is offline or otherwise unavailable so
+    # the release workflow doesn't hang for hours waiting for a self-hosted
+    # runner that never comes online. The hosted variant completes well
+    # inside this budget; the self-hosted one either picks it up quickly or
+    # gets cancelled.
+    timeout-minutes: 60
     env:
       RUSTC_WRAPPER: sccache
     steps:
@@ -261,6 +275,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: mozilla-actions/sccache-action@v0.0.9
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: bench-${{ matrix.runner.id }}
 
       - name: Build bench binary
         run: cargo build -p context-keeper-bench --release
@@ -277,7 +293,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: bench-dashboard
+          name: bench-dashboard-${{ matrix.runner.id }}
           path: |
             bench-dashboard.html
             bench-results.json
@@ -287,23 +303,38 @@ jobs:
     name: Publish Benchmark Dashboard
     needs: [bench-release, release]
     runs-on: ubuntu-latest
-    if: always() && needs.bench-release.result == 'success'
+    # Publish whenever at least one bench-release matrix leg produced the
+    # hosted dashboard artifact. The hosted runner is the canonical source
+    # of truth; the self-hosted leg is advisory and may be skipped when its
+    # runner is offline.
+    if: always()
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v4
+      - name: Download hosted bench dashboard
+        id: download
+        uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
-          name: bench-dashboard
+          name: bench-dashboard-hosted
           path: dashboard
 
+      - name: Skip if no dashboard artifact
+        if: steps.download.outcome != 'success'
+        run: |
+          echo "No hosted bench dashboard artifact; skipping publish."
+          exit 0
+
       - name: Attach to GitHub Release
+        if: steps.download.outcome == 'success'
         uses: softprops/action-gh-release@v2
         with:
           files: dashboard/bench-dashboard.html
 
       - name: Publish to gh-pages
+        if: steps.download.outcome == 'success'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
