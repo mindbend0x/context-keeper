@@ -265,24 +265,29 @@ async fn main() -> Result<()> {
 
 fn handle_telemetry_subcommand(action: &TelemetryAction) -> Result<()> {
     match action {
-        TelemetryAction::Status => {
-            match telemetry::load_config()? {
-                Some(cfg) => {
-                    let active = telemetry::is_active(&cfg);
-                    println!("telemetry: {}", if cfg.telemetry.enabled { "enabled" } else { "disabled" });
-                    println!("install_id: {}", cfg.telemetry.install_id);
-                    if cfg.telemetry.enabled && !active {
-                        println!(
-                            "note: {}=1 is overriding consent for this process",
-                            telemetry::DISABLE_ENV_VAR
-                        );
+        TelemetryAction::Status => match telemetry::load_config()? {
+            Some(cfg) => {
+                let active = telemetry::is_active(&cfg);
+                println!(
+                    "telemetry: {}",
+                    if cfg.telemetry.enabled {
+                        "enabled"
+                    } else {
+                        "disabled"
                     }
-                }
-                None => {
-                    println!("telemetry: not configured (will prompt on first run)");
+                );
+                println!("install_id: {}", cfg.telemetry.install_id);
+                if cfg.telemetry.enabled && !active {
+                    println!(
+                        "note: {}=1 is overriding consent for this process",
+                        telemetry::DISABLE_ENV_VAR
+                    );
                 }
             }
-        }
+            None => {
+                println!("telemetry: not configured (will prompt on first run)");
+            }
+        },
         TelemetryAction::Enable => {
             let mut cfg = telemetry::load_config()?.unwrap_or_default();
             cfg.telemetry.enabled = true;

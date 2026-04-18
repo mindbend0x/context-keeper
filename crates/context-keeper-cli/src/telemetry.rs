@@ -81,10 +81,8 @@ pub fn load_config() -> Result<Option<Config>> {
     if !path.exists() {
         return Ok(None);
     }
-    let raw = std::fs::read_to_string(&path)
-        .with_context(|| format!("read {}", path.display()))?;
-    let cfg: Config = toml::from_str(&raw)
-        .with_context(|| format!("parse {}", path.display()))?;
+    let raw = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let cfg: Config = toml::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
     Ok(Some(cfg))
 }
 
@@ -92,8 +90,7 @@ pub fn load_config() -> Result<Option<Config>> {
 /// the parent directory if it doesn't exist.
 pub fn save_config(cfg: &Config) -> Result<()> {
     let dir = config_dir()?;
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("create {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     let path = dir.join("config.toml");
     let body = toml::to_string_pretty(cfg).context("serialize config")?;
     std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
@@ -287,8 +284,8 @@ pub fn init(cfg: &Config) -> TelemetryHandle {
 }
 
 fn build_provider(install_id: &str) -> Result<TracerProvider> {
-    let service_name = std::env::var("OTEL_SERVICE_NAME")
-        .unwrap_or_else(|_| DEFAULT_SERVICE_NAME.to_string());
+    let service_name =
+        std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| DEFAULT_SERVICE_NAME.to_string());
 
     // The tonic builder reads OTEL_EXPORTER_OTLP_ENDPOINT and
     // OTEL_EXPORTER_OTLP_HEADERS from the environment by default.
@@ -376,7 +373,11 @@ mod tests {
             ("", false),
         ] {
             std::env::set_var("CK_TELEMETRY_TEST_VAR", val);
-            assert_eq!(env_is_truthy("CK_TELEMETRY_TEST_VAR"), expected, "val={val}");
+            assert_eq!(
+                env_is_truthy("CK_TELEMETRY_TEST_VAR"),
+                expected,
+                "val={val}"
+            );
         }
         std::env::remove_var("CK_TELEMETRY_TEST_VAR");
     }
