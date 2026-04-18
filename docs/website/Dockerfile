@@ -1,10 +1,10 @@
 # ── Build stage ────────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM oven/bun:1-alpine AS builder
 
 WORKDIR /app
 
 COPY package.json bun.lock ./
-RUN npm install --frozen-lockfile || npm install
+RUN bun install --frozen-lockfile
 
 COPY . .
 
@@ -13,7 +13,7 @@ ARG SITE_BASE_URL=/
 ENV SITE_URL=${SITE_URL}
 ENV SITE_BASE_URL=${SITE_BASE_URL}
 
-RUN npm run build
+RUN bun run build
 
 # ── Serve stage ───────────────────────────────────────────────────────────
 FROM nginx:alpine
