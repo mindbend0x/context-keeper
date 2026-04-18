@@ -28,7 +28,7 @@ When all four LLM settings are configured (API URL, API key, embedding model, ex
 
 :::
 
-**Example:**
+**Example — environment variables:**
 
 ```bash
 export OPENAI_API_URL=https://api.openai.com/v1
@@ -37,6 +37,19 @@ export EMBEDDING_MODEL=text-embedding-3-small
 export EMBEDDING_DIMS=1536
 export EXTRACTION_MODEL=gpt-4o-mini
 ```
+
+**Example — CLI flags (same settings, inline):**
+
+```bash
+npx context-keeper-mcp \
+  --api-url https://api.openai.com/v1 \
+  --api-key sk-xxxxx \
+  --embedding-model-name text-embedding-3-small \
+  --embedding-dims 1536 \
+  --extraction-model-name gpt-4o-mini
+```
+
+The same flags work on a locally-built `context-keeper-mcp` binary and can be placed on the `args` array of an MCP client config (Claude Desktop, Cursor, Claude Code, etc.) — see the [MCP server setup tutorial](/docs/tutorials/mcp-server-setup) for side-by-side examples.
 
 ## Storage Settings
 

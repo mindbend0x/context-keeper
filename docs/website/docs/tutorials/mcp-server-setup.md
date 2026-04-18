@@ -144,9 +144,11 @@ Add Context Keeper to the `mcpServers` section:
 If the file doesn't exist, create it with the JSON above. Make sure the directory exists first.
 :::
 
-### With environment variables
+### With LLM configuration
 
-To use LLM-powered extraction, pass environment variables:
+To use LLM-powered extraction, pass the four required settings (API URL, API key, embedding model, extraction model) as either environment variables or CLI flags. Both forms work through `npx` — pick whichever fits your workflow. Every env var has a matching CLI flag, and flags override env vars when both are set.
+
+**Option A — environment variables** (recommended when credentials come from a secret manager):
 
 ```json
 {
@@ -165,6 +167,38 @@ To use LLM-powered extraction, pass environment variables:
   }
 }
 ```
+
+**Option B — CLI flags on the `args` array** (keeps the whole server config in one place):
+
+```json
+{
+  "mcpServers": {
+    "context-keeper": {
+      "command": "npx",
+      "args": [
+        "context-keeper-mcp",
+        "--api-url", "https://api.openai.com/v1",
+        "--api-key", "sk-xxxxx",
+        "--embedding-model-name", "text-embedding-3-small",
+        "--embedding-dims", "1536",
+        "--extraction-model-name", "gpt-4o-mini"
+      ]
+    }
+  }
+}
+```
+
+For a one-off ad-hoc run from a terminal:
+
+```bash
+npx context-keeper-mcp \
+  --api-url https://api.openai.com/v1 \
+  --api-key sk-xxxxx \
+  --embedding-model-name text-embedding-3-small \
+  --extraction-model-name gpt-4o-mini
+```
+
+See [Configuration](/docs/configuration) for the full env-var ↔ CLI-flag mapping.
 
 ### Verification
 

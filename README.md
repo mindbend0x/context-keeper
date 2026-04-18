@@ -200,7 +200,14 @@ export EXTRACTION_MODEL=gpt-4o-mini
 
 Any OpenAI-compatible endpoint works. When all four variables are set, both the CLI and MCP server switch from mock extraction to real LLM-powered entity/relation extraction with vector embeddings.
 
-For the MCP server, you can pass these as environment variables in your client config:
+Every env var listed here also has a matching CLI flag (`OPENAI_API_URL` ↔ `--api-url`, `OPENAI_API_KEY` ↔ `--api-key`, `EMBEDDING_MODEL` ↔ `--embedding-model-name`, `EXTRACTION_MODEL` ↔ `--extraction-model-name`). Flags override env vars when both are set. See [`docs/configuration`](docs/website/docs/configuration.md) for the full mapping.
+
+For the MCP server, you can pass LLM config in your client config as either environment variables or CLI flags — whichever you prefer:
+
+<details>
+<summary><b>Option A — environment variables (recommended for credentials)</b></summary>
+
+Keeps keys out of the process argument list and pairs well with a secret manager that injects env vars.
 
 ```json
 {
@@ -217,6 +224,42 @@ For the MCP server, you can pass these as environment variables in your client c
     }
   }
 }
+```
+
+</details>
+
+<details>
+<summary><b>Option B — CLI flags on the <code>args</code> array</b></summary>
+
+Useful when you want the entire server config in one place, or when your client only exposes an `args` array.
+
+```json
+{
+  "mcpServers": {
+    "context-keeper": {
+      "command": "npx",
+      "args": [
+        "context-keeper-mcp",
+        "--api-url", "https://api.openai.com/v1",
+        "--api-key", "sk-...",
+        "--embedding-model-name", "text-embedding-3-small",
+        "--extraction-model-name", "gpt-4o-mini"
+      ]
+    }
+  }
+}
+```
+
+</details>
+
+You can also pass flags ad-hoc on the command line for a one-off run:
+
+```bash
+npx context-keeper-mcp \
+  --api-url https://api.openai.com/v1 \
+  --api-key sk-... \
+  --embedding-model-name text-embedding-3-small \
+  --extraction-model-name gpt-4o-mini
 ```
 
 ## Storage Backends
