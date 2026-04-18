@@ -3,10 +3,14 @@ import Tabs from "@theme/Tabs";
 import TabItem from "@theme/TabItem";
 import DemoVideo from "./DemoVideo";
 
+interface DemoApp {
+  name: string;
+}
+
 interface DemoEntry {
   value: string;
   label: string;
-  icon: string;
+  apps: DemoApp[];
   src?: string;
   poster?: string;
   description: string;
@@ -18,100 +22,52 @@ interface DemoEntry {
 
 const demos: DemoEntry[] = [
   {
-    value: "claude-code",
-    label: "Claude Code",
-    icon: ">_",
+    value: "coding-agents",
+    label: "Coding Agents",
+    apps: [{ name: "Claude Code" }, { name: "Cursor" }],
     description:
-      "Context Keeper gives your cowork agent persistent memory across sessions. Store project context, architectural decisions, and team knowledge that persists between tasks.",
+      "Give your coding agent persistent memory across sessions. Store project context, architectural decisions, and conventions that survive between chats.",
     caption:
-      "Agent stores context during a coding session, then recalls it in a later cowork run.",
-    alt: "Demo of Context Keeper running inside Claude Code",
-    ctaLabel: "Set up Claude Code",
+      "Agent stores context during a coding session, then recalls it in a later run.",
+    alt: "Demo of Context Keeper inside a coding agent",
+    ctaLabel: "Set up in your IDE",
     ctaHref: "/docs/tutorials/mcp-server-setup#claude-code",
   },
   {
-    value: "cursor",
-    label: "Cursor",
-    icon: "⌨️",
+    value: "mcp-apps",
+    label: "MCP-Enabled Apps",
+    apps: [
+      { name: "Claude Desktop" },
+      { name: "ChatGPT" },
+      { name: "Perplexity" },
+      { name: "Any MCP client" },
+    ],
     description:
-      "Give Cursor's agent memory of your codebase context, past decisions, and project conventions. Memories persist across chat sessions and composer runs.",
-    caption:
-      "Watch an agent store a memory during a coding session, then recall it three conversations later.",
-    alt: "Demo of Context Keeper running inside Cursor IDE",
-    ctaLabel: "Set up Cursor",
-    ctaHref: "/docs/tutorials/mcp-server-setup#cursor",
-  },
-  {
-    value: "claude-desktop",
-    label: "Claude Desktop",
-    icon: "💬",
-    description:
-      "Claude remembers your preferences, past conversations, and context across sessions — no prompt engineering required. Just talk naturally.",
-    caption:
-      "Claude remembers your preferences across conversations — no prompt engineering required.",
-    alt: "Demo of Context Keeper running inside Claude Desktop",
-    ctaLabel: "Set up Claude Desktop",
-    ctaHref: "/docs/tutorials/mcp-server-setup#claude-desktop",
-  },
-  {
-    value: "chatgpt",
-    label: "ChatGPT",
-    icon: "🤖",
-    description:
-      "Add persistent memory to ChatGPT via HTTP transport. Store and recall context across conversations, giving ChatGPT long-term memory capabilities.",
-    caption:
-      "ChatGPT gains persistent memory via Context Keeper's HTTP transport.",
-    alt: "Demo of Context Keeper running with ChatGPT",
-    ctaLabel: "Set up ChatGPT",
-    ctaHref: "/docs/tutorials/mcp-server-setup#chatgpt",
-  },
-  {
-    value: "perplexity",
-    label: "Perplexity",
-    icon: "🔍",
-    description:
-      "Enhance Perplexity with persistent research context. Build up knowledge over multiple research sessions, so each query builds on what you've already explored.",
-    caption:
-      "Perplexity retains research context across sessions for deeper investigations.",
-    alt: "Demo of Context Keeper running with Perplexity",
-    ctaLabel: "Set up Perplexity",
-    ctaHref: "/docs/tutorials/mcp-server-setup#perplexity",
+      "Works in any MCP-enabled chat app over stdio or HTTP. Persistent memory, shared across conversations.",
+    caption: "One knowledge graph, every MCP client.",
+    alt: "Demo of Context Keeper inside an MCP-enabled chat app",
+    ctaLabel: "Connect an MCP client",
+    ctaHref: "/docs/tutorials/mcp-server-setup",
   },
   {
     value: "cli",
     label: "CLI",
-    icon: "▸",
+    apps: [{ name: "npx" }, { name: "Homebrew" }],
     description:
-      "Three commands: add, search, inspect. Build and query your knowledge graph directly from the terminal. Perfect for scripting and automation.",
+      "Install via npx or Homebrew. Three commands — add, search, inspect — to build and query your knowledge graph from the terminal.",
     caption: "Three commands: add, search, inspect. Zero boilerplate.",
     alt: "Demo of Context Keeper CLI in a terminal",
     ctaLabel: "CLI reference",
     ctaHref: "/docs/tutorials/cli-installation",
-  },
-  {
-    value: "http",
-    label: "MCP (HTTP)",
-    icon: "⇄",
-    description:
-      "Run Context Keeper as an HTTP server and let multiple agents read and write to the same knowledge graph. Ideal for multi-agent architectures and Docker deployments.",
-    caption:
-      "Multiple agents sharing one knowledge graph over HTTP.",
-    alt: "Demo of Context Keeper HTTP API with multiple agents",
-    ctaLabel: "HTTP transport docs",
-    ctaHref: "/docs/tutorials/http-transport",
   },
 ];
 
 export default function DemoTabs() {
   return (
     <div className="demo-tabs-wrapper">
-      <Tabs defaultValue="claude-code" className="demo-tabs" lazy={false}>
+      <Tabs defaultValue="coding-agents" className="demo-tabs" lazy={false}>
         {demos.map((d) => (
-          <TabItem
-            key={d.value}
-            value={d.value}
-            label={d.label}
-          >
+          <TabItem key={d.value} value={d.value} label={d.label}>
             <DemoVideo
               src={d.src}
               poster={d.poster}
@@ -120,6 +76,7 @@ export default function DemoTabs() {
               alt={d.alt}
               ctaLabel={d.ctaLabel}
               ctaHref={d.ctaHref}
+              apps={d.apps}
             />
           </TabItem>
         ))}

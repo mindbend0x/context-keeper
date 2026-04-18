@@ -972,6 +972,27 @@ table th {
   padding: 0 1rem;
 }
 
+.demo-apps-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.demo-apps-list__item {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 999px;
+  color: var(--ck-text-secondary);
+  background: transparent;
+}
+
 .demo-meta {
   display: flex;
   align-items: baseline;
