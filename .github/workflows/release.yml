@@ -174,8 +174,13 @@ jobs:
     # NODE_AUTH_TOKEN must be set for the whole job so setup-node can write .npmrc
     # when registry-url is used. Putting the token only on `npm publish` steps leaves
     # the registry unauthenticated and causes ENEEDAUTH.
+    #
+    # NPM_TOKEN is also exported because each package directory ships its own
+    # .npmrc that references ${NPM_TOKEN} for auth; without this, the variable
+    # interpolates to an empty string and publishes fail with ENEEDAUTH.
     env:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
