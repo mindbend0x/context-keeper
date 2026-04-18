@@ -63,6 +63,21 @@ jobs:
           cp target/${{ matrix.target }}/release/context-keeper-mcp dist/context-keeper-mcp-${{ matrix.target }}
           cp target/${{ matrix.target }}/release/context-keeper dist/context-keeper-cli-${{ matrix.target }}
 
+      - name: Generate per-binary SHA-256 sidecars
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          if command -v sha256sum >/dev/null 2>&1; then
+            SHA_CMD="sha256sum"
+          else
+            # macOS fallback — mimic the `sha256sum` output format
+            SHA_CMD="shasum -a 256"
+          fi
+          for f in context-keeper-mcp-${{ matrix.target }} context-keeper-cli-${{ matrix.target }}; do
+            $SHA_CMD "$f" > "$f.sha256"
+            echo "Wrote $f.sha256: $(cat "$f.sha256")"
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: binaries-${{ matrix.target }}
@@ -78,9 +93,26 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Generate checksums
+      - name: Generate combined checksum manifest
         working-directory: artifacts
-        run: sha256sum * > checksums-sha256.txt
+        run: |
+          set -euo pipefail
+          # Hash every released binary artifact (exclude pre-existing .sha256 sidecars
+          # and the manifest file itself so the release is self-describing and
+          # reproducibly verifiable with `sha256sum -c SHA256SUMS`).
+          shopt -s nullglob
+          files=()
+          for f in *; do
+            case "$f" in
+              *.sha256|SHA256SUMS|checksums-sha256.txt) continue ;;
+            esac
+            files+=("$f")
+          done
+          sha256sum "${files[@]}" | sort -k2 > SHA256SUMS
+          # Keep the legacy filename as a symlink-style copy for backward compatibility.
+          cp SHA256SUMS checksums-sha256.txt
+          echo "---- SHA256SUMS ----"
+          cat SHA256SUMS
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -169,6 +201,27 @@ jobs:
           cp artifacts/context-keeper-mcp-x86_64-unknown-linux-gnu  npm/linux-x64/context-keeper-mcp
 
           chmod +x npm/*/context-keeper-mcp
+
+          # Generate a SHA256SUMS manifest keyed by platform-tag that the
+          # wrapper script verifies at runtime. Format: "<hex>  <platform-tag>".
+          #
+          # Using platform-tag (not a file path) means the manifest is stable
+          # across packaging layouts and the wrapper can look up the expected
+          # hash without parsing file paths.
+          MANIFEST="npm/context-keeper-mcp/SHA256SUMS"
+          : > "$MANIFEST"
+          for pair in \
+            "darwin-arm64:npm/darwin-arm64/context-keeper-mcp" \
+            "darwin-x64:npm/darwin-x64/context-keeper-mcp" \
+            "linux-arm64:npm/linux-arm64/context-keeper-mcp" \
+            "linux-x64:npm/linux-x64/context-keeper-mcp"; do
+            tag="${pair%%:*}"
+            bin="${pair#*:}"
+            hash="$(sha256sum "$bin" | awk '{print $1}')"
+            echo "${hash}  ${tag}" >> "$MANIFEST"
+          done
+          echo "---- npm SHA256SUMS manifest ----"
+          cat "$MANIFEST"
 
           for pkg_json in npm/*/package.json; do
             sed -i "s/@@VERSION@@/${VERSION}/g" "$pkg_json"

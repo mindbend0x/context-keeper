@@ -19,8 +19,12 @@
   "bin": {
     "context-keeper-mcp": "bin/run.js"
   },
+  "scripts": {
+    "test": "node test/verify.test.js"
+  },
   "files": [
-    "bin/run.js"
+    "bin/run.js",
+    "SHA256SUMS"
   ],
   "optionalDependencies": {
     "@context-keeper/mcp-darwin-arm64": "@@VERSION@@",
